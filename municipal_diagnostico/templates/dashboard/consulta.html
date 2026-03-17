@@ -1,0 +1,56 @@
+{% extends "base.html" %}
+{% block title %}Consulta Institucional | Diagnóstico Integral Municipal{% endblock %}
+{% block content %}
+<section class="executive-hero">
+    <div class="hero-copy">
+        <p class="eyebrow">Consulta institucional</p>
+        <h1>Resultados visibles por campaña y por asignación.</h1>
+        <p class="lede">
+            Este perfil accede a la reportería simplificada. Solo se muestran asignaciones respondidas o cerradas dentro de campañas activas o cerradas.
+        </p>
+    </div>
+    <article class="hero-card compact">
+        <div class="actions vertical">
+            <a class="button button-primary" href="{{ url_for('campaigns.reports', campana_id=selected_campaign.id) if selected_campaign else url_for('campaigns.reports') }}">Abrir reportes</a>
+        </div>
+    </article>
+</section>
+
+<article class="panel">
+    <div class="section-heading">
+        <div>
+            <p class="eyebrow">Campaña</p>
+            <h2>{{ selected_campaign.nombre if selected_campaign else "Sin campaña disponible" }}</h2>
+        </div>
+        {% if selected_campaign %}
+        <a class="button button-primary" href="{{ url_for('campaigns.reports', campana_id=selected_campaign.id) }}">Explorar reportes</a>
+        {% endif %}
+    </div>
+    <div class="table-wrap">
+        <table class="executive-table">
+            <thead>
+                <tr>
+                    <th>Ranking</th>
+                    <th>Asignado</th>
+                    <th>Dependencia</th>
+                    <th>Índice</th>
+                    <th>Avance</th>
+                </tr>
+            </thead>
+            <tbody>
+                {% for row in summary.rows %}
+                <tr>
+                    <td>{{ row.rank }}</td>
+                    <td>{{ row.target_name }}</td>
+                    <td>{{ row.dependencia }}</td>
+                    <td>{{ row.indice }}</td>
+                    <td>{{ row.avance }}%</td>
+                </tr>
+                {% else %}
+                <tr><td colspan="5" class="muted">No hay resultados públicados.</td></tr>
+                {% endfor %}
+            </tbody>
+        </table>
+    </div>
+</article>
+{% endblock %}

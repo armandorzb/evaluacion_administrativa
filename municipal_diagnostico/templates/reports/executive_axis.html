@@ -1,0 +1,196 @@
+{% extends "base.html" %}
+{% block title %}Vista Ejecutiva por Eje | Diagnóstico Integral Municipal{% endblock %}
+{% block content %}
+<section class="executive-hero report-hero">
+    <div class="hero-copy">
+        <p class="eyebrow">Vista ejecutiva por eje</p>
+        <h1>{{ axis_summary.axis.clave }} · {{ axis_summary.axis.nombre }}</h1>
+        <p class="lede">
+            Comparativo institucional del eje para el periodo seleccionado, con ranking de dependencias,
+            distribución de madurez, brechas promedio y focos críticos de atención.
+        </p>
+        <div class="tag-row">
+            <span class="tag">Periodo: {{ selected_period.nombre }}</span>
+            <span class="tag">Ponderación: {{ axis_summary.axis.ponderacion|percent }}</span>
+            <span class="tag">Promedio institucional: {{ axis_summary.average }}</span>
+            <span class="tag">Nivel dominante: {{ axis_summary.dominant_level.label }}</span>
+        </div>
+    </div>
+
+    <article class="hero-card report-summary">
+        <div class="card-kicker">Análisis del eje</div>
+        <form method="get" class="stack">
+            <label>Periodo
+                <select name="periodo_id" onchange="this.form.submit()">
+                    {% for periodo in periodos %}
+                    <option value="{{ periodo.id }}" {% if periodo.id == selected_period.id %}selected{% endif %}>{{ periodo.nombre }}</option>
+                    {% endfor %}
+                </select>
+            </label>
+        </form>
+        <div class="metric-grid">
+            <div class="metric-card">
+                <span>Dependencias visibles</span>
+                <strong>{{ axis_summary.dependency_count }}</strong>
+            </div>
+            <div class="metric-card">
+                <span>Brecha promedio</span>
+                <strong>{{ axis_summary.gap_average }}</strong>
+            </div>
+            <div class="metric-card">
+                <span>Resultados oficiales</span>
+                <strong>{{ axis_summary.official_count }}</strong>
+            </div>
+            <div class="metric-card">
+                <span>Lecturas preliminares</span>
+                <strong>{{ axis_summary.preliminary_count }}</strong>
+            </div>
+        </div>
+        <div class="actions">
+            <a class="button button-primary" href="{{ url_for('reports.executive_home', periodo_id=selected_period.id) }}">Volver al centro</a>
+            {% if current_user.rol == 'administrador' %}
+            <a class="button" href="{{ url_for('reports.index', periodo_id=selected_period.id) }}">Abrir hub operativo</a>
+            {% endif %}
+        </div>
+    </article>
+</section>
+
+<section class="section-grid two">
+    <article class="panel">
+        <div class="section-heading">
+            <div>
+                <p class="eyebrow">Distribución</p>
+                <h2>Niveles de madurez del eje</h2>
+            </div>
+        </div>
+        <div class="legend-table">
+            {% for row in axis_summary.distribution %}
+            <div class="legend-row legend-{{ row.slug }}">
+                <span>{{ row.label }}</span>
+                <strong>{{ row.count }} dependencia(s) · {{ row.percent }}%</strong>
+            </div>
+            {% endfor %}
+        </div>
+    </article>
+
+    <article class="panel">
+        <div class="section-heading">
+            <div>
+                <p class="eyebrow">Líneas institucionales</p>
+                <h2>Recomendaciónes para el eje</h2>
+            </div>
+        </div>
+        <div class="insight-card">
+            <div class="insight-head">
+                <strong>{{ axis_summary.axis.nombre }}</strong>
+                <span class="status status-{{ axis_summary.level_slug }}">{{ axis_summary.level_label }}</span>
+            </div>
+            <p class="muted">Promedio institucional {{ axis_summary.average }} · Brecha promedio {{ axis_summary.gap_average }}</p>
+            <ul class="plain-list">
+                {% for recommendation in axis_summary.recommendations %}
+                <li>{{ recommendation }}</li>
+                {% endfor %}
+            </ul>
+        </div>
+    </article>
+</section>
+
+<section class="panel">
+    <div class="section-heading">
+        <div>
+            <p class="eyebrow">Ranking institucional</p>
+            <h2>Dependencias comparadas en el eje</h2>
+        </div>
+    </div>
+    <div class="table-wrap">
+        <table class="executive-table">
+            <thead>
+                <tr>
+                    <th>#</th>
+                    <th>Dependencia</th>
+                    <th>Promedio del eje</th>
+                    <th>Brecha</th>
+                    <th>Nivel</th>
+                    <th>Estado</th>
+                </tr>
+            </thead>
+            <tbody>
+                {% for row in axis_summary.ranking %}
+                <tr>
+                    <td>{{ row.rank }}</td>
+                    <td>
+                        <strong>{{ row.dependencia }}</strong>
+                        <div class="muted">Índice global {{ row.index_score }} · Avance {{ row.completion }}%</div>
+                    </td>
+                    <td>{{ row.promedio }}</td>
+                    <td>{{ row.brecha }}</td>
+                    <td><span class="status status-{{ row.maturity_slug }}">{{ row.maturity_label }}</span></td>
+                    <td><span class="status status-{{ row.state }}">{{ row.state_label }}</span></td>
+                </tr>
+                {% else %}
+                <tr><td colspan="6" class="muted">No hay dependencias visibles para este eje en el periodo seleccionado.</td></tr>
+                {% endfor %}
+            </tbody>
+        </table>
+    </div>
+</section>
+
+<section class="section-grid two">
+    <article class="panel">
+        <div class="section-heading">
+            <div>
+                <p class="eyebrow">Mapa de brechas</p>
+                <h2>Heatmap por dependencia</h2>
+            </div>
+        </div>
+        <div class="table-wrap">
+            <table class="executive-table">
+                <thead>
+                    <tr>
+                        <th>Dependencia</th>
+                        <th>Bajo</th>
+                        <th>Medio</th>
+                        <th>Alto</th>
+                        <th>Óptimo</th>
+                    </tr>
+                </thead>
+                <tbody>
+                    {% for row in axis_summary.ranking %}
+                    <tr>
+                        <td>{{ row.dependencia }}</td>
+                        <td class="{% if row.maturity_slug == 'low' %}heatmap-cell heatmap-low{% endif %}">{% if row.maturity_slug == 'low' %}✓{% endif %}</td>
+                        <td class="{% if row.maturity_slug == 'medium' %}heatmap-cell heatmap-medium{% endif %}">{% if row.maturity_slug == 'medium' %}✓{% endif %}</td>
+                        <td class="{% if row.maturity_slug == 'high' %}heatmap-cell heatmap-high{% endif %}">{% if row.maturity_slug == 'high' %}✓{% endif %}</td>
+                        <td class="{% if row.maturity_slug == 'optimal' %}heatmap-cell heatmap-optimal{% endif %}">{% if row.maturity_slug == 'optimal' %}✓{% endif %}</td>
+                    </tr>
+                    {% endfor %}
+                </tbody>
+            </table>
+        </div>
+    </article>
+
+    <article class="panel">
+        <div class="section-heading">
+            <div>
+                <p class="eyebrow">Focos críticos</p>
+                <h2>Dependencias con mayor atención requerida</h2>
+            </div>
+        </div>
+        {% for row in axis_summary.critical_dependencies %}
+        <div class="insight-card">
+            <div class="insight-head">
+                <strong>{{ row.dependencia }}</strong>
+                <span class="status status-{{ row.priority_slug }}">{{ row.priority_label }}</span>
+            </div>
+            <p class="muted">Promedio {{ row.promedio }} · Brecha {{ row.brecha }} · Estado {{ row.state_label }}</p>
+            <div class="actions">
+                <a class="button" href="{{ url_for('reports.executive_dependency', dependency_id=row.dependency_id, periodo_id=selected_period.id) }}">Abrir dependencia</a>
+                <a class="button button-primary" href="{{ url_for('reports.evaluation_report', evaluation_id=row.evaluation_id) }}">Ver reporte</a>
+            </div>
+        </div>
+        {% else %}
+        <p class="muted">No hay dependencias visibles para destacar en este eje.</p>
+        {% endfor %}
+    </article>
+</section>
+{% endblock %}

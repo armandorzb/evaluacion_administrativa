@@ -1,0 +1,176 @@
+{% extends "base.html" %}
+{% block title %}Centro Ejecutivo | Diagnóstico Integral Municipal{% endblock %}
+{% block content %}
+<section class="executive-hero report-hero">
+    <div class="hero-copy">
+        <p class="eyebrow">Centro ejecutivo</p>
+        <h1>Lectura institucional por dependencia y por eje.</h1>
+        <p class="lede">
+            Consulta la madurez administrativa con una vista pensada para decisión pública:
+            ranking de dependencias, desempeño por eje, focos críticos y navegación ejecutiva
+            para el periodo seleccionado.
+        </p>
+        <div class="tag-row">
+            {% if selected_period %}
+            <span class="tag">Periodo: {{ selected_period.nombre }}</span>
+            <span class="tag">Dependencias visibles: {{ executive_summary.total_dependencies }}</span>
+            <span class="tag">Ejes evaluables: {{ executive_summary.total_axes }}</span>
+            {% else %}
+            <span class="tag">Sin periodos disponibles</span>
+            {% endif %}
+        </div>
+    </div>
+
+    <article class="hero-card compact">
+        <div class="card-kicker">Exploración</div>
+        <form method="get" class="stack">
+            <label>Periodo
+                <select name="periodo_id">
+                    {% for periodo in periodos %}
+                    <option value="{{ periodo.id }}" {% if selected_period and periodo.id == selected_period.id %}selected{% endif %}>{{ periodo.nombre }}</option>
+                    {% endfor %}
+                </select>
+            </label>
+            <div class="actions">
+                <button class="button button-primary" type="submit">Actualizar vista</button>
+                {% if current_user.rol == 'administrador' %}
+                <a class="button" href="{{ url_for('reports.index') }}">Abrir hub operativo</a>
+                {% endif %}
+            </div>
+        </form>
+        {% if current_user.rol == 'administrador' and executive_summary.preliminary_count %}
+        <div class="callout callout-warning">
+            <strong>Seguimiento preliminar visible</strong>
+            <p>{{ executive_summary.preliminary_count }} dependencia(s) aún están en implementación y se muestran con su estado actual.</p>
+        </div>
+        {% endif %}
+    </article>
+</section>
+
+{% if selected_period %}
+<section class="metric-grid">
+    <article class="metric-card">
+        <span>Dependencias</span>
+        <strong>{{ executive_summary.total_dependencies }}</strong>
+    </article>
+    <article class="metric-card">
+        <span>Ejes con lectura ejecutiva</span>
+        <strong>{{ executive_summary.total_axes }}</strong>
+    </article>
+    <article class="metric-card">
+        <span>Resultados oficiales</span>
+        <strong>{{ executive_summary.official_count }}</strong>
+    </article>
+    <article class="metric-card">
+        <span>Resultados preliminares</span>
+        <strong>{{ executive_summary.preliminary_count }}</strong>
+    </article>
+</section>
+
+<section class="section-heading">
+    <div>
+        <p class="eyebrow">Dependencias</p>
+        <h2>Fichas ejecutivas institucionales</h2>
+    </div>
+</section>
+
+<section class="card-grid">
+    {% for card in executive_summary.dependency_cards %}
+    <article class="report-card">
+        <div class="report-card-head">
+            <div>
+                <h3>{{ card.dependencia }}</h3>
+                <p>Posición {{ card.rank }} en el periodo {{ selected_period.nombre }}</p>
+            </div>
+            <span class="status status-{{ card.estado }}">{{ card.estado_label }}</span>
+        </div>
+        <div class="metric-inline">
+            <span>Índice global</span>
+            <strong>{{ card.summary.index_score }}</strong>
+        </div>
+        <div class="metric-inline">
+            <span>Avance</span>
+            <strong>{{ card.summary.completion }}%</strong>
+        </div>
+        <div class="metric-inline">
+            <span>Eje con mayor brecha</span>
+            <strong>{{ card.weakest_axis.nombre }}</strong>
+        </div>
+        <div class="metric-inline">
+            <span>Eje más sólido</span>
+            <strong>{{ card.strongest_axis.nombre }}</strong>
+        </div>
+        {% if card.is_preliminary %}
+        <div class="callout callout-warning compact">
+            <strong>Lectura preliminar</strong>
+            <p>La dependencia aún no cuenta con cierre oficial para este periodo.</p>
+        </div>
+        {% endif %}
+        <div class="actions">
+            <a class="button button-primary" href="{{ url_for('reports.executive_dependency', dependency_id=card.dependency_id, periodo_id=selected_period.id) }}">Abrir ficha</a>
+            <a class="button" href="{{ url_for('reports.evaluation_report', evaluation_id=card.evaluacion.id) }}">Reporte detallado</a>
+        </div>
+    </article>
+    {% else %}
+    <article class="panel">
+        <p class="muted">No hay dependencias visibles para el periodo seleccionado.</p>
+    </article>
+    {% endfor %}
+</section>
+
+<section class="section-heading">
+    <div>
+        <p class="eyebrow">Ejes</p>
+        <h2>Comparativo institucional por eje</h2>
+    </div>
+</section>
+
+<section class="card-grid">
+    {% for axis in executive_summary.axis_cards %}
+    <article class="report-card">
+        <div class="report-card-head">
+            <div>
+                <h3>{{ axis.clave }} · {{ axis.nombre }}</h3>
+                <p>Ponderación {{ axis.ponderacion|percent }}</p>
+            </div>
+            <span class="status status-{{ axis.level_slug }}">{{ axis.level_label }}</span>
+        </div>
+        <div class="metric-inline">
+            <span>Promedio institucional</span>
+            <strong>{{ axis.promedio }}</strong>
+        </div>
+        <div class="metric-inline">
+            <span>Brecha promedio</span>
+            <strong>{{ axis.brecha_promedio }}</strong>
+        </div>
+        <div class="metric-inline">
+            <span>Dependencias críticas</span>
+            <strong>{{ axis.critical_dependency_count }}</strong>
+        </div>
+        <div class="metric-inline">
+            <span>Nivel dominante</span>
+            <strong>{{ axis.dominant_level.label }}</strong>
+        </div>
+        <div class="actions">
+            <a class="button button-primary" href="{{ url_for('reports.executive_axis', axis_id=axis.axis_id, periodo_id=selected_period.id) }}">Ver eje</a>
+            <span class="pill">Top: {{ axis.top_dependency.dependencia }}</span>
+        </div>
+    </article>
+    {% else %}
+    <article class="panel">
+        <p class="muted">No existen ejes con resultados visibles para este periodo.</p>
+    </article>
+    {% endfor %}
+</section>
+{% else %}
+<article class="panel">
+    <div class="section-heading">
+        <div>
+            <p class="eyebrow">Centro ejecutivo</p>
+            <h2>Sin periodos configurados</h2>
+        </div>
+    </div>
+    <p class="muted">Crea o pública un periodo de evaluación para habilitar la lectura ejecutiva por dependencia y por eje.</p>
+</article>
+{% endif %}
+{% endblock %}

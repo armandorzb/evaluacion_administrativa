@@ -1,0 +1,34 @@
+{% extends "base.html" %}
+{% block title %}Administrador Inicial | Diagnóstico Integral Municipal{% endblock %}
+{% block content %}
+<section class="executive-hero login-hero">
+    <div class="hero-copy">
+        <p class="eyebrow">Configuración inicial</p>
+        <h1>Alta del administrador inicial</h1>
+        <p class="lede">
+            Este formulario solo está disponible mientras no exista ningún usuario con rol de administrador.
+        </p>
+    </div>
+
+    <article class="hero-card">
+        <div class="card-kicker">Primer acceso</div>
+        <h2>Crear administrador</h2>
+        <form method="post" class="stack">
+            <label>Nombre completo
+                <input type="text" name="nombre" required>
+            </label>
+            <label>Correo electrónico
+                <input type="email" name="correo" required>
+            </label>
+            <label>Contraseña
+                <input type="password" name="password" required>
+            </label>
+            <label>Confirmar contraseña
+                <input type="password" name="confirmacion" required>
+            </label>
+            <button type="submit" class="button button-primary">Crear administrador</button>
+            <a class="secondary-link" href="{{ url_for('auth.login') }}">Volver al acceso</a>
+        </form>
+    </article>
+</section>
+{% endblock %}

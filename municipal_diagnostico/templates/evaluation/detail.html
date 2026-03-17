@@ -1,0 +1,429 @@
+{% extends "base.html" %}
+{% block title %}Captura de evaluación | Diagnóstico Integral Municipal{% endblock %}
+{% block content %}
+<section class="executive-hero report-hero">
+    <div class="hero-copy page-fade-target">
+        <p class="eyebrow">{% if preview_mode %}Simulación de captura{% else %}Captura operativa{% endif %}</p>
+        <h1>{{ evaluacion.dependencia.nombre }} · {{ evaluacion.periodo.nombre }}</h1>
+        <p class="lede">
+            {% if preview_mode %}
+            Vista administrativa del flujo real de llenado por módulos. Reproduce la experiencia del capturista sin habilitar cambios ni envíos.
+            {% else %}
+            Responde el instrumento por ejes, asigna responsables por punto y habilita comentarios o evidencia únicamente cuando exista una responsabilidad definida.
+            {% endif %}
+        </p>
+        <div class="tag-row">
+            <span class="tag">Estado: {{ summary.state_label }}</span>
+            <span class="tag">Índice provisional: {{ summary.index_score }}</span>
+            <span class="tag">Nivel: {{ summary.level_label }}</span>
+            <span class="tag">Avance: <span data-overall-completion>{{ summary.completion }}</span></span>
+        </div>
+        <div class="progress capture-progress-shell progress-hero">
+            <span data-progress-bar data-progress-role="overall" data-progress-value="{{ summary.completion }}"></span>
+        </div>
+    </div>
+
+    <article class="hero-card compact page-fade-target">
+        <div class="card-kicker">Seguimiento de captura</div>
+        <div class="metric-grid">
+            <div class="metric-card">
+                <span>Reactivos respondidos</span>
+                <strong>{{ summary.answered_questions }}/{{ summary.total_questions }}</strong>
+            </div>
+            <div class="metric-card">
+                <span>Ejes críticos</span>
+                <strong>{{ summary.critical_axes|length }}</strong>
+            </div>
+            <div class="metric-card">
+                <span>Evidencias activas</span>
+                <strong>{{ evaluacion.evidencias|selectattr('activo')|list|length }}</strong>
+            </div>
+            <div class="metric-card">
+                <span>Zona horaria</span>
+                <strong>{{ hermosillo_timezone }}</strong>
+            </div>
+        </div>
+
+        {% if admin_preview %}
+        <div class="callout callout-warning preview-banner">
+            <strong>Simulación administrativa en modo solo lectura</strong>
+            <p>Esta vista permite revisar la experiencia de captura sin editar información.</p>
+        </div>
+        {% elif summary.is_preliminary %}
+        <div class="callout callout-warning preview-banner">
+            <strong>Evaluación en implementación</strong>
+            <p>El resultado sigue siendo preliminar hasta que pase por revisión y cierre formal.</p>
+        </div>
+        {% endif %}
+
+        <div class="actions">
+            {% if evaluacion.estado in ['en_revision', 'aprobada', 'cerrada'] %}
+            <a class="button" href="{{ url_for('reports.evaluation_report', evaluation_id=evaluacion.id) }}">Ver reporte</a>
+            {% endif %}
+            {% if current_user.rol == 'administrador' and not preview_mode %}
+            <a class="button" href="{{ url_for('admin.evaluation_preview', evaluation_id=evaluacion.id) }}">Preview ejecutivo</a>
+            {% endif %}
+            {% if can_edit %}
+            <form method="post" action="{{ url_for('evaluation.submit', evaluation_id=evaluacion.id) }}">
+                <button class="button button-primary" type="submit">Enviar a revisión</button>
+            </form>
+            {% endif %}
+        </div>
+    </article>
+</section>
+
+{% if evaluacion.observaciones %}
+<article class="panel page-fade-target">
+    <div class="section-heading">
+        <div>
+            <p class="eyebrow">Observaciones</p>
+            <h2>Retroalimentación de revisión</h2>
+        </div>
+    </div>
+    {% for observation in evaluacion.observaciones if not observation.atendida %}
+    <div class="callout callout-warning">
+        <strong>{{ observation.autor.nombre }}</strong>
+        <p>{{ observation.comentario }}</p>
+    </div>
+    {% else %}
+    <p class="muted">No hay observaciones pendientes.</p>
+    {% endfor %}
+</article>
+{% endif %}
+
+<section class="capture-layout">
+    <aside class="capture-sidebar">
+        <article class="panel page-fade-target capture-sidebar-panel">
+            <div class="section-heading">
+                <div>
+                    <p class="eyebrow">Ruta modular</p>
+                    <h2>Avance por eje</h2>
+                </div>
+            </div>
+            <div class="capture-nav capture-nav-stack">
+                {% for module in module_cards %}
+                <a
+                    class="capture-nav-link capture-nav-card"
+                    href="#eje-{{ module.eje.id }}"
+                    data-axis-link="{{ module.eje.id }}"
+                    style="--stagger: {{ loop.index0 }};"
+                >
+                    <div class="capture-nav-top">
+                        <div>
+                            <p class="nav-axis-key">{{ module.eje.clave }}</p>
+                            <strong>{{ module.eje.nombre }}</strong>
+                        </div>
+                        <span class="pill">{{ module.eje.ponderacion|percent }}</span>
+                    </div>
+                    <p class="capture-nav-description">{{ module.summary.recomendaciones[0] }}</p>
+                    <div class="progress progress-module">
+                        <span
+                            data-progress-bar
+                            data-axis-progress-bar="{{ module.eje.id }}"
+                            data-progress-value="{{ module.summary.progreso }}"
+                        ></span>
+                    </div>
+                    <div class="capture-nav-foot">
+                        <span><strong data-axis-answered="{{ module.eje.id }}">{{ module.summary.respondidos }}</strong>/{{ module.summary.total }} reactivos</span>
+                        <strong data-axis-progress="{{ module.eje.id }}">{{ module.summary.progreso }}%</strong>
+                    </div>
+                    <div class="capture-nav-meta">
+                        <span class="status status-{{ module.summary.priority_slug }}">{{ module.summary.prioridad }}</span>
+                        <span class="pill">{{ module.summary.madurez }}</span>
+                    </div>
+                </a>
+                {% endfor %}
+            </div>
+        </article>
+
+        <article class="panel page-fade-target">
+            <div class="section-heading">
+                <div>
+                    <p class="eyebrow">Criterio institucional</p>
+                    <h2>Escala de interpretación</h2>
+                </div>
+            </div>
+            <div class="legend-table">
+                <div class="legend-row legend-low"><span>0.0 - 1.5</span><span>Bajo</span></div>
+                <div class="legend-row legend-medium"><span>1.51 - 2.0</span><span>Medio</span></div>
+                <div class="legend-row legend-high"><span>2.01 - 2.5</span><span>Alto</span></div>
+                <div class="legend-row legend-optimal"><span>2.51 - 3.0</span><span>Óptimo</span></div>
+            </div>
+        </article>
+    </aside>
+
+    <div class="capture-main">
+        {% for module in module_cards %}
+        {% set eje = module.eje %}
+        {% set axis_summary = module.summary %}
+        {% set comment = module.comment %}
+        {% set module_has_responsible = comment and comment.area_id %}
+        <form
+            method="post"
+            enctype="multipart/form-data"
+            class="panel instrument-panel module-panel {% if preview_mode %}is-readonly{% endif %}"
+            id="eje-{{ eje.id }}"
+            data-axis-form
+            data-axis-id="{{ eje.id }}"
+            data-axis-total="{{ axis_summary.total }}"
+            data-axis-section="{{ eje.id }}"
+            data-autosave-url="{{ url_for('evaluation.autosave', evaluation_id=evaluacion.id) if can_edit else '' }}"
+            data-readonly="{{ 'true' if not can_edit else 'false' }}"
+            style="--stagger: {{ loop.index0 }};"
+        >
+            <input type="hidden" name="eje_id" value="{{ eje.id }}">
+
+            <div class="section-heading">
+                <div>
+                    <p class="eyebrow">{{ eje.clave }}</p>
+                    <h2>{{ eje.nombre }}</h2>
+                    <p class="muted">
+                        Ponderación {{ eje.ponderacion|percent }} · Promedio {{ axis_summary.promedio }}
+                        · Brecha {{ axis_summary.brecha }} · Comentarios {{ axis_summary.comentarios }}
+                    </p>
+                </div>
+                <span class="status status-{{ axis_summary.priority_slug }}">{{ axis_summary.prioridad }}</span>
+            </div>
+
+            <section class="module-overview-grid">
+                <article class="module-progress-card">
+                    <div class="module-progress-head">
+                        <div>
+                            <p class="eyebrow">Progreso del módulo</p>
+                            <h3>{{ axis_summary.respondidos }} de {{ axis_summary.total }} reactivos</h3>
+                        </div>
+                        <strong class="module-progress-value" data-axis-progress="{{ eje.id }}">{{ axis_summary.progreso }}%</strong>
+                    </div>
+                    <div class="progress progress-axis">
+                        <span
+                            data-progress-bar
+                            data-axis-progress-bar="{{ eje.id }}"
+                            data-progress-value="{{ axis_summary.progreso }}"
+                        ></span>
+                    </div>
+                    <div class="module-progress-foot">
+                        <span>Respondidos: <strong data-axis-answered="{{ eje.id }}">{{ axis_summary.respondidos }}</strong>/{{ axis_summary.total }}</span>
+                        <span>Evidencias: {{ module.evidence|length }}</span>
+                    </div>
+                </article>
+
+                <article class="module-kpi-card">
+                    <span>Madurez</span>
+                    <strong>{{ axis_summary.madurez }}</strong>
+                    <p class="muted">Lectura institucional del promedio observado en este eje.</p>
+                </article>
+
+                <article class="module-kpi-card">
+                    <span>Prioridad</span>
+                    <strong>{{ axis_summary.prioridad }}</strong>
+                    <p class="muted">Clasificación de atención con base en brecha e impacto.</p>
+                </article>
+
+                <article class="module-kpi-card">
+                    <span>Acción principal</span>
+                    <strong>{{ axis_summary.recomendaciones[0] }}</strong>
+                    <p class="muted">Recomendación guía para orientar el cierre del eje.</p>
+                </article>
+            </section>
+
+            {% for reactivo in eje.reactivos %}
+            {% set response = respuestas.get(reactivo.id) %}
+            {% set point_has_responsible = response and response.area_id %}
+            <div class="question-card {% if preview_mode %}is-readonly{% endif %}" data-reactivo-id="{{ reactivo.id }}">
+                <div class="question-meta-row">
+                    <div class="question-reference">
+                        <span class="question-index">Reactivo {{ loop.index }} de {{ eje.reactivos|length }}</span>
+                        <strong>{{ reactivo.codigo }}</strong>
+                    </div>
+                    <span class="question-score {% if not response %}is-empty{% endif %}" data-question-score>
+                        {% if response %}Nivel {{ response.valor }}{% else %}Sin respuesta{% endif %}
+                    </span>
+                </div>
+                <p class="question-text">{{ reactivo.pregunta }}</p>
+
+                <div class="choice-grid choice-grid-cards">
+                    {% for index in range(4) %}
+                    <label class="choice-chip {% if response and response.valor == index %}is-selected{% endif %}">
+                        <input
+                            type="radio"
+                            name="valor_{{ reactivo.id }}"
+                            value="{{ index }}"
+                            {% if response and response.valor == index %}checked{% endif %}
+                            {% if not can_edit %}disabled{% endif %}
+                        >
+                        <span>Nivel {{ index }}</span>
+                        <strong>{{ reactivo.opciones[index|string] }}</strong>
+                    </label>
+                    {% endfor %}
+                </div>
+
+                <div class="meta-grid single-column-mobile">
+                    <label>Responsable del punto
+                        <select
+                            name="area_{{ reactivo.id }}"
+                            data-dependent-controller
+                            data-dependent-target="punto-{{ reactivo.id }}"
+                            {% if not can_edit %}disabled{% endif %}
+                        >
+                            <option value="">Sin responsable asignado</option>
+                            {% for area in evaluacion.dependencia.areas_activas %}
+                            <option value="{{ area.id }}" {% if response and response.area_id == area.id %}selected{% endif %}>{{ area.nombre }}</option>
+                            {% endfor %}
+                        </select>
+                    </label>
+                </div>
+
+                <div
+                    class="dependent-block"
+                    data-dependent-block="punto-{{ reactivo.id }}"
+                    {% if not point_has_responsible %}hidden{% endif %}
+                >
+                    <label>Comentario del reactivo
+                        <textarea name="comentario_{{ reactivo.id }}" rows="3" {% if not can_edit %}disabled{% endif %}>{{ response.comentario if response else '' }}</textarea>
+                    </label>
+                </div>
+
+                <div
+                    class="callout compact dependent-placeholder"
+                    data-dependent-placeholder="punto-{{ reactivo.id }}"
+                    {% if point_has_responsible %}hidden{% endif %}
+                >
+                    <strong>Responsable pendiente</strong>
+                    <p>Asigna un responsable a este punto para habilitar su comentario detallado.</p>
+                </div>
+            </div>
+            {% endfor %}
+
+            <section class="module-closure">
+                <div class="section-heading">
+                    <div>
+                        <p class="eyebrow">Cierre del módulo</p>
+                        <h2>Comentario y evidencia documental</h2>
+                    </div>
+                </div>
+
+                <div class="meta-grid single-column-mobile">
+                    <label>Responsable del módulo
+                        <select
+                            name="comentario_eje_area_{{ eje.id }}"
+                            data-dependent-controller
+                            data-dependent-target="modulo-{{ eje.id }}"
+                            {% if not can_edit %}disabled{% endif %}
+                        >
+                            <option value="">Sin responsable asignado</option>
+                            {% for area in evaluacion.dependencia.areas_activas %}
+                            <option value="{{ area.id }}" {% if module_has_responsible and comment.area_id == area.id %}selected{% endif %}>{{ area.nombre }}</option>
+                            {% endfor %}
+                        </select>
+                    </label>
+                </div>
+
+                <div
+                    class="callout callout-warning dependent-placeholder"
+                    data-dependent-placeholder="modulo-{{ eje.id }}"
+                    {% if module_has_responsible %}hidden{% endif %}
+                >
+                    <strong>Responsable requerido para cerrar el módulo</strong>
+                    <p>Primero asigna un responsable del módulo. Después se habilitarán el comentario general y la opción para adjuntar evidencia documental.</p>
+                </div>
+
+                <div
+                    class="dependent-block"
+                    data-dependent-block="modulo-{{ eje.id }}"
+                    {% if not module_has_responsible %}hidden{% endif %}
+                >
+                    <div class="meta-grid">
+                        <label>Comentario del módulo
+                            <textarea name="comentario_eje_{{ eje.id }}" rows="4" {% if not can_edit %}disabled{% endif %}>{{ comment.comentario if comment else '' }}</textarea>
+                        </label>
+                    </div>
+
+                    <div class="insight-card evidence-card-emphasis">
+                        <div class="insight-head">
+                            <strong>Adjuntar evidencia documental</strong>
+                            <span class="pill">{{ module.evidence|length }} archivo(s)</span>
+                        </div>
+                        <p class="muted evidence-help">
+                            Carga documentos de soporte únicamente para este eje. Si subes un archivo con el mismo nombre, se versionará automáticamente.
+                        </p>
+
+                        <div class="meta-grid">
+                            <label>Área de la evidencia
+                                <select name="evidencia_area_{{ eje.id }}" {% if not can_edit %}disabled{% endif %}>
+                                    <option value="">Usar responsable del módulo</option>
+                                    {% for area in evaluacion.dependencia.areas_activas %}
+                                    <option value="{{ area.id }}">{{ area.nombre }}</option>
+                                    {% endfor %}
+                                </select>
+                            </label>
+                            <label>Seleccionar archivos
+                                <input type="file" name="evidencias_{{ eje.id }}" multiple {% if not can_edit %}disabled{% endif %}>
+                            </label>
+                        </div>
+
+                        <div class="evidence-list">
+                            {% for evidence in module.evidence %}
+                            <a href="{{ url_for('evaluation.download_evidence', evidence_id=evidence.id) }}" class="list-row evidence-row">
+                                <div>
+                                    <strong>{{ evidence.archivo_nombre_original }}</strong>
+                                    <p class="muted">v{{ evidence.version }} · {{ evidence.created_at|datetimeformat }}</p>
+                                </div>
+                                <span class="pill">{{ evidence.mime_type }}</span>
+                            </a>
+                            {% else %}
+                            <p class="muted">Aún no hay documentos adjuntos para este eje.</p>
+                            {% endfor %}
+                        </div>
+                    </div>
+                </div>
+            </section>
+
+            <div class="module-toolbar">
+                <div class="save-meta">
+                    <span class="save-indicator" data-save-state="idle">
+                        <span data-save-label>{% if can_edit %}Sin cambios pendientes{% else %}Solo lectura{% endif %}</span>
+                    </span>
+                    <span>Último guardado: <strong data-last-saved>{{ module.last_saved or 'Sin registro' }}</strong></span>
+                </div>
+
+                {% if can_edit %}
+                <div class="module-actions">
+                    <button class="button button-primary" type="submit">Guardar módulo</button>
+                    {% if not loop.last %}
+                    <a class="button" href="#eje-{{ cuestionario.ejes[loop.index].id }}">Continuar</a>
+                    {% else %}
+                    <a class="button" href="#inicio-envio">Preparar envío</a>
+                    {% endif %}
+                </div>
+                {% else %}
+                <div class="readonly-note">Módulo disponible en modo solo lectura.</div>
+                {% endif %}
+            </div>
+        </form>
+        {% endfor %}
+
+        <article class="panel page-fade-target" id="inicio-envio">
+            <div class="section-heading">
+                <div>
+                    <p class="eyebrow">Cierre institucional</p>
+                    <h2>Preparación para revisión</h2>
+                </div>
+            </div>
+            <p class="muted">
+                El envío solo se habilita cuando los {{ summary.total_questions }} reactivos estén respondidos y cada módulo cuente con responsable y documentación cuando aplique.
+            </p>
+            <div class="metric-inline">
+                <span>Avance total</span>
+                <strong><span data-overall-completion>{{ summary.completion }}</span></strong>
+            </div>
+            {% if can_edit %}
+            <form method="post" action="{{ url_for('evaluation.submit', evaluation_id=evaluacion.id) }}" class="actions">
+                <button class="button button-primary" type="submit">Enviar a revisión</button>
+            </form>
+            {% else %}
+            <div class="readonly-note">El envío no está disponible en esta vista.</div>
+            {% endif %}
+        </article>
+    </div>
+</section>
+{% endblock %}

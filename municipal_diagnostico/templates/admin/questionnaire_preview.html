@@ -1,0 +1,92 @@
+{% extends "base.html" %}
+{% block title %}Preview de Implementación | Diagnóstico Integral Municipal{% endblock %}
+{% block content %}
+<section class="executive-hero report-hero">
+    <div class="hero-copy">
+        <p class="eyebrow">Preview de implementación</p>
+        <h1>{{ evaluacion.dependencia.nombre }} · {{ evaluacion.periodo.nombre }}</h1>
+        <p class="lede">
+            Vista administrativa de solo lectura del cuestionario tal como se está implementando
+            en la evaluación actual.
+        </p>
+        <div class="tag-row">
+            <span class="tag">Estado: {{ summary.state_label }}</span>
+            <span class="tag">Índice: {{ summary.index_score }}</span>
+            <span class="tag">Avance: {{ summary.completion }}%</span>
+        </div>
+    </div>
+    <article class="hero-card compact">
+        <div class="actions vertical">
+            <a class="button button-primary" href="{{ url_for('reports.evaluation_report', evaluation_id=evaluacion.id) }}">Abrir reporte</a>
+            <a class="button" href="{{ url_for('admin.evaluation_detail', evaluation_id=evaluacion.id) }}">Volver a gestión</a>
+        </div>
+    </article>
+</section>
+
+{% for eje in cuestionario.ejes %}
+{% set axis_summary = summary.axes[loop.index0] %}
+<article class="panel preview-panel">
+    <div class="section-heading">
+        <div>
+            <p class="eyebrow">{{ eje.clave }}</p>
+            <h2>{{ eje.nombre }}</h2>
+            <p class="muted">Promedio {{ axis_summary.promedio }} · Brecha {{ axis_summary.brecha }} · Prioridad {{ axis_summary.prioridad }}</p>
+        </div>
+        <span class="status status-{{ axis_summary.priority_slug }}">{{ axis_summary.prioridad }}</span>
+    </div>
+
+    {% for reactivo in eje.reactivos %}
+    {% set response = respuestas.get(reactivo.id) %}
+    <div class="question-card">
+        <div class="question-head">
+            <strong>{{ reactivo.codigo }}</strong>
+            {% if response %}
+            <span class="question-score">Valor {{ response.valor }}</span>
+            {% else %}
+            <span class="question-score is-empty">Sin respuesta</span>
+            {% endif %}
+        </div>
+        <p class="question-text">{{ reactivo.pregunta }}</p>
+        <div class="choice-grid">
+            {% for index in range(4) %}
+            <div class="choice-chip {% if response and response.valor == index %}is-selected{% endif %}">
+                <span>{{ index }}</span>
+                <strong>{{ reactivo.opciones[index|string] }}</strong>
+            </div>
+            {% endfor %}
+        </div>
+        <div class="meta-grid">
+            <div>
+                <span class="meta-label">Área</span>
+                <strong>{{ response.area.nombre if response and response.area else 'Sin área asignada' }}</strong>
+            </div>
+            <div>
+                <span class="meta-label">Comentario</span>
+                <strong>{{ response.comentario if response and response.comentario else 'Sin comentario' }}</strong>
+            </div>
+        </div>
+    </div>
+    {% endfor %}
+
+    <div class="insight-card">
+        <div class="insight-head">
+            <strong>Evidencias del eje</strong>
+            <span class="pill">{{ axis_summary.evidencias }} archivo(s)</span>
+        </div>
+        <div class="evidence-list">
+            {% for evidence in evaluacion.evidencias if evidence.eje_version_id == eje.id and evidence.activo %}
+            <a href="{{ url_for('evaluation.download_evidence', evidence_id=evidence.id) }}" class="list-row evidence-row">
+                <div>
+                    <strong>{{ evidence.archivo_nombre_original }}</strong>
+                    <p class="muted">v{{ evidence.version }} · {{ evidence.created_at|datetimeformat }}</p>
+                </div>
+                <span class="pill">{{ evidence.mime_type }}</span>
+            </a>
+            {% else %}
+            <p class="muted">Sin evidencias cargadas para este eje.</p>
+            {% endfor %}
+        </div>
+    </div>
+</article>
+{% endfor %}
+{% endblock %}

@@ -1,0 +1,82 @@
+{% extends "base.html" %}
+{% block title %}Reporte de asignacion | Diagnóstico Integral Municipal{% endblock %}
+{% block content %}
+<section class="executive-hero report-hero">
+    <div class="hero-copy">
+        <p class="eyebrow">Reporte detallado</p>
+        <h1>{{ asignacion.objetivo_nombre }}</h1>
+        <p class="lede">
+            Lectura consolidada de respuestas, comentarios y soportes por sección para la asignacion seleccionada.
+        </p>
+        <div class="tag-row">
+            <span class="tag">Campaña: {{ asignacion.campana.nombre }}</span>
+            <span class="tag">Estado: {{ summary.state_label }}</span>
+            <span class="tag">Índice: {{ summary.index_score }}</span>
+            <span class="tag">Avance: {{ summary.completion }}%</span>
+        </div>
+    </div>
+    <article class="hero-card compact">
+        <div class="actions vertical">
+            {% if current_user.rol in ['administrador', 'evaluador', 'respondente'] %}
+            <a class="button button-primary" href="{{ url_for('campaigns.respond', assignment_id=asignacion.id) }}">Abrir cuestionario</a>
+            {% endif %}
+            <a class="button" href="{{ url_for('campaigns.reports', campana_id=asignacion.campana_id) }}">Volver a reportes</a>
+        </div>
+    </article>
+</section>
+
+<section class="metric-grid">
+    <article class="metric-card">
+        <span>Respondente</span>
+        <strong>{{ asignacion.respondente.nombre if asignacion.respondente else "Sin respondente" }}</strong>
+    </article>
+    <article class="metric-card">
+        <span>Dependencia</span>
+        <strong>{{ asignacion.dependencia_visible.nombre if asignacion.dependencia_visible else "Sin dependencia" }}</strong>
+    </article>
+    <article class="metric-card">
+        <span>Reactivos respondidos</span>
+        <strong>{{ summary.answered_questions }}/{{ summary.total_questions }}</strong>
+    </article>
+    <article class="metric-card">
+        <span>Soportes cargados</span>
+        <strong>{{ summary.support_count }}</strong>
+    </article>
+</section>
+
+<section class="stack">
+    {% for module in module_cards %}
+    <article class="panel">
+        <div class="section-heading">
+            <div>
+                <p class="eyebrow">{{ module.eje.clave }}</p>
+                <h2>{{ module.eje.nombre }}</h2>
+                <p class="muted">Promedio {{ module.summary.promedio }} · Brecha {{ module.summary.brecha }} · Avance {{ module.summary.progreso }}%</p>
+            </div>
+            <span class="status status-{{ module.summary.priority_slug }}">{{ module.summary.prioridad }}</span>
+        </div>
+
+        <div class="stack">
+            {% for reactivo in module.eje.reactivos %}
+            {% set response = module.responses[loop.index0] %}
+            <div class="list-row data-row">
+                <div>
+                    <strong>{{ reactivo.codigo }} · {{ reactivo.pregunta }}</strong>
+                    <p class="muted">{{ response.comentario if response and response.comentario else "Sin comentario adicional." }}</p>
+                </div>
+                <span class="pill">{% if response %}Nivel {{ response.valor }}{% else %}Sin respuesta{% endif %}</span>
+            </div>
+            {% endfor %}
+        </div>
+
+        <div class="callout {% if module.support and (module.support.comentario or module.support.archivo_guardado) %}callout-warning{% endif %}">
+            <strong>Cierre de sección</strong>
+            <p>{{ module.support.comentario if module.support and module.support.comentario else "Sin comentario general registrado." }}</p>
+            {% if module.support and module.support.archivo_guardado %}
+            <a class="button" href="{{ url_for('campaigns.download_support', support_id=module.support.id) }}">Descargar soporte</a>
+            {% endif %}
+        </div>
+    </article>
+    {% endfor %}
+</section>
+{% endblock %}

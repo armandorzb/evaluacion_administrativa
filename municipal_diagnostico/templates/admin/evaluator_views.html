@@ -1,0 +1,92 @@
+{% extends "base.html" %}
+{% block title %}Vista capturista historica | Diagnóstico Integral Municipal{% endblock %}
+{% block content %}
+<section class="executive-hero">
+    <div class="hero-copy">
+        <p class="eyebrow">Histórico interno</p>
+        <h1>Vista capturista para administración</h1>
+        <p class="lede">
+            Esta pantalla permanece solo para consulta administrativa del esquema anterior por periodos. Ya no forma parte del recorrido principal.
+        </p>
+    </div>
+    <article class="hero-card compact">
+        <div class="callout callout-warning">
+            <strong>Oculta del UI principal</strong>
+            <p>La captura nueva vive en Asignaciones dentro del flujo simplificado.</p>
+        </div>
+        <div class="actions vertical">
+            <a class="button button-primary" href="{{ url_for('campaigns.assignments') }}">Ir a asignaciones nuevas</a>
+            <a class="button" href="{{ url_for('campaigns.reports') }}">Ir a reportes nuevos</a>
+        </div>
+    </article>
+</section>
+
+<article class="panel">
+    <div class="section-heading">
+        <div>
+            <p class="eyebrow">Consulta</p>
+            <h2>Evaluaciones legacy localizadas</h2>
+        </div>
+    </div>
+    <form method="get" class="monitoring-filters">
+        <label>Periodo
+            <select name="periodo_id">
+                <option value="">Todos</option>
+                {% for periodo in periodos %}
+                <option value="{{ periodo.id }}" {% if selected_period_id == periodo.id %}selected{% endif %}>{{ periodo.nombre }}</option>
+                {% endfor %}
+            </select>
+        </label>
+        <label>Dependencia
+            <select name="dependencia_id">
+                <option value="">Todas</option>
+                {% for dependencia in dependencias %}
+                <option value="{{ dependencia.id }}" {% if selected_dependency_id == dependencia.id %}selected{% endif %}>{{ dependencia.nombre }}</option>
+                {% endfor %}
+            </select>
+        </label>
+        <label>Estado
+            <select name="estado">
+                <option value="">Todos</option>
+                {% for state in reportable_states %}
+                <option value="{{ state }}" {% if selected_state == state %}selected{% endif %}>{{ state|replace('_', ' ')|capitalize }}</option>
+                {% endfor %}
+            </select>
+        </label>
+        <div class="actions">
+            <button class="button button-primary" type="submit">Aplicar</button>
+            <a class="button" href="{{ url_for('admin.evaluator_views') }}">Limpiar</a>
+        </div>
+    </form>
+</article>
+
+<section class="card-grid">
+    {% for card in cards %}
+    <article class="report-card">
+        <div class="report-card-head">
+            <div>
+                <h3>{{ card.evaluacion.dependencia.nombre }}</h3>
+                <p>{{ card.evaluacion.periodo.nombre }}</p>
+            </div>
+            <span class="status status-{{ card.evaluacion.estado }}">{{ card.summary.state_label }}</span>
+        </div>
+        <div class="metric-inline">
+            <span>Índice</span>
+            <strong>{{ card.summary.index_score }}</strong>
+        </div>
+        <div class="metric-inline">
+            <span>Avance</span>
+            <strong>{{ card.summary.completion }}%</strong>
+        </div>
+        <div class="actions">
+            <a class="button" href="{{ url_for('admin.evaluator_view', evaluation_id=card.evaluacion.id) }}">Ver captura legacy</a>
+            <a class="button" href="{{ url_for('reports.evaluation_report', evaluation_id=card.evaluacion.id) }}">Reporte histórico</a>
+        </div>
+    </article>
+    {% else %}
+    <article class="panel">
+        <p class="muted">No hay evaluaciones legacy para los filtros actuales.</p>
+    </article>
+    {% endfor %}
+</section>
+{% endblock %}

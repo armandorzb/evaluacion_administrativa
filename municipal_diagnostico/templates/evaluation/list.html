@@ -1,0 +1,63 @@
+{% extends "base.html" %}
+{% block title %}Evaluaciones | Diagnóstico Integral Municipal{% endblock %}
+{% block content %}
+<section class="page-banner">
+    <div>
+        <p class="eyebrow">Expediente operativo</p>
+        <h1>Evaluaciones del sistema</h1>
+        <p class="lede">
+            Consulta el estado, el avance y los accesos directos a captura, revisión o reporte
+            según el rol asignado.
+        </p>
+    </div>
+</section>
+
+<section class="card-grid">
+    {% for card in cards %}
+    <article class="report-card">
+        <div class="report-card-head">
+            <div>
+                <h3>{{ card.evaluacion.dependencia.nombre }}</h3>
+                <p>{{ card.evaluacion.periodo.nombre }}</p>
+            </div>
+            <span class="status status-{{ card.evaluacion.estado }}">{{ card.summary.state_label }}</span>
+        </div>
+
+        <div class="metric-inline">
+            <span>Índice</span>
+            <strong>{{ card.summary.index_score }}</strong>
+        </div>
+        <div class="metric-inline">
+            <span>Nivel</span>
+            <strong>{{ card.summary.level_label }}</strong>
+        </div>
+        <div class="metric-inline">
+            <span>Avance</span>
+            <strong>{{ card.summary.completion }}%</strong>
+        </div>
+        <div class="progress"><span style="width: {{ card.summary.completion }}%"></span></div>
+
+        {% if card.summary.is_preliminary %}
+        <div class="callout callout-warning compact">
+            <strong>Implementación en curso</strong>
+            <p>El resultado aún no forma parte del universo oficial públicado.</p>
+        </div>
+        {% endif %}
+
+        <div class="actions">
+            <a class="button button-primary" href="{{ url_for('evaluation.detail', evaluation_id=card.evaluacion.id) }}">Abrir expediente</a>
+            {% if card.evaluacion.estado in ['en_revision', 'aprobada', 'cerrada'] or current_user.rol == 'administrador' %}
+            <a class="button" href="{{ url_for('reports.evaluation_report', evaluation_id=card.evaluacion.id) }}">Reporte</a>
+            {% endif %}
+            {% if current_user.rol == 'administrador' %}
+            <a class="button" href="{{ url_for('admin.evaluation_preview', evaluation_id=card.evaluacion.id) }}">Preview</a>
+            {% endif %}
+        </div>
+    </article>
+    {% else %}
+    <article class="panel">
+        <p class="muted">No hay evaluaciones disponibles.</p>
+    </article>
+    {% endfor %}
+</section>
+{% endblock %}

@@ -1,0 +1,82 @@
+{% extends "base.html" %}
+{% block title %}Revisión historica | Diagnóstico Integral Municipal{% endblock %}
+{% block content %}
+<section class="executive-hero">
+    <div class="hero-copy">
+        <p class="eyebrow">Histórico interno</p>
+        <h1>{{ evaluacion.dependencia.nombre }} · {{ evaluacion.periodo.nombre }}</h1>
+        <p class="lede">
+            La revisión formal del flujo legado quedo archivada. Esta pantalla se conserva como consulta interna de observaciones y resoluciones historicas.
+        </p>
+        <div class="tag-row">
+            <span class="tag">Estado: {{ summary.state_label }}</span>
+            <span class="tag">Índice: {{ summary.index_score }}</span>
+            <span class="tag">Nivel: {{ summary.level_label }}</span>
+            <span class="tag">Avance: {{ summary.completion }}%</span>
+        </div>
+    </div>
+
+    <article class="hero-card compact">
+        <div class="callout callout-warning">
+            <strong>Modo de solo lectura</strong>
+            <p>Las acciones de aprobar o devolver quedaron retiradas del UI principal.</p>
+        </div>
+        <div class="actions">
+            <a class="button button-primary" href="{{ url_for('reports.evaluation_report', evaluation_id=evaluacion.id) }}">Ver reporte</a>
+            {% if current_user.rol == 'administrador' %}
+            <a class="button" href="{{ url_for('admin.evaluation_preview', evaluation_id=evaluacion.id) }}">Ver implementacion</a>
+            {% endif %}
+        </div>
+    </article>
+</section>
+
+<section class="section-grid two">
+    <article class="panel">
+        <div class="section-heading">
+            <div>
+                <p class="eyebrow">Observaciones</p>
+                <h2>Histórico de revisión</h2>
+            </div>
+        </div>
+        {% for observation in evaluacion.observaciones %}
+        <div class="insight-card">
+            <div class="insight-head">
+                <strong>{{ observation.autor.nombre }}</strong>
+                <span class="pill">{% if observation.atendida %}Atendida{% else %}Pendiente{% endif %}</span>
+            </div>
+            <p>{{ observation.comentario }}</p>
+            <p class="muted">{{ observation.created_at|datetimeformat }}</p>
+        </div>
+        {% else %}
+        <p class="muted">No hay observaciones previas.</p>
+        {% endfor %}
+    </article>
+
+    <article class="panel">
+        <div class="section-heading">
+            <div>
+                <p class="eyebrow">Resumen</p>
+                <h2>Contexto del expediente legado</h2>
+            </div>
+        </div>
+        <div class="metric-grid">
+            <div class="metric-card">
+                <span>Ejes críticos</span>
+                <strong>{{ summary.critical_axes|length }}</strong>
+            </div>
+            <div class="metric-card">
+                <span>Respondidos</span>
+                <strong>{{ summary.answered_questions }}/{{ summary.total_questions }}</strong>
+            </div>
+            <div class="metric-card">
+                <span>Evidencias</span>
+                <strong>{{ evaluacion.evidencias|length }}</strong>
+            </div>
+            <div class="metric-card">
+                <span>Estado</span>
+                <strong>{{ summary.state_label }}</strong>
+            </div>
+        </div>
+    </article>
+</section>
+{% endblock %}

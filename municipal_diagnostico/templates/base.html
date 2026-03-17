@@ -1,0 +1,110 @@
+<!DOCTYPE html>
+<html lang="es">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>{% block title %}Diagnóstico Integral Municipal{% endblock %}</title>
+    <link rel="preconnect" href="https://fonts.googleapis.com">
+    <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+    <link href="https://fonts.googleapis.com/css2?family=Urbanist:wght@300;400;500;600;700;800&display=swap" rel="stylesheet">
+    <link rel="stylesheet" href="{{ url_for('static', filename='style.css') }}">
+    <script src="https://cdn.jsdelivr.net/npm/chart.js"></script>
+    <script defer src="{{ url_for('static', filename='app.js') }}"></script>
+</head>
+<body {% if current_user.is_authenticated %}data-heartbeat-url="{{ url_for('dashboard.heartbeat') }}"{% endif %}>
+    <div class="site-shell">
+        <header class="site-header" data-header-region>
+            <div class="header-frame">
+                <div class="brand-block">
+                    <p class="eyebrow">Ayuntamiento de Hermosillo</p>
+                    <a href="{{ url_for('dashboard.home') }}" class="brand">Diagnóstico Integral Municipal</a>
+                    <p class="brand-subtitle">Cuestionarios, seguimiento operativo y reportería institucional</p>
+                </div>
+
+                {% if current_user.is_authenticated %}
+                <button
+                    class="menu-toggle"
+                    type="button"
+                    aria-expanded="false"
+                    aria-controls="platform-navigation"
+                    data-menu-toggle
+                >
+                    <span class="menu-toggle-lines" aria-hidden="true">
+                        <span></span>
+                        <span></span>
+                        <span></span>
+                    </span>
+                    <strong>Menú</strong>
+                </button>
+
+                <div class="header-shell" id="platform-navigation" data-header-shell data-open="false">
+                    <nav class="main-nav" aria-label="Principal">
+                        <a href="{{ url_for('dashboard.home') }}" style="--menu-order: 0;">Tablero</a>
+                        {% if current_user.rol == 'administrador' %}
+                        <a href="{{ url_for('admin.questionnaires') }}" style="--menu-order: 1;">Cuestionarios</a>
+                        <a href="{{ url_for('campaigns.index') }}" style="--menu-order: 2;">Campañas</a>
+                        <a href="{{ url_for('campaigns.assignments') }}" style="--menu-order: 3;">Asignaciones</a>
+                        <a href="{{ url_for('campaigns.reports') }}" style="--menu-order: 4;">Reportes</a>
+                        <a href="{{ url_for('admin.catalogs') }}" style="--menu-order: 5;">Catálogos</a>
+                        <a href="{{ url_for('admin.monitoring') }}" style="--menu-order: 6;">Monitoreo</a>
+                        {% elif current_user.rol in ['evaluador', 'respondente'] %}
+                        <a href="{{ url_for('campaigns.assignments') }}" style="--menu-order: 1;">Asignaciones</a>
+                        <a href="{{ url_for('campaigns.reports') }}" style="--menu-order: 2;">Reportes</a>
+                        {% elif current_user.rol == 'consulta' %}
+                        <a href="{{ url_for('campaigns.reports') }}" style="--menu-order: 1;">Reportes</a>
+                        {% endif %}
+                    </nav>
+
+                    <div class="header-tools" style="--menu-order: 7;">
+                        <details class="notifications">
+                            <summary>
+                                <span>Notificaciones</span>
+                                {% if unread_notifications %}
+                                <span class="badge">{{ unread_notifications }}</span>
+                                {% endif %}
+                            </summary>
+                            <div class="dropdown">
+                                {% if recent_notifications %}
+                                    {% for notification in recent_notifications %}
+                                    <a href="{{ url_for('dashboard.read_notification', notification_id=notification.id) }}" class="dropdown-item {% if not notification.leida %}is-unread{% endif %}">
+                                        <strong>{{ notification.tipo.replace('_', ' ')|capitalize }}</strong>
+                                        <span>{{ notification.mensaje }}</span>
+                                    </a>
+                                    {% endfor %}
+                                {% else %}
+                                    <div class="dropdown-item muted">Sin notificaciones recientes.</div>
+                                {% endif %}
+                            </div>
+                        </details>
+
+                        <div class="identity">
+                            <span>{{ current_user.nombre }}</span>
+                            <small>{{ current_user.nombre_rol }} · {{ app_timezone }}</small>
+                        </div>
+
+                        <a class="secondary-link" href="{{ url_for('auth.logout') }}">Salir</a>
+                    </div>
+                </div>
+                {% endif %}
+            </div>
+        </header>
+        {% if current_user.is_authenticated %}
+        <div class="menu-scrim" data-menu-scrim aria-hidden="true"></div>
+        {% endif %}
+
+        <main class="content-shell">
+            {% with messages = get_flashed_messages(with_categories=true) %}
+                {% if messages %}
+                <div class="flash-stack">
+                    {% for category, message in messages %}
+                    <div class="flash flash-{{ category }}">{{ message }}</div>
+                    {% endfor %}
+                </div>
+                {% endif %}
+            {% endwith %}
+
+            {% block content %}{% endblock %}
+        </main>
+    </div>
+</body>
+</html>

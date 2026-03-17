@@ -1,0 +1,167 @@
+{% extends "base.html" %}
+{% block title %}Tablero Administrativo | Diagnóstico Integral Municipal{% endblock %}
+{% block content %}
+<section class="executive-hero">
+    <div class="hero-copy">
+        <p class="eyebrow">Tablero administrativo</p>
+        <h1>Diseña, asigna, mide avance y genera reportería.</h1>
+        <p class="lede">
+            El flujo principal ya está organizado como cuestionarios, campañas, asignaciones y reportes.
+            Desde aquí puedes entrar al punto exacto del proceso que necesites operar.
+        </p>
+    </div>
+    <article class="hero-card compact">
+        <div class="actions vertical">
+            <a class="button button-primary" href="{{ url_for('campaigns.index') }}">Abrir campañas</a>
+            <a class="button" href="{{ url_for('campaigns.assignments') }}">Gestionar asignaciones</a>
+            <a class="button" href="{{ url_for('campaigns.reports') }}">Ver reportes</a>
+            <a class="button" href="{{ url_for('admin.questionnaires') }}">Editar cuestionarios</a>
+        </div>
+    </article>
+</section>
+
+<section class="metric-grid">
+    <article class="metric-card">
+        <span>Campañas</span>
+        <strong>{{ counts.campanas }}</strong>
+    </article>
+    <article class="metric-card">
+        <span>Activas</span>
+        <strong>{{ counts.activas }}</strong>
+    </article>
+    <article class="metric-card">
+        <span>Asignaciones</span>
+        <strong>{{ counts.asignaciones }}</strong>
+    </article>
+    <article class="metric-card">
+        <span>Respondidas</span>
+        <strong>{{ counts.respondidas }}</strong>
+    </article>
+</section>
+
+{% if counts.campanas == 0 %}
+<article class="panel">
+    <div class="section-heading">
+        <div>
+            <p class="eyebrow">Primer paso</p>
+            <h2>Todavía no hay campañas registradas</h2>
+        </div>
+    </div>
+    <p class="muted">
+        Empieza por revisar el cuestionario y después crea una campaña para poder asignarlo y medir avance real.
+    </p>
+    <div class="actions">
+        <a class="button button-primary" href="{{ url_for('admin.questionnaires') }}">Ver cuestionarios</a>
+        <a class="button" href="{{ url_for('campaigns.index') }}">Crear campaña</a>
+    </div>
+</article>
+{% endif %}
+
+<section class="section-grid two">
+    <article class="panel">
+        <div class="section-heading">
+            <div>
+                <p class="eyebrow">Campañas recientes</p>
+                <h2>Despliegue disponible</h2>
+            </div>
+            <a class="button" href="{{ url_for('campaigns.index') }}">Administrar</a>
+        </div>
+        <div class="table-wrap">
+            <table class="executive-table">
+                <thead>
+                    <tr>
+                        <th>Campaña</th>
+                        <th>Estado</th>
+                        <th>Cuestionario</th>
+                    </tr>
+                </thead>
+                <tbody>
+                    {% for campaign in campaigns %}
+                    <tr>
+                        <td>{{ campaign.nombre }}</td>
+                        <td><span class="status status-{{ 'priority' if campaign.estado == 'activa' else ('high' if campaign.estado == 'cerrada' else 'medium') }}">{{ campaign.estado|replace('_', ' ')|capitalize }}</span></td>
+                        <td>{{ campaign.cuestionario_version.nombre }}</td>
+                    </tr>
+                    {% else %}
+                    <tr><td colspan="3" class="muted">Sin campañas registradas.</td></tr>
+                    {% endfor %}
+                </tbody>
+            </table>
+        </div>
+    </article>
+
+    <article class="panel">
+        <div class="section-heading">
+            <div>
+                <p class="eyebrow">Seguimiento actual</p>
+                <h2>{{ selected_campaign.nombre if selected_campaign else "Sin campaña activa" }}</h2>
+            </div>
+            {% if selected_campaign %}
+            <a class="button button-primary" href="{{ url_for('campaigns.reports', campana_id=selected_campaign.id) }}">Ver reporte</a>
+            {% endif %}
+        </div>
+        <div class="table-wrap">
+            <table class="executive-table">
+                <thead>
+                    <tr>
+                        <th>#</th>
+                        <th>Asignado</th>
+                        <th>Estado</th>
+                        <th>Avance</th>
+                    </tr>
+                </thead>
+                <tbody>
+                    {% for row in summary.rows[:8] %}
+                    <tr>
+                        <td>{{ row.rank }}</td>
+                        <td>{{ row.target_name }}</td>
+                        <td><span class="status status-{{ row.nivel_slug }}">{{ row.estado_label }}</span></td>
+                        <td>{{ row.avance }}%</td>
+                    </tr>
+                    {% else %}
+                    <tr><td colspan="4" class="muted">Aún no hay asignaciones visibles.</td></tr>
+                    {% endfor %}
+                </tbody>
+            </table>
+        </div>
+    </article>
+</section>
+
+<section class="section-heading">
+    <div>
+        <p class="eyebrow">Actividad reciente</p>
+        <h2>Asignaciones para seguimiento</h2>
+    </div>
+</section>
+
+<section class="card-grid">
+    {% for card in focus_assignments %}
+    <article class="report-card">
+        <div class="report-card-head">
+            <div>
+                <h3>{{ card.asignacion.objetivo_nombre }}</h3>
+                <p>{{ card.asignacion.campana.nombre }}</p>
+            </div>
+            <span class="status status-{{ card.summary.level_slug }}">{{ card.summary.state_label }}</span>
+        </div>
+        <div class="metric-inline">
+            <span>Índice</span>
+            <strong>{{ card.summary.index_score }}</strong>
+        </div>
+        <div class="metric-inline">
+            <span>Avance</span>
+            <strong>{{ card.summary.completion }}%</strong>
+        </div>
+        <div class="actions">
+            <a class="button" href="{{ url_for('campaigns.assignments', campana_id=card.asignacion.campana_id) }}">Asignaciones</a>
+            <a class="button" href="{{ url_for('campaigns.assignment_report', assignment_id=card.asignacion.id) }}">Reporte</a>
+            <a class="button button-primary" href="{{ url_for('campaigns.respond', assignment_id=card.asignacion.id) }}">Abrir</a>
+        </div>
+    </article>
+    {% else %}
+    <article class="panel">
+        <p class="muted">No hay asignaciones recientes para mostrar.</p>
+    </article>
+    {% endfor %}
+</section>
+{% endblock %}

@@ -1,0 +1,59 @@
+{% extends "base.html" %}
+{% block title %}Periodos históricos | Diagnóstico Integral Municipal{% endblock %}
+{% block content %}
+<section class="page-banner">
+    <div>
+        <p class="eyebrow">Histórico interno</p>
+        <h1>Periodos de evaluacion archivados</h1>
+        <p class="lede">
+            Esta pantalla se conserva solo como consulta interna. El despliegue nuevo de cuestionarios ahora se realiza desde Campañas y Asignaciones.
+        </p>
+    </div>
+</section>
+
+<article class="panel">
+    <div class="callout callout-warning">
+        <strong>Modo de solo lectura</strong>
+        <p>La creacion, apertura, reapertura y cierre de periodos quedaron retirados del flujo principal. Esta vista ya no opera nuevas implementaciones.</p>
+    </div>
+    <div class="actions">
+        <a class="button button-primary" href="{{ url_for('campaigns.index') }}">Ir a campanas</a>
+        <a class="button" href="{{ url_for('campaigns.assignments') }}">Ir a asignaciones</a>
+    </div>
+</article>
+
+<article class="panel">
+    <div class="section-heading">
+        <div>
+            <p class="eyebrow">Consulta</p>
+            <h2>Periodos registrados</h2>
+        </div>
+    </div>
+    <div class="table-wrap">
+        <table class="executive-table">
+            <thead>
+                <tr>
+                    <th>Periodo</th>
+                    <th>Fechas</th>
+                    <th>Cuestionario</th>
+                    <th>Estado</th>
+                    <th>Lectura</th>
+                </tr>
+            </thead>
+            <tbody>
+                {% for periodo in periodos %}
+                <tr>
+                    <td>{{ periodo.nombre }}</td>
+                    <td>{{ periodo.fecha_inicio }} - {{ periodo.fecha_cierre }}</td>
+                    <td>{{ periodo.cuestionario_version.nombre }}</td>
+                    <td><span class="status status-{{ periodo.estado }}">{{ periodo.estado|replace('_', ' ')|capitalize }}</span></td>
+                    <td><a class="button" href="{{ url_for('reports.period_report', period_id=periodo.id) }}">Reporte histórico</a></td>
+                </tr>
+                {% else %}
+                <tr><td colspan="5" class="muted">No hay periodos registrados.</td></tr>
+                {% endfor %}
+            </tbody>
+        </table>
+    </div>
+</article>
+{% endblock %}

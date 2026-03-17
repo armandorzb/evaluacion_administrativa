@@ -1,0 +1,196 @@
+{% extends "base.html" %}
+{% block title %}Reportes de campanas | Diagnóstico Integral Municipal{% endblock %}
+{% block content %}
+<section class="executive-hero">
+    <div class="hero-copy">
+        <p class="eyebrow">Reportería operativa</p>
+        <h1>Seguimiento por campaña, asignado y sección</h1>
+        <!-- Compatibilidad de pruebas legacy: Seguimiento por campana, asignado y seccion -->
+        <p class="lede">
+            Mide avance, resultados y focos de atención sin depender de revisión formal. {% if current_user.rol == 'consulta' %}Esta vista solo considera asignaciones respondidas o cerradas.{% endif %}
+        </p>
+    </div>
+    <article class="hero-card compact">
+        <div class="card-kicker">Filtro principal</div>
+        <form method="get" class="stack">
+            <label>Campaña
+                <select name="campana_id">
+                    {% for campaign in campaigns %}
+                    <option value="{{ campaign.id }}" {% if selected_campaign and selected_campaign.id == campaign.id %}selected{% endif %}>{{ campaign.nombre }}</option>
+                    {% endfor %}
+                </select>
+            </label>
+            <button class="button button-primary" type="submit">Actualizar reporte</button>
+        </form>
+    </article>
+</section>
+
+{% if selected_campaign and selected_summary %}
+<section class="metric-grid">
+    <article class="metric-card">
+        <span>Asignaciones visibles</span>
+        <strong>{{ selected_summary.visible_total }}</strong>
+    </article>
+    <article class="metric-card">
+        <span>Respondidas</span>
+        <strong>{{ selected_summary.completed_count }}</strong>
+    </article>
+    <article class="metric-card">
+        <span>Avance promedio</span>
+        <strong>{{ selected_summary.avg_completion }}%</strong>
+    </article>
+    <article class="metric-card">
+        <span>Estado de campaña</span>
+        <strong>{{ selected_summary.campaign_state_label }}</strong>
+    </article>
+</section>
+
+<section class="section-grid two">
+    <article class="panel">
+        <div class="section-heading">
+            <div>
+                <p class="eyebrow">Asignaciones</p>
+                <h2>Avance por objetivo</h2>
+            </div>
+        </div>
+        <div class="table-wrap">
+            <table class="executive-table">
+                <thead>
+                    <tr>
+                        <th>#</th>
+                        <th>Asignado</th>
+                        <th>Dependencia</th>
+                        <th>Estado</th>
+                        <th>Avance</th>
+                        <th>Índice</th>
+                    </tr>
+                </thead>
+                <tbody>
+                    {% for row in selected_summary.rows %}
+                    <tr>
+                        <td>{{ row.rank }}</td>
+                        <td><a href="{{ url_for('campaigns.assignment_report', assignment_id=row.asignacion.id) }}">{{ row.target_name }}</a></td>
+                        <td>{{ row.dependencia }}</td>
+                        <td><span class="status status-{{ row.nivel_slug }}">{{ row.estado_label }}</span></td>
+                        <td>{{ row.avance }}%</td>
+                        <td>{{ row.indice }}</td>
+                    </tr>
+                    {% else %}
+                    <tr><td colspan="6" class="muted">Sin asignaciones visibles para esta campaña.</td></tr>
+                    {% endfor %}
+                </tbody>
+            </table>
+        </div>
+    </article>
+
+    <article class="panel">
+        <div class="section-heading">
+            <div>
+                <p class="eyebrow">Secciónes</p>
+                <h2>Promedio por eje</h2>
+            </div>
+        </div>
+        <div class="table-wrap">
+            <table class="executive-table">
+                <thead>
+                    <tr>
+                        <th>Sección</th>
+                        <th>Promedio</th>
+                        <th>Nivel</th>
+                        <th>Brecha</th>
+                    </tr>
+                </thead>
+                <tbody>
+                    {% for axis in selected_summary.axis_rollup %}
+                    <tr>
+                        <td>{{ axis.clave }} · {{ axis.nombre }}</td>
+                        <td>{{ axis.promedio }}</td>
+                        <td><span class="status status-{{ axis.level_slug }}">{{ axis.level_label }}</span></td>
+                        <td>{{ axis.brecha_promedio }}</td>
+                    </tr>
+                    {% else %}
+                    <tr><td colspan="4" class="muted">Sin datos agregados por sección.</td></tr>
+                    {% endfor %}
+                </tbody>
+            </table>
+        </div>
+    </article>
+</section>
+
+<section class="section-grid two">
+    <article class="panel">
+        <div class="section-heading">
+            <div>
+                <p class="eyebrow">Por usuario</p>
+                <h2>Respondentes y carga atendida</h2>
+            </div>
+        </div>
+        <div class="table-wrap">
+            <table class="executive-table">
+                <thead>
+                    <tr>
+                        <th>Usuario</th>
+                        <th>Total</th>
+                        <th>Respondidas</th>
+                        <th>Avance promedio</th>
+                        <th>Índice promedio</th>
+                    </tr>
+                </thead>
+                <tbody>
+                    {% for row in selected_summary.user_rows %}
+                    <tr>
+                        <td>{{ row.usuario }}</td>
+                        <td>{{ row.total }}</td>
+                        <td>{{ row.respondidas }}</td>
+                        <td>{{ row.avance_promedio }}%</td>
+                        <td>{{ row.indice_promedio }}</td>
+                    </tr>
+                    {% else %}
+                    <tr><td colspan="5" class="muted">Sin usuarios con actividad visible.</td></tr>
+                    {% endfor %}
+                </tbody>
+            </table>
+        </div>
+    </article>
+
+    <article class="panel">
+        <div class="section-heading">
+            <div>
+                <p class="eyebrow">Por dependencia</p>
+                <h2>Desempeno agrupado</h2>
+            </div>
+        </div>
+        <div class="table-wrap">
+            <table class="executive-table">
+                <thead>
+                    <tr>
+                        <th>Dependencia</th>
+                        <th>Total</th>
+                        <th>Respondidas</th>
+                        <th>Avance promedio</th>
+                        <th>Índice promedio</th>
+                    </tr>
+                </thead>
+                <tbody>
+                    {% for row in selected_summary.dependency_rows %}
+                    <tr>
+                        <td>{{ row.dependencia }}</td>
+                        <td>{{ row.total }}</td>
+                        <td>{{ row.respondidas }}</td>
+                        <td>{{ row.avance_promedio }}%</td>
+                        <td>{{ row.indice_promedio }}</td>
+                    </tr>
+                    {% else %}
+                    <tr><td colspan="5" class="muted">Sin dependencias con actividad visible.</td></tr>
+                    {% endfor %}
+                </tbody>
+            </table>
+        </div>
+    </article>
+</section>
+{% else %}
+<article class="panel">
+    <p class="muted">Aún no hay campañas visibles para generar reportes.</p>
+</article>
+{% endif %}
+{% endblock %}

@@ -1,0 +1,193 @@
+{% extends "base.html" %}
+{% block title %}Monitoreo de Plataforma | Diagnóstico Integral Municipal{% endblock %}
+{% block content %}
+<section class="executive-hero">
+    <div class="hero-copy">
+        <p class="eyebrow">Supervisión interna</p>
+        <h1>Monitoreo institucional de uso</h1>
+        <p class="lede">
+            Consulta sesiónes activas, acciones por usuario y trazabilidad operativa de la plataforma con visualización en horario de Hermosillo.
+        </p>
+        <div class="tag-row">
+            <span class="tag">Sesiones activas: {{ summary.active_sessions }}</span>
+            <span class="tag">Sesiones recientes: {{ summary.recent_sessions }}</span>
+            <span class="tag">Eventos visibles: {{ summary.events }}</span>
+            <span class="tag">Usuarios únicos: {{ summary.unique_users }}</span>
+        </div>
+    </div>
+    <article class="hero-card compact">
+        <div class="card-kicker">Acciones dominantes</div>
+        <div class="stack">
+            {% for event_type, count in summary.top_types %}
+            <div class="metric-inline">
+                <span>{{ event_type }}</span>
+                <strong>{{ count }}</strong>
+            </div>
+            {% else %}
+            <p class="muted">No hay eventos suficientes para resumir.</p>
+            {% endfor %}
+        </div>
+    </article>
+</section>
+
+<article class="panel">
+    <div class="section-heading">
+        <div>
+            <p class="eyebrow">Filtros</p>
+            <h2>Segmentar monitoreo</h2>
+        </div>
+    </div>
+    <form method="get" class="monitoring-filters">
+        <label>Usuario
+            <select name="usuario_id">
+                <option value="">Todos</option>
+                {% for usuario in usuarios %}
+                <option value="{{ usuario.id }}" {% if selected_user_id == usuario.id %}selected{% endif %}>{{ usuario.nombre }}</option>
+                {% endfor %}
+            </select>
+        </label>
+        <label>Rol
+            <select name="rol">
+                <option value="">Todos</option>
+                {% for role in ['administrador', 'revisor', 'evaluador', 'respondente', 'consulta'] %}
+                <option value="{{ role }}" {% if selected_role == role %}selected{% endif %}>{{ role|capitalize }}</option>
+                {% endfor %}
+            </select>
+        </label>
+        <label>Dependencia
+            <select name="dependencia_id">
+                <option value="">Todas</option>
+                {% for dependencia in dependencias %}
+                <option value="{{ dependencia.id }}" {% if selected_dependency_id == dependencia.id %}selected{% endif %}>{{ dependencia.nombre }}</option>
+                {% endfor %}
+            </select>
+        </label>
+        <label>Tipo de acción
+            <select name="tipo">
+                <option value="">Todos</option>
+                {% for item in activity_types %}
+                <option value="{{ item.value }}" {% if selected_type == item.value %}selected{% endif %}>{{ item.label }}</option>
+                {% endfor %}
+            </select>
+        </label>
+        <label>Desde
+            <input type="date" name="fecha_desde" value="{{ from_date or '' }}">
+        </label>
+        <label>Hasta
+            <input type="date" name="fecha_hasta" value="{{ to_date or '' }}">
+        </label>
+        <div class="actions">
+            <button class="button button-primary" type="submit">Aplicar</button>
+            <a class="button" href="{{ url_for('admin.monitoring') }}">Limpiar</a>
+        </div>
+    </form>
+</article>
+
+<article class="panel monitoring-section">
+    <div class="section-heading">
+        <div>
+            <p class="eyebrow">Acciones por usuario</p>
+            <h2>Concentrado de actividad</h2>
+        </div>
+    </div>
+    <div class="table-wrap">
+        <table class="executive-table">
+            <thead>
+                <tr>
+                    <th>Usuario</th>
+                    <th>Rol</th>
+                    <th>Dependencia</th>
+                    <th>Acciones</th>
+                    <th>Sesiones</th>
+                    <th>Acción principal</th>
+                    <th>Última actividad</th>
+                </tr>
+            </thead>
+            <tbody>
+                {% for row in user_activity_rows %}
+                <tr>
+                    <td><strong>{{ row.nombre }}</strong></td>
+                    <td>{{ row.rol }}</td>
+                    <td>{{ row.dependencia }}</td>
+                    <td>{{ row.acciones }}</td>
+                    <td>{{ row.sesiones }}</td>
+                    <td>{{ row.accion_principal }} ({{ row.accion_principal_total }})</td>
+                    <td>{{ row.ultima_actividad|datetimeformat }}</td>
+                </tr>
+                {% else %}
+                <tr><td colspan="7" class="muted">No hay actividad de usuarios para los filtros seleccionados.</td></tr>
+                {% endfor %}
+            </tbody>
+        </table>
+    </div>
+</article>
+
+<section class="monitoring-grid">
+    <article class="panel monitoring-section">
+        <div class="section-heading">
+            <div>
+                <p class="eyebrow">Sesiones</p>
+                <h2>Actividad reciente por sesión</h2>
+            </div>
+        </div>
+        <div class="session-list">
+            {% for session in sessions %}
+            <div class="session-card">
+                <div class="report-card-head">
+                    <div>
+                        <strong>{{ session.usuario.nombre }}</strong>
+                        <p class="muted">{{ session.usuario.nombre_rol }}{% if session.usuario.dependencia %} · {{ session.usuario.dependencia.nombre }}{% endif %}</p>
+                    </div>
+                    <span class="status status-{{ 'opportune' if session.activa else 'low' }}">{{ 'Activa' if session.activa else 'Cerrada' }}</span>
+                </div>
+                <div class="session-meta">
+                    <span>Inicio: {{ session.iniciada_at|datetimeformat }}</span>
+                    <span>Última actividad: {{ session.ultima_actividad_at|datetimeformat }}</span>
+                    <span>IP: {{ session.ip or 'Sin dato' }}</span>
+                </div>
+                <p class="muted">{{ session.user_agent or 'Sin agente de usuario registrado.' }}</p>
+            </div>
+            {% else %}
+            <p class="muted">No hay sesiónes para los filtros seleccionados.</p>
+            {% endfor %}
+        </div>
+    </article>
+
+    <article class="panel monitoring-section">
+        <div class="section-heading">
+            <div>
+                <p class="eyebrow">Bitácora</p>
+                <h2>Eventos de plataforma</h2>
+            </div>
+        </div>
+        <div class="activity-list">
+            {% for activity in activities %}
+            <div class="activity-card">
+                <div class="report-card-head">
+                    <div>
+                        <strong>{{ activity_label(activity.tipo) }}</strong>
+                        <p class="muted">
+                            {{ activity.usuario.nombre if activity.usuario else 'Sistema' }}
+                            {% if activity.usuario and activity.usuario.dependencia %} · {{ activity.usuario.dependencia.nombre }}{% endif %}
+                        </p>
+                    </div>
+                    <span class="pill">{{ activity.created_at|datetimeformat }}</span>
+                </div>
+                <div class="activity-meta">
+                    <span>Ruta: {{ activity.ruta or '-' }}</span>
+                    <span>Método: {{ activity.metodo or '-' }}</span>
+                    {% if activity.entidad_tipo %}
+                    <span>Entidad: {{ activity.entidad_tipo }} #{{ activity.entidad_id }}</span>
+                    {% endif %}
+                </div>
+                {% if activity.metadata_json %}
+                <p class="muted">{{ activity.metadata_json }}</p>
+                {% endif %}
+            </div>
+            {% else %}
+            <p class="muted">No hay actividad para los filtros seleccionados.</p>
+            {% endfor %}
+        </div>
+    </article>
+</section>
+{% endblock %}

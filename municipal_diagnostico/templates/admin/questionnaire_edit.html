@@ -1,0 +1,77 @@
+{% extends "base.html" %}
+{% block title %}Editar Cuestionario | Diagnóstico Integral Municipal{% endblock %}
+{% block content %}
+<section class="page-banner">
+    <div>
+        <p class="eyebrow">Edición metodológica</p>
+        <h1>{{ version.nombre }}</h1>
+        <p class="lede">Actualiza la estructura del cuestionario sin intervenir la captura real en evaluaciones activas.</p>
+    </div>
+    <div class="actions">
+        <a class="button button-primary" href="{{ url_for('admin.questionnaire_fill_preview', version_id=version.id) }}">Vista de llenado</a>
+        <a class="button" href="{{ url_for('admin.questionnaires') }}">Volver a cuestionarios</a>
+    </div>
+</section>
+
+<form method="post" class="stack">
+    <article class="panel">
+        <div class="grid two">
+            <label>Nombre de la versión
+                <input type="text" name="nombre" value="{{ version.nombre }}">
+            </label>
+            <label>Descripción
+                <textarea name="descripcion" rows="3">{{ version.descripcion }}</textarea>
+            </label>
+        </div>
+    </article>
+
+    {% for eje in version.ejes %}
+    <article class="panel">
+        <div class="section-heading">
+            <div>
+                <p class="eyebrow">{{ eje.clave }}</p>
+                <h2>{{ eje.nombre }}</h2>
+            </div>
+            <div class="actions">
+                <a class="button" href="{{ url_for('admin.questionnaire_fill_preview', version_id=version.id) }}#eje-{{ eje.id }}">Vista de llenado</a>
+                <button class="button" type="submit" name="add_reactivo_eje" value="{{ eje.id }}">Agregar reactivo</button>
+            </div>
+        </div>
+        <div class="grid two">
+            <label>Nombre del eje
+                <input name="eje_nombre_{{ eje.id }}" value="{{ eje.nombre }}">
+            </label>
+            <label>Ponderación
+                <input type="number" step="0.01" name="eje_pond_{{ eje.id }}" value="{{ eje.ponderacion }}">
+            </label>
+        </div>
+        <label>Descripción
+            <textarea name="eje_desc_{{ eje.id }}" rows="2">{{ eje.descripcion }}</textarea>
+        </label>
+
+        {% for reactivo in eje.reactivos %}
+        <div class="insight-card">
+            <div class="insight-head">
+                <strong>{{ reactivo.codigo }}</strong>
+                <button class="button danger" type="submit" name="delete_reactivo_id" value="{{ reactivo.id }}">Eliminar</button>
+            </div>
+            <label>Pregunta
+                <textarea name="pregunta_{{ reactivo.id }}" rows="2">{{ reactivo.pregunta }}</textarea>
+            </label>
+            <div class="grid two">
+                {% for index in range(4) %}
+                <label>Opción {{ index }}
+                    <input name="op_{{ reactivo.id }}_{{ index }}" value="{{ reactivo.opciones[index|string] }}">
+                </label>
+                {% endfor %}
+            </div>
+        </div>
+        {% endfor %}
+    </article>
+    {% endfor %}
+
+    <div class="actions sticky-actions">
+        <button class="button button-primary" type="submit">Guardar cambios</button>
+    </div>
+</form>
+{% endblock %}

@@ -1,0 +1,120 @@
+{% extends "base.html" %}
+{% block title %}Cuestionarios | Diagnóstico Integral Municipal{% endblock %}
+{% block content %}
+<section class="executive-hero">
+    <div class="hero-copy">
+        <p class="eyebrow">Gobernanza metodológica</p>
+        <h1>Versiones del cuestionario y vista de llenado</h1>
+        <p class="lede">
+            Aquí se diseña el instrumento y se valida la experiencia de llenado por versión.
+            El despliegue operativo ya no se hace con periodos: ahora vive en Campañas y Asignaciones.
+        </p>
+    </div>
+    <article class="hero-card compact">
+        <div class="card-kicker">Siguiente paso</div>
+        <div class="metric-grid">
+            <div class="metric-card">
+                <span>Versiones</span>
+                <strong>{{ versions|length }}</strong>
+            </div>
+            <div class="metric-card">
+                <span>Borradores</span>
+                <strong>{{ versions|selectattr('estado', 'equalto', 'borrador')|list|length }}</strong>
+            </div>
+        </div>
+        <div class="actions vertical">
+            <a class="button button-primary" href="{{ url_for('campaigns.index') }}">Crear campaña</a>
+            <a class="button" href="{{ url_for('campaigns.assignments') }}">Asignar cuestionarios</a>
+            <a class="button" href="{{ url_for('campaigns.reports') }}">Ver reportes</a>
+        </div>
+    </article>
+</section>
+
+<article class="panel">
+    <div class="section-heading">
+        <div>
+            <p class="eyebrow">Flujo recomendado</p>
+            <h2>Diseño y despliegue simplificado</h2>
+        </div>
+    </div>
+    <div class="stack">
+        <div class="insight-card">
+            <strong>1. Diseña la versión</strong>
+            <p class="muted">Edita la estructura del instrumento y valida la vista de llenado antes de públicarlo.</p>
+        </div>
+        <div class="insight-card">
+            <strong>2. Crea una campaña</strong>
+            <p class="muted">Congela una versión del cuestionario, define vigencia y deja listo el despliegue.</p>
+        </div>
+        <div class="insight-card">
+            <strong>3. Asigna y monitorea</strong>
+            <p class="muted">Distribuye el cuestionario a usuarios o dependencias y mide avance desde la reportería operativa.</p>
+        </div>
+    </div>
+</article>
+
+<section class="section-heading">
+    <div>
+        <p class="eyebrow">Versionado</p>
+        <h2>Versiones del instrumento</h2>
+    </div>
+</section>
+
+<article class="panel">
+    <div class="table-wrap">
+        <table class="executive-table">
+            <thead>
+                <tr>
+                    <th>Versión</th>
+                    <th>Estado</th>
+                    <th>Ejes</th>
+                    <th>Reactivos</th>
+                    <th>Acciones</th>
+                </tr>
+            </thead>
+            <tbody>
+                {% for version in versions %}
+                <tr>
+                    <td>
+                        <strong>{{ version.nombre }}</strong>
+                        <div class="muted">{{ version.descripcion }}</div>
+                    </td>
+                    <td><span class="status status-{{ version.estado }}">{{ version.estado|capitalize }}</span></td>
+                    <td>{{ version.ejes|length }}</td>
+                    <td>{{ version.ejes|map(attribute='reactivos')|map('length')|sum }}</td>
+                    <td class="actions">
+                        <a class="button button-primary" href="{{ url_for('admin.questionnaire_fill_preview', version_id=version.id) }}">Vista de llenado</a>
+                        <a class="button" href="{{ url_for('admin.edit_questionnaire', version_id=version.id) }}">Editar versión</a>
+                        <form method="post">
+                            <input type="hidden" name="action" value="clone">
+                            <input type="hidden" name="version_id" value="{{ version.id }}">
+                            <button class="button" type="submit">Clonar</button>
+                        </form>
+                        {% if version.estado == 'borrador' %}
+                        <form method="post">
+                            <input type="hidden" name="action" value="publish">
+                            <input type="hidden" name="version_id" value="{{ version.id }}">
+                            <button class="button" type="submit">Publicar</button>
+                        </form>
+                        {% endif %}
+                    </td>
+                </tr>
+                {% endfor %}
+            </tbody>
+        </table>
+    </div>
+</article>
+
+<article class="panel">
+    <div class="section-heading">
+        <div>
+            <p class="eyebrow">Histórico interno</p>
+            <h2>Operación por periodos archivada</h2>
+        </div>
+    </div>
+    <div class="callout callout-warning">
+        <strong>UI histórica oculta del flujo principal</strong>
+        <p>Las pantallas antiguas de periodos, revisión y captura operativa legacy ya no forman parte del recorrido principal. Permanecen solo como referencia interna.</p>
+    </div>
+</article>
+{% endblock %}

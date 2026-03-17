@@ -1,0 +1,42 @@
+{% extends "base.html" %}
+{% block title %}Bandeja del Respondente | Diagnóstico Integral Municipal{% endblock %}
+{% block content %}
+<section class="page-banner">
+    <div>
+        <p class="eyebrow">Bandeja del respondente</p>
+        <h1>Cuestionarios asignados</h1>
+        <p class="lede">
+            Retoma tus respuestas con autosave, revisa el avance por sección y consulta el reporte de cada asignacion.
+        </p>
+    </div>
+</section>
+
+<section class="card-grid">
+    {% for card in cards %}
+    <article class="report-card">
+        <div class="report-card-head">
+            <div>
+                <h3>{{ card.asignacion.objetivo_nombre }}</h3>
+                <p>{{ card.asignacion.campana.nombre }} · {{ card.summary.state_label }}</p>
+            </div>
+            <span class="pill">{{ card.summary.completion }}%</span>
+        </div>
+        <div class="metric-inline">
+            <span>Índice actual</span>
+            <strong>{{ card.summary.index_score }}</strong>
+        </div>
+        <div class="progress"><span data-progress-bar data-progress-value="{{ card.summary.completion }}"></span></div>
+        <div class="actions">
+            {% if card.asignacion.puede_responder %}
+            <a class="button button-primary" href="{{ url_for('campaigns.respond', assignment_id=card.asignacion.id) }}">Responder</a>
+            {% endif %}
+            <a class="button" href="{{ url_for('campaigns.assignment_report', assignment_id=card.asignacion.id) }}">Ver reporte</a>
+        </div>
+    </article>
+    {% else %}
+    <article class="panel">
+        <p class="muted">No tienes asignaciones activas actualmente.</p>
+    </article>
+    {% endfor %}
+</section>
+{% endblock %}

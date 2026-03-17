@@ -1,0 +1,589 @@
+{% extends "base.html" %}
+{% block title %}Catálogos | Diagnóstico Integral Municipal{% endblock %}
+{% block content %}
+<section class="executive-hero">
+    <div class="hero-copy">
+        <p class="eyebrow">Administración operativa</p>
+        <h1>Catálogos, estructura organizacional y usuarios</h1>
+        <p class="lede">
+            Administra dependencias, unidades administrativas y cuentas de acceso desde un solo lugar.
+            El flujo recomendado es: crear dependencia, registrar unidad administrativa y después dar de alta a los usuarios.
+        </p>
+        <div class="tag-row">
+            <span class="tag">Dependencias activas: {{ stats.dependencias_activas }}</span>
+            <span class="tag">Unidades activas: {{ stats.areas_activas }}</span>
+            <span class="tag">Usuarios activos: {{ stats.usuarios_activos }}</span>
+            <span class="tag">Administradores activos: {{ stats.administradores_activos }}</span>
+        </div>
+    </div>
+
+    <article class="hero-card compact">
+        <div class="card-kicker">Acciones rápidas</div>
+        <div class="actions vertical">
+            <button class="button button-primary" type="button" data-dialog-open="dialog-user-create">Alta de usuario</button>
+            <button class="button" type="button" data-dialog-open="dialog-dependency-create">Alta de dependencia</button>
+            <button class="button" type="button" data-dialog-open="dialog-area-create">Alta de unidad administrativa</button>
+            <button class="button" type="button" data-dialog-open="dialog-import-create">Carga masiva</button>
+        </div>
+    </article>
+</section>
+
+<section class="metric-grid">
+    <article class="metric-card">
+        <span>Dependencias registradas</span>
+        <strong>{{ dependencias|length }}</strong>
+    </article>
+    <article class="metric-card">
+        <span>Unidades administrativas</span>
+        <strong>{{ areas|length }}</strong>
+    </article>
+    <article class="metric-card">
+        <span>Usuarios totales</span>
+        <strong>{{ usuarios|length }}</strong>
+    </article>
+    <article class="metric-card">
+        <span>Flujo recomendado</span>
+        <strong>1 · 2 · 3</strong>
+    </article>
+</section>
+
+<section class="section-grid two">
+    <article class="panel">
+        <div class="section-heading">
+            <div>
+                <p class="eyebrow">Cómo administrarlo</p>
+                <h2>Orden sugerido de operación</h2>
+            </div>
+        </div>
+        <div class="stack">
+            <div class="insight-card">
+                <strong>1. Dependencia</strong>
+                <p class="muted">Crea o actualiza la dependencia antes de asignarle unidades administrativas o usuarios.</p>
+            </div>
+            <div class="insight-card">
+                <strong>2. Unidad administrativa</strong>
+                <p class="muted">Registra las áreas internas que capturarán información o servirán como responsables operativos.</p>
+            </div>
+            <div class="insight-card">
+                <strong>3. Usuario</strong>
+                <p class="muted">Asigna rol, dependencia y unidad solo cuando la estructura organizacional ya exista y esté activa.</p>
+            </div>
+        </div>
+    </article>
+
+    <article class="panel">
+        <div class="section-heading">
+            <div>
+                <p class="eyebrow">Funciones por rol</p>
+                <h2>Qué puede hacer cada usuario</h2>
+            </div>
+        </div>
+        <div class="role-guide-grid">
+            {% for role, description in role_definitions.items() %}
+            <article class="role-guide-card">
+                <strong>{{ role|capitalize }}</strong>
+                <p>{{ description }}</p>
+            </article>
+            {% endfor %}
+        </div>
+    </article>
+</section>
+
+<article class="panel" id="catalogo-usuarios">
+    <div class="section-heading">
+        <div>
+            <p class="eyebrow">Usuarios</p>
+            <h2>Administración de accesos</h2>
+        </div>
+        <button class="button button-primary" type="button" data-dialog-open="dialog-user-create">Nuevo usuario</button>
+    </div>
+    <div class="table-wrap">
+        <table class="executive-table">
+            <thead>
+                <tr>
+                    <th>Usuario</th>
+                    <th>Rol</th>
+                    <th>Dependencia</th>
+                    <th>Unidad administrativa</th>
+                    <th>Estado</th>
+                    <th>Acciones</th>
+                </tr>
+            </thead>
+            <tbody>
+                {% for usuario in usuarios %}
+                <tr>
+                    <td>
+                        <strong>{{ usuario.nombre }}</strong>
+                        <div class="muted">{{ usuario.correo }}</div>
+                    </td>
+                    <td>{{ usuario.nombre_rol }}</td>
+                    <td>{{ usuario.dependencia.nombre if usuario.dependencia else "Sin dependencia" }}</td>
+                    <td>{{ usuario.area.nombre if usuario.area else "Sin unidad" }}</td>
+                    <td><span class="status status-{{ 'opportune' if usuario.activo else 'low' }}">{{ "Activo" if usuario.activo else "Inactivo" }}</span></td>
+                    <td>
+                        <details class="inline-action-menu">
+                            <summary class="button">Acciones</summary>
+                            <div class="inline-action-popover">
+                                <button class="button button-primary" type="button" data-dialog-open="dialog-user-edit-{{ usuario.id }}">Editar</button>
+                                <form method="post">
+                                    <input type="hidden" name="action" value="toggle_usuario">
+                                    <input type="hidden" name="usuario_id" value="{{ usuario.id }}">
+                                    <input type="hidden" name="redirect_anchor" value="catalogo-usuarios">
+                                    <button class="button" type="submit">{{ "Desactivar" if usuario.activo else "Activar" }}</button>
+                                </form>
+                                <form method="post">
+                                    <input type="hidden" name="action" value="delete_usuario">
+                                    <input type="hidden" name="usuario_id" value="{{ usuario.id }}">
+                                    <input type="hidden" name="redirect_anchor" value="catalogo-usuarios">
+                                    <button class="button danger" type="submit">Eliminar</button>
+                                </form>
+                            </div>
+                        </details>
+                    </td>
+                </tr>
+                {% else %}
+                <tr><td colspan="6" class="muted">Sin usuarios registrados.</td></tr>
+                {% endfor %}
+            </tbody>
+        </table>
+    </div>
+</article>
+
+<article class="panel" id="catalogo-dependencias">
+    <div class="section-heading">
+        <div>
+            <p class="eyebrow">Dependencias</p>
+            <h2>Estructura superior</h2>
+        </div>
+        <button class="button button-primary" type="button" data-dialog-open="dialog-dependency-create">Nueva dependencia</button>
+    </div>
+    <div class="table-wrap">
+        <table class="executive-table">
+            <thead>
+                <tr>
+                    <th>Dependencia</th>
+                    <th>Tipo</th>
+                    <th>Unidades activas</th>
+                    <th>Usuarios activos</th>
+                    <th>Estado</th>
+                    <th>Acciones</th>
+                </tr>
+            </thead>
+            <tbody>
+                {% for dependencia in dependencias %}
+                <tr>
+                    <td>
+                        <strong>{{ dependencia.nombre }}</strong>
+                        <div class="muted">{{ dependencia.descripcion or "Sin descripción registrada." }}</div>
+                    </td>
+                    <td>{{ dependencia.tipo }}</td>
+                    <td>{{ dependencia.total_areas_activas }}</td>
+                    <td>{{ dependencia.total_usuarios_activos }}</td>
+                    <td><span class="status status-{{ 'opportune' if dependencia.activa else 'low' }}">{{ "Activa" if dependencia.activa else "Inactiva" }}</span></td>
+                    <td>
+                        <details class="inline-action-menu">
+                            <summary class="button">Acciones</summary>
+                            <div class="inline-action-popover">
+                                <button class="button button-primary" type="button" data-dialog-open="dialog-dependency-edit-{{ dependencia.id }}">Editar</button>
+                                <form method="post">
+                                    <input type="hidden" name="action" value="toggle_dependencia">
+                                    <input type="hidden" name="dependencia_id" value="{{ dependencia.id }}">
+                                    <input type="hidden" name="redirect_anchor" value="catalogo-dependencias">
+                                    <button class="button" type="submit">{{ "Desactivar" if dependencia.activa else "Activar" }}</button>
+                                </form>
+                                <form method="post">
+                                    <input type="hidden" name="action" value="delete_dependencia">
+                                    <input type="hidden" name="dependencia_id" value="{{ dependencia.id }}">
+                                    <input type="hidden" name="redirect_anchor" value="catalogo-dependencias">
+                                    <button class="button danger" type="submit">Eliminar</button>
+                                </form>
+                            </div>
+                        </details>
+                    </td>
+                </tr>
+                {% else %}
+                <tr><td colspan="6" class="muted">Sin dependencias registradas.</td></tr>
+                {% endfor %}
+            </tbody>
+        </table>
+    </div>
+</article>
+
+<article class="panel" id="catalogo-areas">
+    <div class="section-heading">
+        <div>
+            <p class="eyebrow">Unidades administrativas</p>
+            <h2>Áreas internas por dependencia</h2>
+        </div>
+        <button class="button button-primary" type="button" data-dialog-open="dialog-area-create">Nueva unidad</button>
+    </div>
+    <div class="table-wrap">
+        <table class="executive-table">
+            <thead>
+                <tr>
+                    <th>Unidad administrativa</th>
+                    <th>Dependencia</th>
+                    <th>Usuarios asociados</th>
+                    <th>Estado</th>
+                    <th>Acciones</th>
+                </tr>
+            </thead>
+            <tbody>
+                {% for area in areas %}
+                <tr>
+                    <td><strong>{{ area.nombre }}</strong></td>
+                    <td>{{ area.dependencia.nombre }}</td>
+                    <td>{{ area.usuarios|length }}</td>
+                    <td><span class="status status-{{ 'opportune' if area.activa else 'low' }}">{{ "Activa" if area.activa else "Inactiva" }}</span></td>
+                    <td>
+                        <details class="inline-action-menu">
+                            <summary class="button">Acciones</summary>
+                            <div class="inline-action-popover">
+                                <button class="button button-primary" type="button" data-dialog-open="dialog-area-edit-{{ area.id }}">Editar</button>
+                                <form method="post">
+                                    <input type="hidden" name="action" value="toggle_area">
+                                    <input type="hidden" name="area_id" value="{{ area.id }}">
+                                    <input type="hidden" name="redirect_anchor" value="catalogo-areas">
+                                    <button class="button" type="submit">{{ "Desactivar" if area.activa else "Activar" }}</button>
+                                </form>
+                                <form method="post">
+                                    <input type="hidden" name="action" value="delete_area">
+                                    <input type="hidden" name="area_id" value="{{ area.id }}">
+                                    <input type="hidden" name="redirect_anchor" value="catalogo-areas">
+                                    <button class="button danger" type="submit">Eliminar</button>
+                                </form>
+                            </div>
+                        </details>
+                    </td>
+                </tr>
+                {% else %}
+                <tr><td colspan="5" class="muted">Sin unidades administrativas registradas.</td></tr>
+                {% endfor %}
+            </tbody>
+        </table>
+    </div>
+</article>
+
+<article class="panel" id="catalogo-importacion">
+    <div class="section-heading">
+        <div>
+            <p class="eyebrow">Carga masiva</p>
+            <h2>Importación operativa</h2>
+        </div>
+        <button class="button" type="button" data-dialog-open="dialog-import-create">Abrir importación</button>
+    </div>
+    <p class="muted">
+        Usa CSV o Excel con encabezados simples: <code>nombre</code>, <code>tipo</code>, <code>dependencia</code>, <code>area</code>, <code>correo</code>, <code>rol</code>, <code>password</code>.
+    </p>
+</article>
+
+<dialog class="catalog-dialog" id="dialog-user-create">
+    <form method="dialog" class="dialog-shell">
+        <div class="dialog-head">
+            <div>
+                <p class="eyebrow">Alta de usuario</p>
+                <h2>Crear cuenta de acceso</h2>
+            </div>
+            <button class="button" type="submit">Cerrar</button>
+        </div>
+    </form>
+    <form method="post" class="stack catalog-form">
+        <input type="hidden" name="action" value="add_usuario">
+        <input type="hidden" name="redirect_anchor" value="catalogo-usuarios">
+        <label>Nombre completo<input name="nombre" required></label>
+        <label>Correo institucional<input name="correo" type="email" required></label>
+        <label>Contraseña inicial<input name="password" required></label>
+        <label>Rol
+            <select name="rol" data-role-help-target="role-help-user-create">
+                {% for role in role_definitions.keys() %}
+                <option value="{{ role }}">{{ role|capitalize }}</option>
+                {% endfor %}
+            </select>
+        </label>
+        <div class="callout callout-warning role-help-output" id="role-help-user-create" data-role-help-output>
+            <strong>Administrador</strong>
+            <p>{{ role_definitions["administrador"] }}</p>
+        </div>
+        <label>Dependencia
+            <select name="dependencia_id" data-dependency-select data-area-target="user-create-area">
+                <option value="">Sin dependencia</option>
+                {% for dependencia in dependencias_activas %}
+                <option value="{{ dependencia.id }}">{{ dependencia.nombre }}</option>
+                {% endfor %}
+            </select>
+        </label>
+        <label>Unidad administrativa
+            <select name="area_id" id="user-create-area" data-area-select>
+                <option value="">Sin unidad administrativa</option>
+                {% for area in areas_activas %}
+                <option value="{{ area.id }}" data-dependency-id="{{ area.dependencia_id }}">{{ area.dependencia.nombre }} · {{ area.nombre }}</option>
+                {% endfor %}
+            </select>
+        </label>
+        <div class="actions">
+            <button class="button button-primary" type="submit">Crear usuario</button>
+        </div>
+    </form>
+</dialog>
+
+<dialog class="catalog-dialog" id="dialog-dependency-create">
+    <form method="dialog" class="dialog-shell">
+        <div class="dialog-head">
+            <div>
+                <p class="eyebrow">Alta de dependencia</p>
+                <h2>Registrar dependencia</h2>
+            </div>
+            <button class="button" type="submit">Cerrar</button>
+        </div>
+    </form>
+    <form method="post" class="stack catalog-form">
+        <input type="hidden" name="action" value="add_dependencia">
+        <input type="hidden" name="redirect_anchor" value="catalogo-dependencias">
+        <label>Nombre<input name="nombre" required></label>
+        <label>Tipo<input name="tipo" value="Administrativa"></label>
+        <label>Descripción<textarea name="descripcion" rows="3"></textarea></label>
+        <div class="actions">
+            <button class="button button-primary" type="submit">Guardar dependencia</button>
+        </div>
+    </form>
+</dialog>
+
+<dialog class="catalog-dialog" id="dialog-area-create">
+    <form method="dialog" class="dialog-shell">
+        <div class="dialog-head">
+            <div>
+                <p class="eyebrow">Alta de unidad administrativa</p>
+                <h2>Registrar unidad interna</h2>
+            </div>
+            <button class="button" type="submit">Cerrar</button>
+        </div>
+    </form>
+    <form method="post" class="stack catalog-form">
+        <input type="hidden" name="action" value="add_area">
+        <input type="hidden" name="redirect_anchor" value="catalogo-areas">
+        <label>Dependencia
+            <select name="dependencia_id" required>
+                <option value="">Selecciona...</option>
+                {% for dependencia in dependencias_activas %}
+                <option value="{{ dependencia.id }}">{{ dependencia.nombre }}</option>
+                {% endfor %}
+            </select>
+        </label>
+        <label>Nombre de la unidad<input name="nombre" required></label>
+        <div class="actions">
+            <button class="button button-primary" type="submit">Guardar unidad</button>
+        </div>
+    </form>
+</dialog>
+
+<dialog class="catalog-dialog catalog-dialog-wide" id="dialog-import-create">
+    <form method="dialog" class="dialog-shell">
+        <div class="dialog-head">
+            <div>
+                <p class="eyebrow">Carga masiva</p>
+                <h2>Importar dependencias, unidades o usuarios</h2>
+            </div>
+            <button class="button" type="submit">Cerrar</button>
+        </div>
+    </form>
+    <form method="post" enctype="multipart/form-data" class="stack catalog-form catalog-form-wide">
+        <input type="hidden" name="action" value="bulk_import">
+        <input type="hidden" name="redirect_anchor" value="catalogo-importacion">
+        <label>Tipo de carga
+            <select name="import_type" data-import-guide-target="bulk-import-guide">
+                <option value="dependencias">Dependencias</option>
+                <option value="areas">Unidades administrativas</option>
+                <option value="usuarios">Usuarios</option>
+            </select>
+        </label>
+
+        <article class="import-guide-card" id="bulk-import-guide" data-import-guide-output>
+            <div class="import-guide-head">
+                <div>
+                    <p class="eyebrow">Contenido esperado del archivo</p>
+                    <h3 data-import-guide-title>Plantilla de dependencias</h3>
+                </div>
+                <span class="pill" data-import-guide-format>CSV o Excel</span>
+            </div>
+            <p class="muted import-guide-description" data-import-guide-description>
+                Carga un archivo con una fila por dependencia. El sistema usa los encabezados para identificar cada columna y actualizar o crear registros.
+            </p>
+            <div class="import-guide-grid">
+                <div class="import-guide-column">
+                    <span class="meta-label">Columnas obligatorias</span>
+                    <ul class="plain-list" data-import-guide-required>
+                        <li><code>nombre</code></li>
+                        <li><code>tipo</code></li>
+                    </ul>
+                </div>
+                <div class="import-guide-column">
+                    <span class="meta-label">Columnas opcionales</span>
+                    <ul class="plain-list" data-import-guide-optional>
+                        <li><code>descripcion</code></li>
+                    </ul>
+                </div>
+            </div>
+            <div class="import-guide-example">
+                <span class="meta-label">Ejemplo de encabezados</span>
+                <code data-import-guide-example>nombre,tipo,descripcion</code>
+            </div>
+            <div class="callout callout-warning compact">
+                <strong data-import-guide-note-title>Cómo lo procesa la plataforma</strong>
+                <p data-import-guide-note>Si el nombre coincide con una dependencia existente, se actualiza. Si no existe, se crea un nuevo registro.</p>
+            </div>
+        </article>
+
+        <label>Archivo
+            <input type="file" name="archivo" accept=".csv,.xlsx,.xls" required>
+        </label>
+        <p class="muted">
+            Puedes subir <strong>CSV</strong>, <strong>XLSX</strong> o <strong>XLS</strong>. La primera fila debe contener los encabezados tal como se muestran en la guía.
+        </p>
+        <div class="actions">
+            <button class="button button-primary" type="submit">Importar</button>
+        </div>
+    </form>
+</dialog>
+
+{% for usuario in usuarios %}
+<dialog class="catalog-dialog" id="dialog-user-edit-{{ usuario.id }}">
+    <form method="dialog" class="dialog-shell">
+        <div class="dialog-head">
+            <div>
+                <p class="eyebrow">Editar usuario</p>
+                <h2>{{ usuario.nombre }}</h2>
+            </div>
+            <button class="button" type="submit">Cerrar</button>
+        </div>
+    </form>
+    <form method="post" class="stack catalog-form">
+        <input type="hidden" name="action" value="update_usuario">
+        <input type="hidden" name="usuario_id" value="{{ usuario.id }}">
+        <input type="hidden" name="redirect_anchor" value="catalogo-usuarios">
+        <label>Nombre completo<input name="nombre" value="{{ usuario.nombre }}" required></label>
+        <label>Correo institucional<input name="correo" type="email" value="{{ usuario.correo }}" required></label>
+        <label>Nueva contraseña <span class="muted">(opcional)</span><input name="password"></label>
+        <label>Rol
+            <select name="rol" data-role-help-target="role-help-user-edit-{{ usuario.id }}">
+                {% for role in role_definitions.keys() %}
+                <option value="{{ role }}" {% if usuario.rol == role %}selected{% endif %}>{{ role|capitalize }}</option>
+                {% endfor %}
+            </select>
+        </label>
+        <div class="callout callout-warning role-help-output" id="role-help-user-edit-{{ usuario.id }}" data-role-help-output>
+            <strong>{{ usuario.nombre_rol }}</strong>
+            <p>{{ role_definitions[usuario.rol] }}</p>
+        </div>
+        <label>Dependencia
+            <select name="dependencia_id" data-dependency-select data-area-target="user-edit-area-{{ usuario.id }}">
+                <option value="">Sin dependencia</option>
+                {% for dependencia in dependencias_activas %}
+                <option value="{{ dependencia.id }}" {% if usuario.dependencia_id == dependencia.id %}selected{% endif %}>{{ dependencia.nombre }}</option>
+                {% endfor %}
+            </select>
+        </label>
+        <label>Unidad administrativa
+            <select name="area_id" id="user-edit-area-{{ usuario.id }}" data-area-select>
+                <option value="">Sin unidad administrativa</option>
+                {% for area in areas_activas %}
+                <option value="{{ area.id }}" data-dependency-id="{{ area.dependencia_id }}" {% if usuario.area_id == area.id %}selected{% endif %}>{{ area.dependencia.nombre }} · {{ area.nombre }}</option>
+                {% endfor %}
+            </select>
+        </label>
+        <div class="actions">
+            <button class="button button-primary" type="submit">Guardar cambios</button>
+        </div>
+    </form>
+</dialog>
+{% endfor %}
+
+{% for dependencia in dependencias %}
+<dialog class="catalog-dialog" id="dialog-dependency-edit-{{ dependencia.id }}">
+    <form method="dialog" class="dialog-shell">
+        <div class="dialog-head">
+            <div>
+                <p class="eyebrow">Editar dependencia</p>
+                <h2>{{ dependencia.nombre }}</h2>
+            </div>
+            <button class="button" type="submit">Cerrar</button>
+        </div>
+    </form>
+    <form method="post" class="stack catalog-form">
+        <input type="hidden" name="action" value="update_dependencia">
+        <input type="hidden" name="dependencia_id" value="{{ dependencia.id }}">
+        <input type="hidden" name="redirect_anchor" value="catalogo-dependencias">
+        <label>Nombre<input name="nombre" value="{{ dependencia.nombre }}" required></label>
+        <label>Tipo<input name="tipo" value="{{ dependencia.tipo }}" required></label>
+        <label>Descripción<textarea name="descripcion" rows="3">{{ dependencia.descripcion or '' }}</textarea></label>
+        <div class="actions">
+            <button class="button button-primary" type="submit">Guardar cambios</button>
+        </div>
+    </form>
+</dialog>
+{% endfor %}
+
+{% for area in areas %}
+<dialog class="catalog-dialog" id="dialog-area-edit-{{ area.id }}">
+    <form method="dialog" class="dialog-shell">
+        <div class="dialog-head">
+            <div>
+                <p class="eyebrow">Editar unidad administrativa</p>
+                <h2>{{ area.nombre }}</h2>
+            </div>
+            <button class="button" type="submit">Cerrar</button>
+        </div>
+    </form>
+    <form method="post" class="stack catalog-form">
+        <input type="hidden" name="action" value="update_area">
+        <input type="hidden" name="area_id" value="{{ area.id }}">
+        <input type="hidden" name="redirect_anchor" value="catalogo-areas">
+        <label>Dependencia
+            <select name="dependencia_id" required>
+                {% for dependencia in dependencias %}
+                <option value="{{ dependencia.id }}" {% if area.dependencia_id == dependencia.id %}selected{% endif %}>{{ dependencia.nombre }}</option>
+                {% endfor %}
+            </select>
+        </label>
+        <label>Nombre de la unidad<input name="nombre" value="{{ area.nombre }}" required></label>
+        <div class="actions">
+            <button class="button button-primary" type="submit">Guardar cambios</button>
+        </div>
+    </form>
+</dialog>
+{% endfor %}
+
+{% set import_guides = {
+    "dependencias": {
+        "title": "Plantilla de dependencias",
+        "format": "CSV o Excel",
+        "description": "Carga una fila por dependencia. Esta plantilla sirve para crear nuevas dependencias o actualizar las que ya existen.",
+        "required": ["nombre", "tipo"],
+        "optional": ["descripcion"],
+        "example": "nombre,tipo,descripcion",
+        "note_title": "Cómo lo procesa la plataforma",
+        "note": "Si el nombre coincide con una dependencia existente, se actualiza. Si no existe, se crea un nuevo registro."
+    },
+    "areas": {
+        "title": "Plantilla de unidades administrativas",
+        "format": "CSV o Excel",
+        "description": "Carga una fila por unidad administrativa. Cada unidad debe apuntar a una dependencia existente por nombre.",
+        "required": ["dependencia", "nombre"],
+        "optional": [],
+        "example": "dependencia,nombre",
+        "note_title": "Qué validar antes de importar",
+        "note": "La columna dependencia debe coincidir exactamente con una dependencia registrada. Si no existe, esa fila se marca como error."
+    },
+    "usuarios": {
+        "title": "Plantilla de usuarios",
+        "format": "CSV o Excel",
+        "description": "Carga una fila por usuario. Puedes crear cuentas nuevas o actualizar usuarios existentes por correo institucional.",
+        "required": ["nombre", "correo", "rol"],
+        "optional": ["password", "dependencia", "area"],
+        "example": "nombre,correo,rol,password,dependencia,area",
+        "note_title": "Consideraciones importantes",
+        "note": "Los roles válidos son administrador, revisor, evaluador, respondente y consulta. Si incluyes dependencia o area, deben existir previamente en catálogos."
+    }
+} %}
+<script id="role-definitions-data" type="application/json">{{ role_definitions|tojson }}</script>
+<script id="import-guide-definitions" type="application/json">{{ import_guides|tojson }}</script>
+{% endblock %}

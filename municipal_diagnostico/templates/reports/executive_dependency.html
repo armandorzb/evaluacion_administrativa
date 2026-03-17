@@ -1,0 +1,340 @@
+{% extends "base.html" %}
+{% block title %}Ficha Ejecutiva de Dependencia | Diagnóstico Integral Municipal{% endblock %}
+{% block content %}
+<section class="executive-hero report-hero">
+    <div class="hero-copy">
+        <p class="eyebrow">Ficha ejecutiva por dependencia</p>
+        <h1>{{ evaluacion.dependencia.nombre }} · {{ evaluacion.periodo.nombre }}</h1>
+        <p class="lede">
+            Lámina institucional con lectura integral de madurez administrativa, prioridades de intervención,
+            mapa de brechas y evolución histórica de la dependencia.
+        </p>
+        <div class="tag-row">
+            <span class="tag">Estado: {{ summary.state_label }}</span>
+            <span class="tag">Índice: {{ summary.index_score }}</span>
+            <span class="tag">Nivel: {{ summary.level_label }}</span>
+            <span class="tag">Avance: {{ summary.completion }}%</span>
+            <span class="tag">Posición en el periodo: {{ dependency_card.rank }}</span>
+        </div>
+    </div>
+
+    <article class="hero-card report-summary">
+        <div class="card-kicker">Navegación ejecutiva</div>
+        <form method="get" class="stack">
+            <label>Periodo
+                <select name="periodo_id" onchange="this.form.submit()">
+                    {% for periodo in periodos %}
+                    <option value="{{ periodo.id }}" {% if periodo.id == selected_period.id %}selected{% endif %}>{{ periodo.nombre }}</option>
+                    {% endfor %}
+                </select>
+            </label>
+        </form>
+        <div class="metric-grid">
+            <div class="metric-card">
+                <span>Ejes críticos</span>
+                <strong>{{ summary.critical_axes|length }}</strong>
+            </div>
+            <div class="metric-card">
+                <span>Reactivos respondidos</span>
+                <strong>{{ summary.answered_questions }}/{{ summary.total_questions }}</strong>
+            </div>
+            <div class="metric-card">
+                <span>Evidencias</span>
+                <strong>{{ evaluacion.evidencias|length }}</strong>
+            </div>
+            <div class="metric-card">
+                <span>Mayor brecha</span>
+                <strong>{{ dependency_card.weakest_axis.clave }}</strong>
+            </div>
+        </div>
+        {% if summary.is_preliminary %}
+        <div class="callout callout-warning">
+            <strong>Lectura preliminar</strong>
+            <p>Esta dependencia todavía está en seguimiento operativo y no forma parte del universo oficial cerrado.</p>
+        </div>
+        {% else %}
+        <div class="callout callout-success">
+            <strong>Resultado oficial</strong>
+            <p>La ficha corresponde a una evaluación aprobada o cerrada y puede usarse como referencia institucional.</p>
+        </div>
+        {% endif %}
+        <div class="actions">
+            <a class="button button-primary" href="{{ url_for('reports.evaluation_report', evaluation_id=evaluacion.id) }}">Abrir reporte detallado</a>
+            <a class="button" href="{{ url_for('reports.evaluation_pdf', evaluation_id=evaluacion.id) }}">Exportar PDF</a>
+            <a class="button" href="{{ url_for('reports.executive_home', periodo_id=selected_period.id) }}">Volver al centro</a>
+        </div>
+    </article>
+</section>
+
+<section class="section-grid two">
+    <article class="panel">
+        <div class="section-heading">
+            <div>
+                <p class="eyebrow">Índice de madurez</p>
+                <h2>Interpretación institucional</h2>
+            </div>
+        </div>
+        <div class="legend-table">
+            <div class="legend-row legend-low"><span>0.00 - 1.50</span><strong>Bajo</strong></div>
+            <div class="legend-row legend-medium"><span>1.51 - 2.00</span><strong>Medio</strong></div>
+            <div class="legend-row legend-high"><span>2.01 - 2.50</span><strong>Alto</strong></div>
+            <div class="legend-row legend-optimal"><span>2.51 - 3.00</span><strong>Óptimo</strong></div>
+        </div>
+    </article>
+
+    <article class="panel">
+        <div class="section-heading">
+            <div>
+                <p class="eyebrow">Posicionamiento</p>
+                <h2>Comparativo dentro del periodo</h2>
+            </div>
+        </div>
+        <div class="table-wrap">
+            <table class="executive-table">
+                <thead>
+                    <tr>
+                        <th>#</th>
+                        <th>Dependencia</th>
+                        <th>Índice</th>
+                        <th>Estado</th>
+                    </tr>
+                </thead>
+                <tbody>
+                    {% for peer in peer_cards %}
+                    <tr>
+                        <td>{{ peer.rank }}</td>
+                        <td>{{ peer.dependencia }}</td>
+                        <td>{{ peer.summary.index_score }}</td>
+                        <td><span class="status status-{{ peer.estado }}">{{ peer.estado_label }}</span></td>
+                    </tr>
+                    {% endfor %}
+                </tbody>
+            </table>
+        </div>
+    </article>
+</section>
+
+<section class="section-grid two">
+    <article class="panel">
+        <div class="section-heading">
+            <div>
+                <p class="eyebrow">Radar de ejes</p>
+                <h2>Mapa institucional de desempeño</h2>
+            </div>
+        </div>
+        <div class="chart-wrap">
+            <canvas id="dependencyRadar" height="280"></canvas>
+        </div>
+    </article>
+
+    <article class="panel">
+        <div class="section-heading">
+            <div>
+                <p class="eyebrow">Mapa de brechas</p>
+                <h2>Lectura por eje</h2>
+            </div>
+        </div>
+        <div class="table-wrap">
+            <table class="executive-table">
+                <thead>
+                    <tr>
+                        <th>Eje</th>
+                        <th>Promedio</th>
+                        <th>Brecha</th>
+                        <th>Madurez</th>
+                    </tr>
+                </thead>
+                <tbody>
+                    {% for axis in summary.axes %}
+                    <tr>
+                        <td>{{ axis.nombre }}</td>
+                        <td>{{ axis.promedio }}</td>
+                        <td>{{ axis.brecha }}</td>
+                        <td><span class="status status-{{ axis.maturity_slug }}">{{ axis.madurez }}</span></td>
+                    </tr>
+                    {% endfor %}
+                </tbody>
+            </table>
+        </div>
+    </article>
+</section>
+
+<section class="section-grid two">
+    <article class="panel">
+        <div class="section-heading">
+            <div>
+                <p class="eyebrow">Matriz de prioridades</p>
+                <h2>Impacto y urgencia por eje</h2>
+            </div>
+        </div>
+        <div class="priority-matrix">
+            <div class="matrix-cell matrix-critical">
+                <h3>Crítico</h3>
+                <ul class="plain-list">
+                    {% for axis in summary.axes if axis.priority_slug == 'critical' %}
+                    <li>{{ axis.nombre }}</li>
+                    {% else %}
+                    <li>Sin ejes en esta categoría.</li>
+                    {% endfor %}
+                </ul>
+            </div>
+            <div class="matrix-cell matrix-priority">
+                <h3>Prioritario</h3>
+                <ul class="plain-list">
+                    {% for axis in summary.axes if axis.priority_slug == 'priority' %}
+                    <li>{{ axis.nombre }}</li>
+                    {% else %}
+                    <li>Sin ejes en esta categoría.</li>
+                    {% endfor %}
+                </ul>
+            </div>
+            <div class="matrix-cell matrix-improvable">
+                <h3>Mejorable</h3>
+                <ul class="plain-list">
+                    {% for axis in summary.axes if axis.priority_slug == 'improvable' %}
+                    <li>{{ axis.nombre }}</li>
+                    {% else %}
+                    <li>Sin ejes en esta categoría.</li>
+                    {% endfor %}
+                </ul>
+            </div>
+            <div class="matrix-cell matrix-opportune">
+                <h3>Oportuno</h3>
+                <ul class="plain-list">
+                    {% for axis in summary.axes if axis.priority_slug == 'opportune' %}
+                    <li>{{ axis.nombre }}</li>
+                    {% else %}
+                    <li>Sin ejes en esta categoría.</li>
+                    {% endfor %}
+                </ul>
+            </div>
+        </div>
+    </article>
+
+    <article class="panel">
+        <div class="section-heading">
+            <div>
+                <p class="eyebrow">Líneas de acción</p>
+                <h2>Recomendaciónes estratégicas</h2>
+            </div>
+        </div>
+        {% for axis in summary.axes_sorted %}
+        <div class="insight-card">
+            <div class="insight-head">
+                <strong>{{ axis.nombre }}</strong>
+                <span class="status status-{{ axis.priority_slug }}">{{ axis.prioridad }}</span>
+            </div>
+            <p class="muted">Promedio {{ axis.promedio }} · Brecha {{ axis.brecha }} · Impacto {{ axis.impacto }}%</p>
+            <ul class="plain-list">
+                {% for recommendation in axis.recomendaciones %}
+                <li>{{ recommendation }}</li>
+                {% endfor %}
+            </ul>
+        </div>
+        {% endfor %}
+    </article>
+</section>
+
+<section class="section-grid two">
+    <article class="panel">
+        <div class="section-heading">
+            <div>
+                <p class="eyebrow">Tabla ejecutiva</p>
+                <h2>Detalle institucional por eje</h2>
+            </div>
+        </div>
+        <div class="table-wrap">
+            <table class="executive-table">
+                <thead>
+                    <tr>
+                        <th>Eje</th>
+                        <th>Prioridad</th>
+                        <th>Impacto</th>
+                        <th>Evidencias</th>
+                    </tr>
+                </thead>
+                <tbody>
+                    {% for axis in summary.axes_sorted %}
+                    <tr>
+                        <td>{{ axis.nombre }}</td>
+                        <td><span class="status status-{{ axis.priority_slug }}">{{ axis.prioridad }}</span></td>
+                        <td>{{ axis.impacto }}%</td>
+                        <td>{{ axis.evidencias }}</td>
+                    </tr>
+                    {% endfor %}
+                </tbody>
+            </table>
+        </div>
+    </article>
+
+    <article class="panel">
+        <div class="section-heading">
+            <div>
+                <p class="eyebrow">Histórico oficial</p>
+                <h2>Evolución de la dependencia</h2>
+            </div>
+        </div>
+        <div class="table-wrap">
+            <table class="executive-table">
+                <thead>
+                    <tr>
+                        <th>Periodo</th>
+                        <th>Índice</th>
+                        <th>Nivel</th>
+                    </tr>
+                </thead>
+                <tbody>
+                    {% for row in history %}
+                    <tr>
+                        <td>{{ row.periodo }}</td>
+                        <td>{{ row.indice }}</td>
+                        <td><span class="status status-{{ row.nivel_slug }}">{{ row.nivel }}</span></td>
+                    </tr>
+                    {% else %}
+                    <tr><td colspan="3" class="muted">Sin histórico oficial disponible para esta dependencia.</td></tr>
+                    {% endfor %}
+                </tbody>
+            </table>
+        </div>
+    </article>
+</section>
+
+<script>
+const dependencyRadar = document.getElementById('dependencyRadar');
+new Chart(dependencyRadar, {
+    type: 'radar',
+    data: {
+        labels: {{ summary.axes|map(attribute='nombre')|list|tojson }},
+        datasets: [{
+            label: 'Promedio por eje',
+            data: {{ summary.axes|map(attribute='promedio')|list|tojson }},
+            fill: true,
+            borderColor: '#6E8B3D',
+            backgroundColor: 'rgba(110, 139, 61, 0.18)',
+            pointBackgroundColor: '#183247',
+            pointBorderColor: '#ffffff',
+            borderWidth: 2
+        }]
+    },
+    options: {
+        animation: {
+            duration: 820,
+            easing: 'easeOutQuart'
+        },
+        plugins: {
+            legend: { display: false }
+        },
+        scales: {
+            r: {
+                min: 0,
+                max: 3,
+                ticks: { stepSize: 1, backdropColor: 'transparent' },
+                grid: { color: 'rgba(24, 50, 71, 0.22)' },
+                angleLines: { color: 'rgba(24, 50, 71, 0.22)' },
+                pointLabels: { color: '#183247', font: { size: 12, family: 'Urbanist' } }
+            }
+        }
+    }
+});
+</script>
+{% endblock %}

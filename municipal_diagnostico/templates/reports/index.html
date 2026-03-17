@@ -1,0 +1,155 @@
+{% extends "base.html" %}
+{% block title %}Hub Operativo de Reportes | Diagnóstico Integral Municipal{% endblock %}
+{% block content %}
+<section class="executive-hero">
+    <div class="hero-copy">
+        <p class="eyebrow">Hub operativo de reportes</p>
+        <h1>Seguimiento administrativo de implementación y validación.</h1>
+        <p class="lede">
+            Este espacio conserva la lectura operativa del ciclo de evaluación. El análisis institucional
+            de alto nivel vive ahora en el Centro Ejecutivo.
+        </p>
+    </div>
+    <article class="hero-card compact">
+        <div class="card-kicker">Filtros</div>
+        <form method="get" class="stack">
+            <label>Periodo
+                <select name="periodo_id">
+                    <option value="">Todos</option>
+                    {% for periodo in periodos %}
+                    <option value="{{ periodo.id }}" {% if selected_period and selected_period.id == periodo.id %}selected{% endif %}>{{ periodo.nombre }}</option>
+                    {% endfor %}
+                </select>
+            </label>
+            <label>Dependencia
+                <select name="dependencia_id">
+                    <option value="">Todas</option>
+                    {% for dependencia in dependencias %}
+                    <option value="{{ dependencia.id }}" {% if selected_dependencia_id == dependencia.id %}selected{% endif %}>{{ dependencia.nombre }}</option>
+                    {% endfor %}
+                </select>
+            </label>
+            <label>Estado
+                <select name="estado">
+                    <option value="">Todos</option>
+                    {% for state in reportable_states %}
+                    <option value="{{ state }}" {% if selected_state == state %}selected{% endif %}>{{ state|replace('_', ' ')|capitalize }}</option>
+                    {% endfor %}
+                </select>
+            </label>
+            <div class="actions">
+                <button type="submit" class="button button-primary">Aplicar filtros</button>
+                <a class="button" href="{{ url_for('reports.executive_home', periodo_id=selected_period.id) if selected_period else url_for('reports.executive_home') }}">Ir al Centro Ejecutivo</a>
+            </div>
+        </form>
+    </article>
+</section>
+
+{% if selected_period and period_summary %}
+<section class="section-grid two">
+    <article class="panel">
+        <div class="section-heading">
+            <div>
+                <p class="eyebrow">Periodo seleccionado</p>
+                <h2>{{ selected_period.nombre }}</h2>
+            </div>
+            <a class="button button-primary" href="{{ url_for('reports.executive_home', periodo_id=selected_period.id) }}">Abrir lectura ejecutiva</a>
+        </div>
+        <div class="metric-grid">
+            <div class="metric-card">
+                <span>Evaluaciones operativas</span>
+                <strong>{{ period_summary.operational_ranking|length }}</strong>
+            </div>
+            <div class="metric-card">
+                <span>Resultados oficiales</span>
+                <strong>{{ period_summary.official_ranking|length }}</strong>
+            </div>
+            <div class="metric-card">
+                <span>En revisión</span>
+                <strong>{{ period_summary.state_counts.en_revision or 0 }}</strong>
+            </div>
+            <div class="metric-card">
+                <span>Devueltas</span>
+                <strong>{{ period_summary.state_counts.devuelta or 0 }}</strong>
+            </div>
+        </div>
+    </article>
+
+    <article class="panel">
+        <div class="section-heading">
+            <div>
+                <p class="eyebrow">Ranking operativo</p>
+                <h2>Dependencias con mayor avance</h2>
+            </div>
+        </div>
+        <div class="table-wrap">
+            <table class="executive-table">
+                <thead>
+                    <tr>
+                        <th>Ranking</th>
+                        <th>Dependencia</th>
+                        <th>Estado</th>
+                        <th>Índice</th>
+                    </tr>
+                </thead>
+                <tbody>
+                    {% for row in period_summary.operational_ranking[:6] %}
+                    <tr>
+                        <td>{{ row.operational_rank }}</td>
+                        <td>{{ row.dependencia }}</td>
+                        <td><span class="status status-{{ row.estado }}">{{ row.estado_label }}</span></td>
+                        <td>{{ row.indice }}</td>
+                    </tr>
+                    {% else %}
+                    <tr><td colspan="4" class="muted">Sin evaluaciones visibles para este periodo.</td></tr>
+                    {% endfor %}
+                </tbody>
+            </table>
+        </div>
+    </article>
+</section>
+{% endif %}
+
+<section class="section-heading">
+    <div>
+        <p class="eyebrow">Evaluaciones</p>
+        <h2>Vista administrativa de reportes</h2>
+    </div>
+</section>
+
+<section class="card-grid">
+    {% for card in cards %}
+    <article class="report-card">
+        <div class="report-card-head">
+            <div>
+                <h3>{{ card.evaluacion.dependencia.nombre }}</h3>
+                <p>{{ card.evaluacion.periodo.nombre }}</p>
+            </div>
+            <span class="status status-{{ card.evaluacion.estado }}">{{ card.summary.state_label }}</span>
+        </div>
+        <div class="metric-inline">
+            <span>Índice</span>
+            <strong>{{ card.summary.index_score }}</strong>
+        </div>
+        <div class="metric-inline">
+            <span>Avance</span>
+            <strong>{{ card.summary.completion }}%</strong>
+        </div>
+        {% if card.summary.is_preliminary %}
+        <div class="callout callout-warning compact">
+            <strong>Preliminar</strong>
+            <p>Este resultado aún forma parte de la implementación en curso.</p>
+        </div>
+        {% endif %}
+        <div class="actions">
+            <a class="button" href="{{ url_for('reports.executive_dependency', dependency_id=card.evaluacion.dependencia_id, periodo_id=card.evaluacion.periodo_id) }}">Ficha ejecutiva</a>
+            <a class="button button-primary" href="{{ url_for('reports.evaluation_report', evaluation_id=card.evaluacion.id) }}">Reporte</a>
+        </div>
+    </article>
+    {% else %}
+    <article class="panel">
+        <p class="muted">No hay evaluaciones para los filtros seleccionados.</p>
+    </article>
+    {% endfor %}
+</section>
+{% endblock %}

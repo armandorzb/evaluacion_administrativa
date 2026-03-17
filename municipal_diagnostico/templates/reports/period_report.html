@@ -1,0 +1,97 @@
+{% extends "base.html" %}
+{% block title %}Reporte Comparativo | Diagnóstico Integral Municipal{% endblock %}
+{% block content %}
+<section class="executive-hero report-hero">
+    <div class="hero-copy">
+        <p class="eyebrow">Reporte comparativo</p>
+        <h1>{{ periodo.nombre }}</h1>
+        <p class="lede">
+            Vista consolidada del periodo con capa operativa para implementación en curso y capa oficial para resultados aprobados/públicados.
+        </p>
+        <div class="tag-row">
+            <span class="tag">Operativas: {{ summary.operational_ranking|length }}</span>
+            <span class="tag">Oficiales: {{ summary.official_ranking|length }}</span>
+            <span class="tag">Estados visibles: {{ summary.visible_states|join(', ') }}</span>
+        </div>
+    </div>
+    <article class="hero-card compact">
+        <div class="card-kicker">Exportaciones</div>
+        <div class="stack">
+            <a class="button" href="{{ url_for('reports.period_csv', period_id=periodo.id) }}">Exportar CSV</a>
+            <a class="button button-primary" href="{{ url_for('reports.period_excel', period_id=periodo.id) }}">Exportar Excel</a>
+        </div>
+    </article>
+</section>
+
+<section class="section-grid two">
+    <article class="panel">
+        <div class="section-heading">
+            <div>
+                <p class="eyebrow">Avance operativo</p>
+                <h2>Evaluaciones visibles del periodo</h2>
+            </div>
+        </div>
+        <div class="table-wrap">
+            <table class="executive-table">
+                <thead>
+                    <tr>
+                        <th>Ranking</th>
+                        <th>Dependencia</th>
+                        <th>Estado</th>
+                        <th>Índice</th>
+                        <th>Avance</th>
+                    </tr>
+                </thead>
+                <tbody>
+                    {% for row in summary.operational_ranking %}
+                    <tr>
+                        <td>{{ row.operational_rank }}</td>
+                        <td>{{ row.dependencia }}</td>
+                        <td><span class="status status-{{ row.estado }}">{{ row.estado_label }}</span></td>
+                        <td>{{ row.indice }}</td>
+                        <td>{{ row.avance }}%</td>
+                    </tr>
+                    {% else %}
+                    <tr><td colspan="5" class="muted">No hay evaluaciones visibles para este periodo.</td></tr>
+                    {% endfor %}
+                </tbody>
+            </table>
+        </div>
+    </article>
+
+    <article class="panel">
+        <div class="section-heading">
+            <div>
+                <p class="eyebrow">Resultado oficial</p>
+                <h2>Evaluaciones aprobadas o cerradas</h2>
+            </div>
+        </div>
+        <div class="table-wrap">
+            <table class="executive-table">
+                <thead>
+                    <tr>
+                        <th>Ranking</th>
+                        <th>Dependencia</th>
+                        <th>Estado</th>
+                        <th>Índice</th>
+                        <th>Avance</th>
+                    </tr>
+                </thead>
+                <tbody>
+                    {% for row in summary.official_ranking %}
+                    <tr>
+                        <td>{{ row.official_rank }}</td>
+                        <td>{{ row.dependencia }}</td>
+                        <td><span class="status status-{{ row.estado }}">{{ row.estado_label }}</span></td>
+                        <td>{{ row.indice }}</td>
+                        <td>{{ row.avance }}%</td>
+                    </tr>
+                    {% else %}
+                    <tr><td colspan="5" class="muted">Aún no existen resultados oficiales en este periodo.</td></tr>
+                    {% endfor %}
+                </tbody>
+            </table>
+        </div>
+    </article>
+</section>
+{% endblock %}

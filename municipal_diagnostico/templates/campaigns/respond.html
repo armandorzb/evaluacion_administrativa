@@ -1,0 +1,281 @@
+{% extends "base.html" %}
+{% block title %}Responder cuestionario | Diagnóstico Integral Municipal{% endblock %}
+{% block content %}
+<section class="executive-hero report-hero">
+    <div class="hero-copy page-fade-target">
+        <p class="eyebrow">Respuesta de cuestionario</p>
+        <h1>{{ asignacion.objetivo_nombre }} · {{ asignacion.campana.nombre }}</h1>
+        <p class="lede">
+            Responde el cuestionario por secciones, guarda avances parciales y adjunta soporte opcional al cierre de cada sección.
+            La experiencia prioriza claridad, progreso visual y envío final sin revisión intermedia.
+        </p>
+        <div class="tag-row">
+            <span class="tag">Estado: {{ summary.state_label }}</span>
+            <span class="tag">Índice actual: {{ summary.index_score }}</span>
+            <span class="tag">Nivel: {{ summary.level_label }}</span>
+            <span class="tag">Avance: <span data-overall-completion>{{ summary.completion }}</span></span>
+        </div>
+        <div class="progress capture-progress-shell progress-hero">
+            <span data-progress-bar data-progress-role="overall" data-progress-value="{{ summary.completion }}"></span>
+        </div>
+    </div>
+    <article class="hero-card compact page-fade-target">
+        <div class="card-kicker">Contexto de respuesta</div>
+        <div class="metric-grid">
+            <div class="metric-card">
+                <span>Campaña</span>
+                <strong>{{ asignacion.campana.estado|capitalize }}</strong>
+            </div>
+            <div class="metric-card">
+                <span>Objetivo</span>
+                <strong>{{ "Usuario" if asignacion.target_type == "usuario" else "Dependencia" }}</strong>
+            </div>
+            <div class="metric-card">
+                <span>Respondente</span>
+                <strong>{{ asignacion.respondente.nombre if asignacion.respondente else current_user.nombre }}</strong>
+            </div>
+            <div class="metric-card">
+                <span>Soportes</span>
+                <strong>{{ summary.support_count }}</strong>
+            </div>
+        </div>
+        <div class="actions">
+            <a class="button" href="{{ url_for('campaigns.assignments', campana_id=asignacion.campana_id) }}">Volver a asignaciones</a>
+            <a class="button" href="{{ url_for('campaigns.assignment_report', assignment_id=asignacion.id) }}">Ver reporte</a>
+            {% if can_edit %}
+            <form method="post" action="{{ url_for('campaigns.submit', assignment_id=asignacion.id) }}">
+                <button class="button button-primary" type="submit">Enviar cuestionario</button>
+            </form>
+            {% endif %}
+        </div>
+    </article>
+</section>
+
+<section class="capture-layout">
+    <aside class="capture-sidebar">
+        <article class="panel page-fade-target capture-sidebar-panel">
+            <div class="section-heading">
+                <div>
+                    <p class="eyebrow">Ruta de respuesta</p>
+                    <h2>Avance por sección</h2>
+                </div>
+            </div>
+            <div class="capture-nav capture-nav-stack">
+                {% for module in module_cards %}
+                <a
+                    class="capture-nav-link capture-nav-card"
+                    href="#eje-{{ module.eje.id }}"
+                    data-axis-link="{{ module.eje.id }}"
+                    style="--stagger: {{ loop.index0 }};"
+                >
+                    <div class="capture-nav-top">
+                        <div>
+                            <p class="nav-axis-key">{{ module.eje.clave }}</p>
+                            <strong>{{ module.eje.nombre }}</strong>
+                        </div>
+                        <span class="pill">{{ module.eje.ponderacion|percent }}</span>
+                    </div>
+                    <p class="capture-nav-description">{{ module.summary.recomendaciones[0] }}</p>
+                    <div class="progress progress-module">
+                        <span
+                            data-progress-bar
+                            data-axis-progress-bar="{{ module.eje.id }}"
+                            data-progress-value="{{ module.summary.progreso }}"
+                        ></span>
+                    </div>
+                    <div class="capture-nav-foot">
+                        <span><strong data-axis-answered="{{ module.eje.id }}">{{ module.summary.respondidos }}</strong>/{{ module.summary.total }} reactivos</span>
+                        <strong data-axis-progress="{{ module.eje.id }}">{{ module.summary.progreso }}%</strong>
+                    </div>
+                    <div class="capture-nav-meta">
+                        <span class="status status-{{ module.summary.priority_slug }}">{{ module.summary.prioridad }}</span>
+                        <span class="pill">{{ module.summary.madurez }}</span>
+                    </div>
+                </a>
+                {% endfor %}
+            </div>
+        </article>
+    </aside>
+
+    <div class="capture-main">
+        {% for module in module_cards %}
+        {% set eje = module.eje %}
+        {% set support = module.support %}
+        <form
+            method="post"
+            enctype="multipart/form-data"
+            class="panel instrument-panel module-panel"
+            id="eje-{{ eje.id }}"
+            data-axis-form
+            data-axis-id="{{ eje.id }}"
+            data-axis-total="{{ module.summary.total }}"
+            data-axis-section="{{ eje.id }}"
+            data-autosave-url="{{ url_for('campaigns.autosave', assignment_id=asignacion.id) if can_edit else '' }}"
+            data-readonly="{{ 'true' if not can_edit else 'false' }}"
+            style="--stagger: {{ loop.index0 }};"
+        >
+            <input type="hidden" name="eje_id" value="{{ eje.id }}">
+
+            <div class="section-heading">
+                <div>
+                    <p class="eyebrow">{{ eje.clave }}</p>
+                    <h2>{{ eje.nombre }}</h2>
+                    <p class="muted">
+                        Ponderación {{ eje.ponderacion|percent }} · Promedio {{ module.summary.promedio }} · Brecha {{ module.summary.brecha }}
+                    </p>
+                </div>
+                <span class="status status-{{ module.summary.priority_slug }}">{{ module.summary.prioridad }}</span>
+            </div>
+
+            <section class="module-overview-grid">
+                <article class="module-progress-card">
+                    <div class="module-progress-head">
+                        <div>
+                            <p class="eyebrow">Progreso del módulo</p>
+                            <h3>{{ module.summary.respondidos }} de {{ module.summary.total }} reactivos</h3>
+                        </div>
+                        <strong class="module-progress-value" data-axis-progress="{{ eje.id }}">{{ module.summary.progreso }}%</strong>
+                    </div>
+                    <div class="progress progress-axis">
+                        <span
+                            data-progress-bar
+                            data-axis-progress-bar="{{ eje.id }}"
+                            data-progress-value="{{ module.summary.progreso }}"
+                        ></span>
+                    </div>
+                    <div class="module-progress-foot">
+                        <span>Respondidos: <strong data-axis-answered="{{ eje.id }}">{{ module.summary.respondidos }}</strong>/{{ module.summary.total }}</span>
+                        <span>Soportes: {{ 1 if support and (support.comentario or support.archivo_guardado) else 0 }}</span>
+                    </div>
+                </article>
+
+                <article class="module-kpi-card">
+                    <span>Madurez</span>
+                    <strong>{{ module.summary.madurez }}</strong>
+                    <p class="muted">Interpretación automática del promedio observado en esta sección.</p>
+                </article>
+
+                <article class="module-kpi-card">
+                    <span>Prioridad</span>
+                    <strong>{{ module.summary.prioridad }}</strong>
+                    <p class="muted">Clasificación de intervención considerando brecha y ponderación.</p>
+                </article>
+
+                <article class="module-kpi-card">
+                    <span>Acción sugerida</span>
+                    <strong>{{ module.summary.recomendaciones[0] }}</strong>
+                    <p class="muted">Línea de trabajo sugerida para orientar el cierre del módulo.</p>
+                </article>
+            </section>
+
+            {% for reactivo in eje.reactivos %}
+            {% set response = module.responses[loop.index0] %}
+            <div class="question-card" data-reactivo-id="{{ reactivo.id }}">
+                <div class="question-meta-row">
+                    <div class="question-reference">
+                        <span class="question-index">Reactivo {{ loop.index }} de {{ eje.reactivos|length }}</span>
+                        <strong>{{ reactivo.codigo }}</strong>
+                    </div>
+                    <span class="question-score {% if not response %}is-empty{% endif %}" data-question-score>
+                        {% if response %}Nivel {{ response.valor }}{% else %}Sin respuesta{% endif %}
+                    </span>
+                </div>
+                <p class="question-text">{{ reactivo.pregunta }}</p>
+                <div class="choice-grid choice-grid-cards">
+                    {% for index in range(4) %}
+                    <label class="choice-chip {% if response and response.valor == index %}is-selected{% endif %}">
+                        <input
+                            type="radio"
+                            name="valor_{{ reactivo.id }}"
+                            value="{{ index }}"
+                            {% if response and response.valor == index %}checked{% endif %}
+                            {% if not can_edit %}disabled{% endif %}
+                        >
+                        <span>Nivel {{ index }}</span>
+                        <strong>{{ reactivo.opciones[index|string] }}</strong>
+                    </label>
+                    {% endfor %}
+                </div>
+                <label>Comentario opcional del reactivo
+                    <textarea name="comentario_{{ reactivo.id }}" rows="3" {% if not can_edit %}disabled{% endif %}>{{ response.comentario if response else '' }}</textarea>
+                </label>
+            </div>
+            {% endfor %}
+
+            <section class="module-closure">
+                <div class="section-heading">
+                    <div>
+                        <p class="eyebrow">Cierre de sección</p>
+                        <h2>Comentario y soporte opcional</h2>
+                    </div>
+                </div>
+                <label>Comentario general de la sección
+                    <textarea name="comentario_eje_{{ eje.id }}" rows="4" {% if not can_edit %}disabled{% endif %}>{{ support.comentario if support else '' }}</textarea>
+                </label>
+                <div class="insight-card evidence-card-emphasis">
+                    <div class="insight-head">
+                        <strong>Soporte documental de la sección</strong>
+                        <span class="pill">{% if support and support.archivo_guardado %}1 archivo{% else %}Sin archivo{% endif %}</span>
+                    </div>
+                    <p class="muted evidence-help">
+                        Puedes adjuntar un documento de respaldo por sección. Si subes un archivo nuevo, reemplazará el soporte anterior.
+                    </p>
+                    <label>Archivo de soporte
+                        <input type="file" name="evidencia_{{ eje.id }}" {% if not can_edit %}disabled{% endif %}>
+                    </label>
+                    {% if support and support.archivo_guardado %}
+                    <a class="list-row evidence-row" href="{{ url_for('campaigns.download_support', support_id=support.id) }}">
+                        <div>
+                            <strong>{{ support.archivo_nombre_original }}</strong>
+                            <p class="muted">{{ support.updated_at|datetimeformat }}</p>
+                        </div>
+                        <span class="pill">{{ support.mime_type }}</span>
+                    </a>
+                    {% endif %}
+                </div>
+            </section>
+
+            <div class="module-toolbar">
+                <div class="save-meta">
+                    <span class="save-indicator" data-save-state="idle">
+                        <span data-save-label>{% if can_edit %}Sin cambios pendientes{% else %}Solo lectura{% endif %}</span>
+                    </span>
+                    <span>Último guardado: <strong data-last-saved>{{ module.last_saved or 'Sin registro' }}</strong></span>
+                </div>
+                {% if can_edit %}
+                <div class="module-actions">
+                    <button class="button button-primary" type="submit">Guardar sección</button>
+                    {% if not loop.last %}
+                    <a class="button" href="#eje-{{ cuestionario.ejes[loop.index].id }}">Continuar</a>
+                    {% else %}
+                    <a class="button" href="#cierre-envio">Preparar envío</a>
+                    {% endif %}
+                </div>
+                {% endif %}
+            </div>
+        </form>
+        {% endfor %}
+
+        <article class="panel page-fade-target" id="cierre-envio">
+            <div class="section-heading">
+                <div>
+                    <p class="eyebrow">Cierre final</p>
+                    <h2>Envío del cuestionario</h2>
+                </div>
+            </div>
+            <p class="muted">
+                El envío final queda disponible cuando los {{ summary.total_questions }} reactivos estén respondidos. El soporte por sección es opcional.
+            </p>
+            <div class="metric-inline">
+                <span>Avance total</span>
+                <strong><span data-overall-completion>{{ summary.completion }}</span></strong>
+            </div>
+            {% if can_edit %}
+            <form method="post" action="{{ url_for('campaigns.submit', assignment_id=asignacion.id) }}" class="actions">
+                <button class="button button-primary" type="submit">Enviar cuestionario</button>
+            </form>
+            {% endif %}
+        </article>
+    </div>
+</section>
+{% endblock %}

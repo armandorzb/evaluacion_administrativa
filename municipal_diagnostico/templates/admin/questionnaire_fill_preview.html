@@ -1,0 +1,193 @@
+{% extends "base.html" %}
+{% block title %}Vista de llenado | Diagnóstico Integral Municipal{% endblock %}
+{% block content %}
+<section class="executive-hero report-hero">
+    <div class="hero-copy page-fade-target">
+        <p class="eyebrow">Vista de llenado</p>
+        <h1>{{ version.nombre }}</h1>
+        <p class="lede">
+            Esta es la vista metodológica de la pantalla de llenado para esta versión del cuestionario.
+            Sirve para validar el orden, la redacción, las tarjetas de respuesta y el comportamiento visual antes de una aplicación real.
+        </p>
+        <div class="tag-row">
+            <span class="tag">Estado: {{ version.estado|capitalize }}</span>
+            <span class="tag">Ejes: {{ version.ejes|length }}</span>
+            <span class="tag">Reactivos: {{ total_questions }}</span>
+        </div>
+    </div>
+    <article class="hero-card compact page-fade-target">
+        <div class="card-kicker">Uso de esta vista</div>
+        <div class="callout callout-warning preview-banner">
+            <strong>Referencia metodológica</strong>
+            <p>No guarda información ni depende de una evaluación activa. Muestra cómo se verá el flujo de llenado del capturista.</p>
+        </div>
+        <div class="actions vertical">
+            <a class="button button-primary" href="{{ url_for('admin.edit_questionnaire', version_id=version.id) }}">Editar versión</a>
+            <a class="button" href="{{ url_for('admin.questionnaires') }}">Volver a cuestionarios</a>
+        </div>
+    </article>
+</section>
+
+<section class="capture-layout">
+    <aside class="capture-sidebar">
+        <article class="panel page-fade-target capture-sidebar-panel">
+            <div class="section-heading">
+                <div>
+                    <p class="eyebrow">Mapa del instrumento</p>
+                    <h2>Ejes y progreso visual</h2>
+                </div>
+            </div>
+            <div class="capture-nav capture-nav-stack">
+                {% for eje in version.ejes %}
+                {% set demo_progress = (((loop.index0 + 1) * 100) / ((version.ejes|length) + 1))|round(0, 'floor') %}
+                {% set demo_answered = ((eje.reactivos|length * demo_progress) / 100)|round(0, 'floor') %}
+                <a
+                    class="capture-nav-link capture-nav-card"
+                    href="#eje-{{ eje.id }}"
+                    data-axis-link="{{ eje.id }}"
+                    style="--stagger: {{ loop.index0 }};"
+                >
+                    <div class="capture-nav-top">
+                        <div>
+                            <p class="nav-axis-key">{{ eje.clave }}</p>
+                            <strong>{{ eje.nombre }}</strong>
+                        </div>
+                        <span class="pill">{{ eje.ponderacion|percent }}</span>
+                    </div>
+                    <p class="capture-nav-description">Progreso demostrativo para evaluar navegación, jerarquía visual y lectura rápida del instrumento.</p>
+                    <div class="progress progress-module">
+                        <span data-progress-bar data-progress-value="{{ demo_progress }}"></span>
+                    </div>
+                    <div class="capture-nav-foot">
+                        <span><strong>{{ demo_answered|int }}</strong>/{{ eje.reactivos|length }} reactivos</span>
+                        <strong>{{ demo_progress|int }}%</strong>
+                    </div>
+                    <div class="capture-nav-meta">
+                        <span class="pill">Demo UI</span>
+                        <span class="pill">{{ eje.reactivos|length }} reactivo(s)</span>
+                    </div>
+                </a>
+                {% endfor %}
+            </div>
+        </article>
+    </aside>
+
+    <div class="capture-main">
+        {% for eje in version.ejes %}
+        {% set demo_progress = (((loop.index0 + 1) * 100) / ((version.ejes|length) + 1))|round(0, 'floor') %}
+        {% set demo_answered = ((eje.reactivos|length * demo_progress) / 100)|round(0, 'floor') %}
+        <article
+            class="panel instrument-panel module-panel is-readonly"
+            id="eje-{{ eje.id }}"
+            data-axis-section="{{ eje.id }}"
+            style="--stagger: {{ loop.index0 }};"
+        >
+            <div class="section-heading">
+                <div>
+                    <p class="eyebrow">{{ eje.clave }}</p>
+                    <h2>{{ eje.nombre }}</h2>
+                    <p class="muted">{{ eje.descripcion }}</p>
+                </div>
+                <span class="pill">Ponderación {{ eje.ponderacion|percent }}</span>
+            </div>
+
+            <section class="module-overview-grid">
+                <article class="module-progress-card">
+                    <div class="module-progress-head">
+                        <div>
+                            <p class="eyebrow">Progreso demostrativo</p>
+                            <h3>{{ demo_answered|int }} de {{ eje.reactivos|length }} reactivos</h3>
+                        </div>
+                        <strong class="module-progress-value">{{ demo_progress|int }}%</strong>
+                    </div>
+                    <div class="progress progress-axis">
+                        <span data-progress-bar data-progress-value="{{ demo_progress }}"></span>
+                    </div>
+                    <div class="module-progress-foot">
+                        <span>Vista simulada para revisión de UX</span>
+                        <span>Estado esperado</span>
+                    </div>
+                </article>
+
+                <article class="module-kpi-card">
+                    <span>Ponderación</span>
+                    <strong>{{ eje.ponderacion|percent }}</strong>
+                    <p class="muted">Peso institucional mostrado en la tarjeta lateral y en el encabezado del módulo.</p>
+                </article>
+
+                <article class="module-kpi-card">
+                    <span>Lectura de UI</span>
+                    <strong>Tarjetas activas</strong>
+                    <p class="muted">Cada opción responde como tarjeta para revisar jerarquía, contraste y selección.</p>
+                </article>
+
+                <article class="module-kpi-card">
+                    <span>Soporte</span>
+                    <strong>Condicionado</strong>
+                    <p class="muted">Comentario general y evidencia aparecen cuando exista responsable al implementar.</p>
+                </article>
+            </section>
+
+            {% for reactivo in eje.reactivos %}
+            {% set demo_value = loop.index0 % 4 %}
+            <div class="question-card is-readonly" data-reactivo-id="{{ reactivo.id }}">
+                <div class="question-meta-row">
+                    <div class="question-reference">
+                        <span class="question-index">Reactivo {{ loop.index }} de {{ eje.reactivos|length }}</span>
+                        <strong>{{ reactivo.codigo }}</strong>
+                    </div>
+                    <span class="question-score">Nivel {{ demo_value }}</span>
+                </div>
+                <p class="question-text">{{ reactivo.pregunta }}</p>
+
+                <div class="choice-grid choice-grid-cards">
+                    {% for index in range(4) %}
+                    <label class="choice-chip {% if index == demo_value %}is-selected is-demo-selected{% endif %}">
+                        <input type="radio" disabled {% if index == demo_value %}checked{% endif %}>
+                        <span>Nivel {{ index }}</span>
+                        <strong>{{ reactivo.opciones[index|string] }}</strong>
+                    </label>
+                    {% endfor %}
+                </div>
+
+                <div class="meta-grid single-column-mobile">
+                    <label>Responsable del punto
+                        <select disabled>
+                            <option>Se asigna al implementar este cuestionario en una dependencia</option>
+                        </select>
+                    </label>
+                </div>
+
+                <div class="callout compact dependent-placeholder">
+                    <strong>Comentario condicionado por responsable</strong>
+                    <p>Cuando el punto tenga un responsable asignado, aquí se habilitará el comentario del reactivo.</p>
+                </div>
+            </div>
+            {% endfor %}
+
+            <section class="module-closure">
+                <div class="section-heading">
+                    <div>
+                        <p class="eyebrow">Cierre del módulo</p>
+                        <h2>Comentario y evidencia documental</h2>
+                    </div>
+                </div>
+
+                <div class="meta-grid single-column-mobile">
+                    <label>Responsable del módulo
+                        <select disabled>
+                            <option>Se define durante la captura operativa</option>
+                        </select>
+                    </label>
+                </div>
+
+                <div class="callout callout-warning dependent-placeholder">
+                    <strong>Cierre condicionado por responsable</strong>
+                    <p>Al asignar un responsable del módulo se habilitarán el comentario general y el bloque para adjuntar evidencia documental.</p>
+                </div>
+            </section>
+        </article>
+        {% endfor %}
+    </div>
+</section>
+{% endblock %}

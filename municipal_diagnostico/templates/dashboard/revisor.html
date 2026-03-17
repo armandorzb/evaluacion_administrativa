@@ -1,0 +1,63 @@
+{% extends "base.html" %}
+{% block title %}Perfil histórico | Diagnóstico Integral Municipal{% endblock %}
+{% block content %}
+<section class="page-banner">
+    <div>
+        <p class="eyebrow">Perfil archivado</p>
+        <h1>Revisión formal fuera del flujo principal</h1>
+        <p class="lede">
+            El rol de revisor se conserva por compatibilidad historica. La operación nueva de cuestionarios ya no utiliza esta bandeja como ruta principal.
+        </p>
+    </div>
+</section>
+
+<article class="panel">
+    <div class="callout callout-warning">
+        <strong>Uso interno</strong>
+        <p>Las revisiónes legacy solo sobreviven como consulta interna. Para nuevos despliegues, el seguimiento se realiza desde reportes de campanas.</p>
+    </div>
+    <div class="actions">
+        <a class="button button-primary" href="{{ url_for('campaigns.reports') if current_user.rol == 'administrador' else url_for('dashboard.home') }}">Volver al flujo principal</a>
+    </div>
+</article>
+
+<section class="section-grid two">
+    <article class="panel">
+        <div class="section-heading">
+            <div>
+                <p class="eyebrow">Pendientes históricos</p>
+                <h2>Evaluaciones por revisar</h2>
+            </div>
+        </div>
+        {% for evaluation in pending_review %}
+        <div class="list-row data-row">
+            <div>
+                <strong>{{ evaluation.dependencia.nombre }}</strong>
+                <p class="muted">{{ evaluation.periodo.nombre }}</p>
+            </div>
+        </div>
+        {% else %}
+        <p class="muted">Sin evaluaciones pendientes.</p>
+        {% endfor %}
+    </article>
+
+    <article class="panel">
+        <div class="section-heading">
+            <div>
+                <p class="eyebrow">Histórico</p>
+                <h2>Devueltas o aprobadas</h2>
+            </div>
+        </div>
+        {% for evaluation in returned + approved %}
+        <div class="list-row data-row">
+            <div>
+                <strong>{{ evaluation.dependencia.nombre }}</strong>
+                <p class="muted">{{ evaluation.estado|replace('_', ' ')|capitalize }} · {{ evaluation.periodo.nombre }}</p>
+            </div>
+        </div>
+        {% else %}
+        <p class="muted">Sin historial de revisión.</p>
+        {% endfor %}
+    </article>
+</section>
+{% endblock %}

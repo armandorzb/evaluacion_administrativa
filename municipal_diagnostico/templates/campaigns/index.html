@@ -1,0 +1,209 @@
+{% extends "base.html" %}
+{% block title %}Campañas | Diagnóstico Integral Municipal{% endblock %}
+{% block content %}
+<section class="executive-hero">
+    <div class="hero-copy">
+        <p class="eyebrow">Flujo simplificado</p>
+        <h1>Campañas de cuestionarios</h1>
+        <p class="lede">
+            Diseña el instrumento, congela una versión y abre campañas para asignarlo a usuarios o dependencias.
+            Desde aquí se administra el calendario y se monitorea el progreso general antes de entrar a las asignaciones.
+        </p>
+        <div class="tag-row">
+            <span class="tag">Campañas: {{ campaigns|length }}</span>
+            <span class="tag">Cuestionarios disponibles: {{ questionnaires|length }}</span>
+            {% if selected_campaign %}
+            <span class="tag">Activa: {{ selected_campaign.nombre }}</span>
+            {% endif %}
+        </div>
+    </div>
+    <article class="hero-card compact">
+        <div class="card-kicker">Acciones principales</div>
+        <div class="actions vertical">
+            <button class="button button-primary" type="button" data-dialog-open="dialog-campaign-create">Nueva campaña</button>
+            <a class="button" href="{{ url_for('campaigns.assignments', campana_id=selected_campaign.id) if selected_campaign else url_for('campaigns.assignments') }}">Ir a asignaciones</a>
+            <a class="button" href="{{ url_for('campaigns.reports', campana_id=selected_campaign.id) if selected_campaign else url_for('campaigns.reports') }}">Abrir reportes</a>
+        </div>
+    </article>
+</section>
+
+<section class="metric-grid">
+    <article class="metric-card">
+        <span>Borrador</span>
+        <strong>{{ campaigns|selectattr('estado', 'equalto', 'borrador')|list|length }}</strong>
+    </article>
+    <article class="metric-card">
+        <span>Activas</span>
+        <strong>{{ campaigns|selectattr('estado', 'equalto', 'activa')|list|length }}</strong>
+    </article>
+    <article class="metric-card">
+        <span>Cerradas</span>
+        <strong>{{ campaigns|selectattr('estado', 'equalto', 'cerrada')|list|length }}</strong>
+    </article>
+    <article class="metric-card">
+        <span>Asignaciones visibles</span>
+        <strong>{{ selected_summary.visible_total if selected_summary else 0 }}</strong>
+    </article>
+</section>
+
+<section class="section-grid two">
+    <article class="panel">
+        <div class="section-heading">
+            <div>
+                <p class="eyebrow">Campañas</p>
+                <h2>Calendario y estado de despliegue</h2>
+            </div>
+        </div>
+        <div class="table-wrap">
+            <table class="executive-table">
+                <thead>
+                    <tr>
+                        <th>Campaña</th>
+                        <th>Cuestionario</th>
+                        <th>Vigencia</th>
+                        <th>Estado</th>
+                        <th>Acciones</th>
+                    </tr>
+                </thead>
+                <tbody>
+                    {% for campaign in campaigns %}
+                    <tr>
+                        <td>
+                            <strong>{{ campaign.nombre }}</strong>
+                            <div class="muted">{{ campaign.descripcion or "Sin descripción" }}</div>
+                        </td>
+                        <td>{{ campaign.cuestionario_version.nombre }}</td>
+                        <td>{{ campaign.fecha_apertura.strftime("%d/%m/%Y") }} - {{ campaign.fecha_limite.strftime("%d/%m/%Y") }}</td>
+                        <td><span class="status status-{{ 'priority' if campaign.estado == 'activa' else ('high' if campaign.estado == 'cerrada' else 'medium') }}">{{ campaign_states[campaign.estado] }}</span></td>
+                        <td>
+                            <div class="actions wrap">
+                                <a class="button" href="{{ url_for('campaigns.index', campana_id=campaign.id) }}">Resumen</a>
+                                <a class="button" href="{{ url_for('campaigns.assignments', campana_id=campaign.id) }}">Asignaciones</a>
+                                <a class="button button-primary" href="{{ url_for('campaigns.reports', campana_id=campaign.id) }}">Reportes</a>
+                                <button class="button" type="button" data-dialog-open="dialog-campaign-edit-{{ campaign.id }}">Editar</button>
+                            </div>
+                        </td>
+                    </tr>
+                    {% else %}
+                    <tr><td colspan="5" class="muted">Aún no hay campañas registradas.</td></tr>
+                    {% endfor %}
+                </tbody>
+            </table>
+        </div>
+    </article>
+
+    <article class="panel">
+        <div class="section-heading">
+            <div>
+                <p class="eyebrow">Lectura rápida</p>
+                <h2>{{ selected_campaign.nombre if selected_campaign else "Selecciona una campaña" }}</h2>
+            </div>
+        </div>
+        {% if selected_campaign and selected_summary %}
+        <div class="stack">
+            <div class="metric-inline">
+                <span>Cuestionario</span>
+                <strong>{{ selected_campaign.cuestionario_version.nombre }}</strong>
+            </div>
+            <div class="metric-inline">
+                <span>Avance promedio</span>
+                <strong>{{ selected_summary.avg_completion }}%</strong>
+            </div>
+            <div class="metric-inline">
+                <span>Respondidas</span>
+                <strong>{{ selected_summary.completed_count }}/{{ selected_summary.total_assignments }}</strong>
+            </div>
+            <div class="metric-inline">
+                <span>Estado</span>
+                <strong>{{ selected_summary.campaign_state_label }}</strong>
+            </div>
+            <div class="legend-table">
+                {% for axis in selected_summary.axis_rollup[:4] %}
+                <div class="legend-row legend-{{ axis.level_slug }}">
+                    <span>{{ axis.clave }} · {{ axis.nombre }}</span>
+                    <span>{{ axis.promedio }}</span>
+                </div>
+                {% endfor %}
+            </div>
+        </div>
+        {% else %}
+        <p class="muted">Crea una campaña para empezar a asignar cuestionarios y medir avance.</p>
+        {% endif %}
+    </article>
+</section>
+
+<dialog class="catalog-dialog" id="dialog-campaign-create">
+    <form method="dialog" class="dialog-shell">
+        <div class="dialog-head">
+            <div>
+                <p class="eyebrow">Nueva campaña</p>
+                <h2>Configurar despliegue</h2>
+            </div>
+            <button class="button" type="submit">Cerrar</button>
+        </div>
+    </form>
+    <form method="post" class="stack catalog-form">
+        <input type="hidden" name="action" value="create_campaign">
+        <label>Nombre de la campaña<input name="nombre" required></label>
+        <label>Descripción<textarea name="descripcion" rows="3"></textarea></label>
+        <label>Versión de cuestionario
+            <select name="cuestionario_version_id" required>
+                {% for questionnaire in questionnaires %}
+                <option value="{{ questionnaire.id }}">{{ questionnaire.nombre }} · {{ questionnaire.estado|capitalize }}</option>
+                {% endfor %}
+            </select>
+        </label>
+        <div class="meta-grid">
+            <label>Fecha de apertura<input type="date" name="fecha_apertura" required></label>
+            <label>Fecha límite<input type="date" name="fecha_limite" required></label>
+        </div>
+        <label>Estado inicial
+            <select name="estado">
+                {% for state, label in campaign_states.items() %}
+                <option value="{{ state }}">{{ label }}</option>
+                {% endfor %}
+            </select>
+        </label>
+        <button class="button button-primary" type="submit">Guardar campaña</button>
+    </form>
+</dialog>
+
+{% for campaign in campaigns %}
+<dialog class="catalog-dialog" id="dialog-campaign-edit-{{ campaign.id }}">
+    <form method="dialog" class="dialog-shell">
+        <div class="dialog-head">
+            <div>
+                <p class="eyebrow">Editar campaña</p>
+                <h2>{{ campaign.nombre }}</h2>
+            </div>
+            <button class="button" type="submit">Cerrar</button>
+        </div>
+    </form>
+    <form method="post" class="stack catalog-form">
+        <input type="hidden" name="action" value="update_campaign">
+        <input type="hidden" name="campaign_id" value="{{ campaign.id }}">
+        <label>Nombre de la campaña<input name="nombre" value="{{ campaign.nombre }}" required></label>
+        <label>Descripción<textarea name="descripcion" rows="3">{{ campaign.descripcion or '' }}</textarea></label>
+        <label>Versión de cuestionario
+            <select name="cuestionario_version_id" required>
+                {% for questionnaire in questionnaires %}
+                <option value="{{ questionnaire.id }}" {% if campaign.cuestionario_version_id == questionnaire.id %}selected{% endif %}>{{ questionnaire.nombre }} · {{ questionnaire.estado|capitalize }}</option>
+                {% endfor %}
+            </select>
+        </label>
+        <div class="meta-grid">
+            <label>Fecha de apertura<input type="date" name="fecha_apertura" value="{{ campaign.fecha_apertura.isoformat() }}" required></label>
+            <label>Fecha límite<input type="date" name="fecha_limite" value="{{ campaign.fecha_limite.isoformat() }}" required></label>
+        </div>
+        <label>Estado
+            <select name="estado">
+                {% for state, label in campaign_states.items() %}
+                <option value="{{ state }}" {% if campaign.estado == state %}selected{% endif %}>{{ label }}</option>
+                {% endfor %}
+            </select>
+        </label>
+        <button class="button button-primary" type="submit">Actualizar campaña</button>
+    </form>
+</dialog>
+{% endfor %}
+{% endblock %}

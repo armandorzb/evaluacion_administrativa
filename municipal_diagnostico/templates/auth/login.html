@@ -1,0 +1,30 @@
+{% extends "base.html" %}
+{% block title %}Acceso | Diagnóstico Integral Municipal{% endblock %}
+{% block content %}
+<section class="executive-hero login-hero login-hero-single">
+    <article class="hero-card login-card">
+        <div class="card-kicker">Ingreso al sistema</div>
+        <h2>Iniciar sesión</h2>
+        <form method="post" class="stack">
+            <label>Correo electrónico
+                <input type="email" name="correo" required>
+            </label>
+            <label>Contraseña
+                <input type="password" name="password" required>
+            </label>
+            <button type="submit" class="button button-primary">Entrar</button>
+        </form>
+
+        {% if not admin_exists %}
+        <div class="callout callout-warning">
+            <strong>Configuración inicial pendiente</strong>
+            <p>No existe un administrador inicial registrado.</p>
+            <div class="actions">
+                <a class="button button-primary" href="{{ url_for('auth.bootstrap') }}">Crear administrador</a>
+                <span class="muted">o desde CLI con <code>flask create-admin</code></span>
+            </div>
+        </div>
+        {% endif %}
+    </article>
+</section>
+{% endblock %}

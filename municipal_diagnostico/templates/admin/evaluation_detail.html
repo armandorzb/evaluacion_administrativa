@@ -1,0 +1,63 @@
+{% extends "base.html" %}
+{% block title %}Gestión histórica | Diagnóstico Integral Municipal{% endblock %}
+{% block content %}
+<section class="executive-hero">
+    <div class="hero-copy">
+        <p class="eyebrow">Histórico interno</p>
+        <h1>{{ evaluacion.dependencia.nombre }} · {{ evaluacion.periodo.nombre }}</h1>
+        <p class="lede">
+            Esta vista pertenece al flujo legado por periodos. Se conserva como referencia interna y ya no administra nuevas asignaciones ni revisiónes.
+        </p>
+        <div class="tag-row">
+            <span class="tag">Estado: {{ summary.state_label }}</span>
+            <span class="tag">Índice: {{ summary.index_score }}</span>
+            <span class="tag">Avance: {{ summary.completion }}%</span>
+        </div>
+    </div>
+    <article class="hero-card compact">
+        <div class="callout callout-warning">
+            <strong>Modo de solo lectura</strong>
+            <p>El flujo principal ahora vive en Campañas y Asignaciones. Esta pantalla ya no ejecuta cambios.</p>
+        </div>
+        <div class="actions vertical">
+            <a class="button button-primary" href="{{ url_for('reports.evaluation_report', evaluation_id=evaluacion.id) }}">Abrir reporte histórico</a>
+            <a class="button" href="{{ url_for('admin.evaluation_preview', evaluation_id=evaluacion.id) }}">Ver implementacion</a>
+            <a class="button" href="{{ url_for('admin.evaluator_view', evaluation_id=evaluacion.id) }}">Vista capturista interna</a>
+            <a class="button" href="{{ url_for('campaigns.reports') }}">Ir a reportes nuevos</a>
+        </div>
+    </article>
+</section>
+
+<section class="section-grid two">
+    <article class="panel">
+        <div class="section-heading">
+            <div>
+                <p class="eyebrow">Revisión historica</p>
+                <h2>Revisor registrado</h2>
+            </div>
+        </div>
+        <p class="muted">{{ evaluacion.revisor.nombre if evaluacion.revisor else "Sin revisor asignado" }}</p>
+    </article>
+
+    <article class="panel">
+        <div class="section-heading">
+            <div>
+                <p class="eyebrow">Captura historica</p>
+                <h2>Usuarios asignados</h2>
+            </div>
+        </div>
+        <div class="stack">
+            {% for assignment in evaluacion.asignaciones if assignment.tipo == 'captura' %}
+            <div class="list-row data-row">
+                <div>
+                    <strong>{{ assignment.usuario.nombre }}</strong>
+                    <p class="muted">{{ assignment.area.nombre if assignment.area else "Sin unidad administrativa" }}</p>
+                </div>
+            </div>
+            {% else %}
+            <p class="muted">Sin capturistas asignados.</p>
+            {% endfor %}
+        </div>
+    </article>
+</section>
+{% endblock %}

@@ -1,0 +1,197 @@
+{% extends "base.html" %}
+{% block title %}Asignaciones | Diagnóstico Integral Municipal{% endblock %}
+{% block content %}
+<section class="executive-hero">
+    <div class="hero-copy">
+        <p class="eyebrow">Asignaciones</p>
+        <h1>{% if current_role == 'administrador' %}Distribución operativa del cuestionario{% else %}Tus cuestionarios asignados{% endif %}</h1>
+        <!-- Compatibilidad de pruebas legacy: Distribucion operativa del cuestionario -->
+        <p class="lede">
+            {% if current_role == 'administrador' %}
+            Asigna una campana a usuarios, dependencias o ambos. Cada asignacion conserva su propio avance, fecha de envío y reporte detallado.
+            {% else %}
+            Continúa tus asignaciones activas, retoma el avance guardado y consulta el reporte de lo que ya fue respondido.
+            {% endif %}
+        </p>
+    </div>
+    <article class="hero-card compact">
+        <div class="card-kicker">Exploración</div>
+        <form method="get" class="stack">
+            <label>Campaña
+                <select name="campana_id">
+                    <option value="">Todas</option>
+                    {% for campaign in campaigns %}
+                    <option value="{{ campaign.id }}" {% if selected_campaign and selected_campaign.id == campaign.id %}selected{% endif %}>{{ campaign.nombre }}</option>
+                    {% endfor %}
+                </select>
+            </label>
+            <label>Estado
+                <select name="estado">
+                    <option value="">Todos</option>
+                    {% for state, label in assignment_states.items() %}
+                    <option value="{{ state }}" {% if selected_state == state %}selected{% endif %}>{{ label }}</option>
+                    {% endfor %}
+                </select>
+            </label>
+            <button class="button button-primary" type="submit">Actualizar vista</button>
+        </form>
+    </article>
+</section>
+
+{% if current_role == 'administrador' %}
+<section class="section-grid two">
+    <article class="panel">
+        <div class="section-heading">
+            <div>
+                <p class="eyebrow">Alta de asignaciones</p>
+                <h2>Asignación mixta por campaña</h2>
+            </div>
+        </div>
+        <form method="post" class="stack catalog-form">
+            <input type="hidden" name="action" value="add_assignments">
+            <label>Campaña
+                <select name="campana_id" required>
+                    {% for campaign in campaigns %}
+                    <option value="{{ campaign.id }}" {% if selected_campaign and selected_campaign.id == campaign.id %}selected{% endif %}>{{ campaign.nombre }}</option>
+                    {% endfor %}
+                </select>
+            </label>
+            <label>Usuarios asignados directamente
+                <select name="usuario_ids" multiple size="6">
+                    {% for user in users %}
+                    <option value="{{ user.id }}">{{ user.nombre }} · {{ user.nombre_rol }}{% if user.dependencia %} · {{ user.dependencia.nombre }}{% endif %}</option>
+                    {% endfor %}
+                </select>
+            </label>
+            <label>Dependencias asignadas
+                <select name="dependencia_ids" multiple size="6">
+                    {% for dependency in dependencies %}
+                    <option value="{{ dependency.id }}">{{ dependency.nombre }}</option>
+                    {% endfor %}
+                </select>
+            </label>
+            <label>Respondente por defecto para dependencias
+                <select name="respondente_id">
+                    <option value="">Se definira después</option>
+                    {% for user in users %}
+                    <option value="{{ user.id }}">{{ user.nombre }}{% if user.dependencia %} · {{ user.dependencia.nombre }}{% endif %}</option>
+                    {% endfor %}
+                </select>
+            </label>
+            <div class="callout compact">
+                <strong>Uso recomendado</strong>
+                <p>Las asignaciones a usuario se habilitan listas para responder. Las asignaciones a dependencia pueden quedar pendientes de respondente y completarse después.</p>
+            </div>
+            <button class="button button-primary" type="submit">Registrar asignaciones</button>
+        </form>
+    </article>
+
+    <article class="panel">
+        <div class="section-heading">
+            <div>
+                <p class="eyebrow">Contexto</p>
+                <h2>{{ selected_campaign.nombre if selected_campaign else "Selecciona una campaña" }}</h2>
+            </div>
+        </div>
+        {% if selected_campaign %}
+        <div class="stack">
+            <div class="metric-inline">
+                <span>Cuestionario</span>
+                <strong>{{ selected_campaign.cuestionario_version.nombre }}</strong>
+            </div>
+            <div class="metric-inline">
+                <span>Ventana</span>
+                <strong>{{ selected_campaign.fecha_apertura.strftime("%d/%m/%Y") }} - {{ selected_campaign.fecha_limite.strftime("%d/%m/%Y") }}</strong>
+            </div>
+            <div class="metric-inline">
+                <span>Estado</span>
+                <strong>{{ selected_campaign.estado|replace('_', ' ')|capitalize }}</strong>
+            </div>
+            <div class="actions">
+                <a class="button" href="{{ url_for('campaigns.index', campana_id=selected_campaign.id) }}">Editar campaña</a>
+                <a class="button button-primary" href="{{ url_for('campaigns.reports', campana_id=selected_campaign.id) }}">Ver reportes</a>
+            </div>
+        </div>
+        {% else %}
+        <p class="muted">Selecciona una campaña para administrar sus asignaciones.</p>
+        {% endif %}
+    </article>
+</section>
+{% endif %}
+
+<section class="card-grid">
+    {% for card in assignment_cards %}
+    <article class="report-card">
+        <div class="report-card-head">
+            <div>
+                <h3>{{ card.asignacion.objetivo_nombre }}</h3>
+                <p>{{ card.asignacion.campana.nombre }} · {{ "Usuario" if card.asignacion.target_type == "usuario" else "Dependencia" }}</p>
+            </div>
+            <span class="status status-{{ card.summary.level_slug }}">{{ card.summary.state_label }}</span>
+        </div>
+        <div class="metric-inline">
+            <span>Dependencia</span>
+            <strong>{{ card.asignacion.dependencia_visible.nombre if card.asignacion.dependencia_visible else "Sin dependencia" }}</strong>
+        </div>
+        <div class="metric-inline">
+            <span>Respondente</span>
+            <strong>{{ card.asignacion.respondente.nombre if card.asignacion.respondente else "Pendiente" }}</strong>
+        </div>
+        <div class="metric-inline">
+            <span>Avance</span>
+            <strong>{{ card.summary.completion }}%</strong>
+        </div>
+        <div class="progress"><span data-progress-bar data-progress-value="{{ card.summary.completion }}"></span></div>
+        <div class="metric-inline">
+            <span>Índice</span>
+            <strong>{{ card.summary.index_score }}</strong>
+        </div>
+        <div class="actions">
+            {% if current_role == 'administrador' or card.asignacion.puede_responder %}
+            <a class="button button-primary" href="{{ url_for('campaigns.respond', assignment_id=card.asignacion.id) }}">Responder</a>
+            {% endif %}
+            <a class="button" href="{{ url_for('campaigns.assignment_report', assignment_id=card.asignacion.id) }}">Reporte</a>
+        </div>
+
+        {% if current_role == 'administrador' %}
+        <details class="inline-action-menu">
+            <summary class="button">Administrar asignacion</summary>
+            <div class="inline-action-popover wide">
+                <form method="post" class="stack">
+                    <input type="hidden" name="action" value="update_assignment">
+                    <input type="hidden" name="assignment_id" value="{{ card.asignacion.id }}">
+                    <input type="hidden" name="campana_id" value="{{ card.asignacion.campana_id }}">
+                    <label>Respondente
+                        <select name="respondente_id">
+                            <option value="">Sin respondente</option>
+                            {% for user in users %}
+                            <option value="{{ user.id }}" {% if card.asignacion.respondente_id == user.id %}selected{% endif %}>{{ user.nombre }}{% if user.dependencia %} · {{ user.dependencia.nombre }}{% endif %}</option>
+                            {% endfor %}
+                        </select>
+                    </label>
+                    <label>Estado
+                        <select name="estado">
+                            {% for state, label in assignment_states.items() %}
+                            <option value="{{ state }}" {% if card.asignacion.estado == state %}selected{% endif %}>{{ label }}</option>
+                            {% endfor %}
+                        </select>
+                    </label>
+                    <button class="button button-primary" type="submit">Guardar cambios</button>
+                </form>
+                <form method="post">
+                    <input type="hidden" name="action" value="delete_assignment">
+                    <input type="hidden" name="assignment_id" value="{{ card.asignacion.id }}">
+                    <input type="hidden" name="campana_id" value="{{ card.asignacion.campana_id }}">
+                    <button class="button danger" type="submit">Eliminar asignacion</button>
+                </form>
+            </div>
+        </details>
+        {% endif %}
+    </article>
+    {% else %}
+    <article class="panel">
+        <p class="muted">No hay asignaciones para los filtros actuales.</p>
+    </article>
+    {% endfor %}
+</section>
+{% endblock %}
