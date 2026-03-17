@@ -1,19 +1,33 @@
 {% extends "base.html" %}
 {% block title %}Acceso | Diagnóstico Integral Municipal{% endblock %}
+{% block body_class %}login-page{% endblock %}
 {% block content %}
 <section class="executive-hero login-hero login-hero-single">
     <article class="hero-card login-card">
-        <div class="card-kicker">Ingreso al sistema</div>
-        <h2>Iniciar sesión</h2>
-        <form method="post" class="stack">
-            <label>Correo electrónico
-                <input type="email" name="correo" required>
-            </label>
-            <label>Contraseña
-                <input type="password" name="password" required>
-            </label>
-            <button type="submit" class="button button-primary">Entrar</button>
-        </form>
+        <div class="login-card-intro">
+            <p class="eyebrow">Ayuntamiento de Hermosillo</p>
+            <div class="card-kicker">Ingreso al sistema</div>
+            <h1>Diagnóstico Integral Municipal</h1>
+            <p class="lede">
+                Accede con tu cuenta institucional para responder cuestionarios,
+                dar seguimiento al avance operativo y consultar reportería.
+            </p>
+        </div>
+
+        <div class="login-card-divider" aria-hidden="true"></div>
+
+        <div class="login-card-form">
+            <h2>Iniciar sesión</h2>
+            <form method="post" class="stack">
+                <label>Correo electrónico
+                    <input type="email" name="correo" required>
+                </label>
+                <label>Contraseña
+                    <input type="password" name="password" required>
+                </label>
+                <button type="submit" class="button button-primary">Entrar</button>
+            </form>
+        </div>
 
         {% if not admin_exists %}
         <div class="callout callout-warning">

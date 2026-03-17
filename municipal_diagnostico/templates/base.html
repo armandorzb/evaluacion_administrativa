@@ -11,14 +11,14 @@
     <script src="https://cdn.jsdelivr.net/npm/chart.js"></script>
     <script defer src="{{ url_for('static', filename='app.js') }}"></script>
 </head>
-<body {% if current_user.is_authenticated %}data-heartbeat-url="{{ url_for('dashboard.heartbeat') }}"{% endif %}>
+<body class="{% block body_class %}{% endblock %}" {% if current_user.is_authenticated %}data-heartbeat-url="{{ url_for('dashboard.heartbeat') }}"{% endif %}>
     <div class="site-shell">
         <header class="site-header" data-header-region>
             <div class="header-frame">
                 <div class="brand-block">
-                    <p class="eyebrow">Ayuntamiento de Hermosillo</p>
-                    <a href="{{ url_for('dashboard.home') }}" class="brand">Diagnóstico Integral Municipal</a>
-                    <p class="brand-subtitle">Cuestionarios, seguimiento operativo y reportería institucional</p>
+                    <p class="eyebrow">{% block header_eyebrow %}Ayuntamiento de Hermosillo{% endblock %}</p>
+                    <a href="{{ url_for('dashboard.home') }}" class="brand">{% block header_brand %}Diagnóstico Integral Municipal{% endblock %}</a>
+                    <p class="brand-subtitle">{% block header_subtitle %}Cuestionarios, seguimiento operativo y reportería institucional{% endblock %}</p>
                 </div>
 
                 {% if current_user.is_authenticated %}
