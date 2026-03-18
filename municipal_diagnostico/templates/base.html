@@ -44,18 +44,20 @@
                         <a href="{{ url_for('admin.questionnaires') }}" style="--menu-order: 1;">Cuestionarios</a>
                         <a href="{{ url_for('campaigns.index') }}" style="--menu-order: 2;">Campañas</a>
                         <a href="{{ url_for('campaigns.assignments') }}" style="--menu-order: 3;">Asignaciones</a>
-                        <a href="{{ url_for('campaigns.reports') }}" style="--menu-order: 4;">Reportes</a>
-                        <a href="{{ url_for('admin.catalogs') }}" style="--menu-order: 5;">Catálogos</a>
-                        <a href="{{ url_for('admin.monitoring') }}" style="--menu-order: 6;">Monitoreo</a>
+                        <a href="{{ url_for('campaigns.reports') }}" style="--menu-order: 4;">Reportes campañas</a>
+                        <a href="{{ url_for('reports.index') }}" style="--menu-order: 5;">Reportes ejecutivos</a>
+                        <a href="{{ url_for('admin.catalogs') }}" style="--menu-order: 6;">Catálogos</a>
+                        <a href="{{ url_for('admin.monitoring') }}" style="--menu-order: 7;">Monitoreo</a>
                         {% elif current_user.rol in ['evaluador', 'respondente'] %}
                         <a href="{{ url_for('campaigns.assignments') }}" style="--menu-order: 1;">Asignaciones</a>
                         <a href="{{ url_for('campaigns.reports') }}" style="--menu-order: 2;">Reportes</a>
                         {% elif current_user.rol == 'consulta' %}
-                        <a href="{{ url_for('campaigns.reports') }}" style="--menu-order: 1;">Reportes</a>
+                        <a href="{{ url_for('campaigns.reports') }}" style="--menu-order: 1;">Reportes campañas</a>
+                        <a href="{{ url_for('reports.executive_home') }}" style="--menu-order: 2;">Centro ejecutivo</a>
                         {% endif %}
                     </nav>
 
-                    <div class="header-tools" style="--menu-order: 7;">
+                    <div class="header-tools" style="--menu-order: 8;">
                         <details class="notifications">
                             <summary>
                                 <span>Notificaciones</span>

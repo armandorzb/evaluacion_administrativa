@@ -4,12 +4,14 @@ from collections import Counter, defaultdict
 
 from municipal_diagnostico.models import AsignacionCuestionario, CampanaCuestionario
 from municipal_diagnostico.services.analytics import (
+    SCORE_GUIDE,
     classify_score,
     dominant_distribution_row,
     maturity_distribution,
     priority_bucket,
     recommendation_for_axis,
 )
+from municipal_diagnostico.timeutils import to_localtime
 
 
 CAMPAIGN_STATE_LABELS = {
@@ -106,6 +108,94 @@ def summarize_assignment(asignacion: AsignacionCuestionario) -> dict:
         "support_count": len([axis for axis in axes if axis["support_present"]]),
         "state": asignacion.estado,
         "state_label": humanize_assignment_state(asignacion.estado),
+        "critical_axes": [axis for axis in axes if axis["priority_slug"] == "critical"],
+        "is_preliminary": asignacion.estado not in FINAL_ASSIGNMENT_STATES,
+    }
+
+
+def build_assignment_report_detail(asignacion: AsignacionCuestionario) -> dict:
+    summary = summarize_assignment(asignacion)
+    cuestionario = asignacion.campana.cuestionario_version
+    response_map = {response.reactivo_version_id: response for response in asignacion.respuestas}
+    support_map = {support.eje_version_id: support for support in asignacion.soportes}
+
+    axes = []
+    for axis in cuestionario.ejes:
+        axis_summary = summary["axis_map"][axis.id]
+        support = support_map.get(axis.id)
+        questions = []
+
+        for reactive in axis.reactivos:
+            response = response_map.get(reactive.id)
+            selected_value = response.valor if response else None
+            questions.append(
+                {
+                    "id": reactive.id,
+                    "codigo": reactive.codigo,
+                    "question": reactive.pregunta,
+                    "has_response": response is not None,
+                    "selected_value": selected_value,
+                    "selected_level": f"Nivel {selected_value}" if response else "Sin respuesta",
+                    "selected_option": reactive.opciones.get(str(selected_value), "Sin respuesta") if response else "Sin respuesta",
+                    "area_name": asignacion.dependencia_visible.nombre if asignacion.dependencia_visible else "Sin dependencia asignada",
+                    "comment": response.comentario if response and response.comentario else "Sin comentario",
+                    "captured_by": response.usuario.nombre if response and response.usuario else "Sin respondente",
+                    "updated_at_label": _format_datetime_label(response.updated_at if response else None),
+                    "options": [
+                        {
+                            "value": option_value,
+                            "label": reactive.opciones.get(str(option_value), ""),
+                            "selected": selected_value == option_value,
+                        }
+                        for option_value in range(4)
+                    ],
+                }
+            )
+
+        evidence_rows = []
+        if support and support.archivo_guardado:
+            evidence_rows.append(
+                {
+                    "name": support.archivo_nombre_original,
+                    "version": 1,
+                    "mime_type": support.mime_type or "application/octet-stream",
+                    "created_at_label": _format_datetime_label(support.updated_at or support.created_at),
+                }
+            )
+
+        axes.append(
+            {
+                "id": axis.id,
+                "clave": axis.clave,
+                "nombre": axis.nombre,
+                "summary": axis_summary,
+                "questions": questions,
+                "axis_comment": support.comentario if support and support.comentario else "Sin comentario general",
+                "axis_comment_area": asignacion.respondente.nombre if asignacion.respondente else asignacion.objetivo_nombre,
+                "axis_comment_author": support.usuario.nombre if support and support.usuario else (asignacion.respondente.nombre if asignacion.respondente else "Sin usuario registrado"),
+                "axis_comment_updated_at": _format_datetime_label((support.updated_at or support.created_at) if support else None),
+                "evidence": evidence_rows,
+            }
+        )
+
+    return {
+        "summary": summary,
+        "axes": axes,
+        "score_guide": SCORE_GUIDE,
+        "questionnaire_name": cuestionario.nombre,
+        "total_axes": len(axes),
+        "total_evidence": sum(len(axis["evidence"]) for axis in axes),
+        "heatmap_rows": [
+            {
+                "axis_name": axis["nombre"],
+                "axis_key": axis["clave"],
+                "selected_slug": axis["summary"]["maturity_slug"],
+                "selected_label": axis["summary"]["madurez"],
+                "average": axis["summary"]["promedio"],
+                "gap": axis["summary"]["brecha"],
+            }
+            for axis in axes
+        ],
     }
 
 
@@ -245,3 +335,10 @@ def summarize_campaign(campana: CampanaCuestionario, role: str = "administrador"
         "role": role,
         "campaign_state_label": humanize_campaign_state(campana.estado),
     }
+
+
+def _format_datetime_label(value) -> str:
+    local_value = to_localtime(value)
+    if local_value is None:
+        return "Sin registro"
+    return local_value.strftime("%d/%m/%Y %H:%M")

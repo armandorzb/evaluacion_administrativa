@@ -4,6 +4,7 @@ from collections import Counter
 
 from municipal_diagnostico.models import Evaluacion
 from municipal_diagnostico.seed_data import RECOMMENDATION_LIBRARY
+from municipal_diagnostico.timeutils import to_localtime
 
 
 OFFICIAL_EVALUATION_STATES = {"aprobada", "cerrada"}
@@ -31,6 +32,13 @@ MATURITY_SCALE = [
     ("medium", "Medio"),
     ("high", "Alto"),
     ("optimal", "Óptimo"),
+]
+
+SCORE_GUIDE = [
+    {"slug": "low", "label": "Bajo", "range": "0.00 - 1.50"},
+    {"slug": "medium", "label": "Medio", "range": "1.51 - 2.00"},
+    {"slug": "high", "label": "Alto", "range": "2.01 - 2.50"},
+    {"slug": "optimal", "label": "Optimo", "range": "2.51 - 3.00"},
 ]
 
 PRIORITY_STYLES = {
@@ -452,3 +460,103 @@ def historical_series(evaluaciones: list[Evaluacion]) -> list[dict]:
             }
         )
     return sorted(data, key=lambda item: item["periodo"])
+
+
+def build_evaluation_report_detail(evaluacion: Evaluacion) -> dict:
+    summary = summarize_evaluation(evaluacion)
+    cuestionario = evaluacion.periodo.cuestionario_version
+    response_map = {response.reactivo_version_id: response for response in evaluacion.respuestas}
+    comment_map = {comment.eje_version_id: comment for comment in evaluacion.comentarios_eje}
+    evidence_map = {
+        axis.id: [
+            evidence
+            for evidence in evaluacion.evidencias
+            if evidence.eje_version_id == axis.id and evidence.activo
+        ]
+        for axis in cuestionario.ejes
+    }
+
+    axes = []
+    for axis in cuestionario.ejes:
+        axis_summary = summary["axis_map"][axis.id]
+        axis_comment = comment_map.get(axis.id)
+        questions = []
+
+        for reactive in axis.reactivos:
+            response = response_map.get(reactive.id)
+            selected_value = response.valor if response else None
+            questions.append(
+                {
+                    "id": reactive.id,
+                    "codigo": reactive.codigo,
+                    "question": reactive.pregunta,
+                    "has_response": response is not None,
+                    "selected_value": selected_value,
+                    "selected_level": f"Nivel {selected_value}" if response else "Sin respuesta",
+                    "selected_option": reactive.opciones.get(str(selected_value), "Sin respuesta") if response else "Sin respuesta",
+                    "area_name": response.area.nombre if response and response.area else "Sin area asignada",
+                    "comment": response.comentario if response and response.comentario else "Sin comentario",
+                    "captured_by": response.usuario_captura.nombre if response and response.usuario_captura else "Sin capturista",
+                    "updated_at_label": _format_datetime_label(response.updated_at if response else None),
+                    "options": [
+                        {
+                            "value": option_value,
+                            "label": reactive.opciones.get(str(option_value), ""),
+                            "selected": selected_value == option_value,
+                        }
+                        for option_value in range(4)
+                    ],
+                }
+            )
+
+        evidence_rows = [
+            {
+                "name": evidence.archivo_nombre_original,
+                "version": evidence.version,
+                "mime_type": evidence.mime_type,
+                "created_at_label": _format_datetime_label(evidence.created_at),
+            }
+            for evidence in evidence_map[axis.id]
+        ]
+
+        axes.append(
+            {
+                "id": axis.id,
+                "clave": axis.clave,
+                "nombre": axis.nombre,
+                "summary": axis_summary,
+                "questions": questions,
+                "axis_comment": axis_comment.comentario if axis_comment and axis_comment.comentario else "Sin comentario general",
+                "axis_comment_area": axis_comment.area.nombre if axis_comment and axis_comment.area else "Sin responsable asignado",
+                "axis_comment_author": axis_comment.usuario.nombre if axis_comment and axis_comment.usuario else "Sin usuario registrado",
+                "axis_comment_updated_at": _format_datetime_label(axis_comment.updated_at if axis_comment else None),
+                "evidence": evidence_rows,
+            }
+        )
+
+    return {
+        "summary": summary,
+        "axes": axes,
+        "score_guide": SCORE_GUIDE,
+        "questionnaire_name": cuestionario.nombre,
+        "total_axes": len(axes),
+        "total_evidence": sum(len(axis["evidence"]) for axis in axes),
+        "heatmap_rows": [
+            {
+                "axis_name": axis["nombre"],
+                "axis_key": axis["clave"],
+                "selected_slug": axis["summary"]["maturity_slug"],
+                "selected_label": axis["summary"]["madurez"],
+                "average": axis["summary"]["promedio"],
+                "gap": axis["summary"]["brecha"],
+            }
+            for axis in axes
+        ],
+    }
+
+
+def _format_datetime_label(value) -> str:
+    local_value = to_localtime(value)
+    if local_value is None:
+        return "Sin registro"
+    return local_value.strftime("%d/%m/%Y %H:%M")

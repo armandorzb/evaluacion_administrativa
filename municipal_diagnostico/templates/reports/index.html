@@ -144,6 +144,9 @@
         <div class="actions">
             <a class="button" href="{{ url_for('reports.executive_dependency', dependency_id=card.evaluacion.dependencia_id, periodo_id=card.evaluacion.periodo_id) }}">Ficha ejecutiva</a>
             <a class="button button-primary" href="{{ url_for('reports.evaluation_report', evaluation_id=card.evaluacion.id) }}">Reporte</a>
+            <a class="button" href="{{ url_for('reports.evaluation_pdf', evaluation_id=card.evaluacion.id) }}">PDF</a>
+            <a class="button" href="{{ url_for('reports.evaluation_excel', evaluation_id=card.evaluacion.id) }}">XLSX</a>
+            <a class="button" href="{{ url_for('reports.evaluation_word', evaluation_id=card.evaluacion.id) }}">Word</a>
         </div>
     </article>
     {% else %}

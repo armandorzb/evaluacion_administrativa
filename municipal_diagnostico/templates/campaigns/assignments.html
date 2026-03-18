@@ -8,7 +8,7 @@
         <!-- Compatibilidad de pruebas legacy: Distribucion operativa del cuestionario -->
         <p class="lede">
             {% if current_role == 'administrador' %}
-            Asigna una campana a usuarios, dependencias o ambos. Cada asignacion conserva su propio avance, fecha de envío y reporte detallado.
+            Asigna una campaña a usuarios, dependencias o ambos. Cada asignación conserva su propio avance, fecha de envío y reporte detallado.
             {% else %}
             Continúa tus asignaciones activas, retoma el avance guardado y consulta el reporte de lo que ya fue respondido.
             {% endif %}
@@ -155,7 +155,7 @@
 
         {% if current_role == 'administrador' %}
         <details class="inline-action-menu">
-            <summary class="button">Administrar asignacion</summary>
+            <summary class="button">Administrar asignación</summary>
             <div class="inline-action-popover wide">
                 <form method="post" class="stack">
                     <input type="hidden" name="action" value="update_assignment">
@@ -182,7 +182,7 @@
                     <input type="hidden" name="action" value="delete_assignment">
                     <input type="hidden" name="assignment_id" value="{{ card.asignacion.id }}">
                     <input type="hidden" name="campana_id" value="{{ card.asignacion.campana_id }}">
-                    <button class="button danger" type="submit">Eliminar asignacion</button>
+                    <button class="button danger" type="submit">Eliminar asignación</button>
                 </form>
             </div>
         </details>

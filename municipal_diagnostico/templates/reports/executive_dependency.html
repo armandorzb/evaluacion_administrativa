@@ -61,6 +61,8 @@
         <div class="actions">
             <a class="button button-primary" href="{{ url_for('reports.evaluation_report', evaluation_id=evaluacion.id) }}">Abrir reporte detallado</a>
             <a class="button" href="{{ url_for('reports.evaluation_pdf', evaluation_id=evaluacion.id) }}">Exportar PDF</a>
+            <a class="button" href="{{ url_for('reports.evaluation_excel', evaluation_id=evaluacion.id) }}">Exportar XLSX</a>
+            <a class="button" href="{{ url_for('reports.evaluation_word', evaluation_id=evaluacion.id) }}">Exportar Word</a>
             <a class="button" href="{{ url_for('reports.executive_home', periodo_id=selected_period.id) }}">Volver al centro</a>
         </div>
     </article>

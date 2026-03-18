@@ -1,13 +1,14 @@
-from flask import Blueprint, abort, render_template, request, send_file
+from flask import Blueprint, abort, flash, redirect, render_template, request, send_file, url_for
 from flask_login import current_user
 
 from municipal_diagnostico.blueprints.evaluation import user_can_view
 from municipal_diagnostico.decorators import role_required
-from municipal_diagnostico.models import Dependencia, Evaluacion, PeriodoEvaluacion
+from municipal_diagnostico.models import AsignacionCuestionario, Dependencia, Evaluacion, PeriodoEvaluacion
 from municipal_diagnostico.services.activity_logger import log_activity
 from municipal_diagnostico.services.analytics import (
     OFFICIAL_EVALUATION_STATES,
     REPORTABLE_EVALUATION_STATES,
+    build_evaluation_report_detail,
     historical_series,
     select_reporting_period,
     summarize_axis_for_period,
@@ -18,6 +19,8 @@ from municipal_diagnostico.services.analytics import (
 )
 from municipal_diagnostico.services.exports import (
     build_evaluation_pdf,
+    build_evaluation_excel,
+    build_evaluation_word,
     build_period_csv,
     build_period_excel,
 )
@@ -130,6 +133,13 @@ def index():
     selected_state = request.args.get("estado", type=str)
 
     periods = PeriodoEvaluacion.query.order_by(PeriodoEvaluacion.created_at.desc()).all()
+    if not periods and Evaluacion.query.count() == 0 and AsignacionCuestionario.query.count() > 0:
+        flash(
+            "Esta instancia opera actualmente con campanas y asignaciones. Te redirigimos al hub disponible para generar reportes.",
+            "info",
+        )
+        return redirect(url_for("campaigns.reports"))
+
     dependencias = Dependencia.query.order_by(Dependencia.nombre).all()
     selected_period = select_reporting_period(periods, selected_period_id)
 
@@ -173,7 +183,8 @@ def evaluation_report(evaluation_id: int):
     if current_user.rol == "evaluador" and evaluation.estado not in {"en_revision", "aprobada", "cerrada"}:
         abort(403)
 
-    summary = summarize_evaluation(evaluation)
+    report_detail = build_evaluation_report_detail(evaluation)
+    summary = report_detail["summary"]
     history = historical_series(
         Evaluacion.query.filter_by(dependencia_id=evaluation.dependencia_id)
         .order_by(Evaluacion.created_at.asc())
@@ -185,6 +196,7 @@ def evaluation_report(evaluation_id: int):
         evaluacion=evaluation,
         summary=summary,
         history=history,
+        report_detail=report_detail,
     )
 
 
@@ -203,6 +215,42 @@ def evaluation_pdf(evaluation_id: int):
         mimetype="application/pdf",
         as_attachment=True,
         download_name=f"reporte-{evaluation.dependencia.nombre}-{evaluation.periodo.nombre}.pdf",
+    )
+
+
+@bp.route("/evaluaciones/<int:evaluation_id>/xlsx")
+@role_required("administrador", "revisor", "evaluador", "consulta")
+def evaluation_excel(evaluation_id: int):
+    evaluation = Evaluacion.query.get_or_404(evaluation_id)
+    if not user_can_view(evaluation):
+        abort(403)
+    if current_user.rol == "evaluador" and evaluation.estado not in {"en_revision", "aprobada", "cerrada"}:
+        abort(403)
+    buffer = build_evaluation_excel(evaluation)
+    log_activity("export_excel", entity_type="evaluacion", entity_id=evaluation.id)
+    return send_file(
+        buffer,
+        mimetype="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
+        as_attachment=True,
+        download_name=f"reporte-{evaluation.dependencia.nombre}-{evaluation.periodo.nombre}.xlsx",
+    )
+
+
+@bp.route("/evaluaciones/<int:evaluation_id>/word")
+@role_required("administrador", "revisor", "evaluador", "consulta")
+def evaluation_word(evaluation_id: int):
+    evaluation = Evaluacion.query.get_or_404(evaluation_id)
+    if not user_can_view(evaluation):
+        abort(403)
+    if current_user.rol == "evaluador" and evaluation.estado not in {"en_revision", "aprobada", "cerrada"}:
+        abort(403)
+    buffer = build_evaluation_word(evaluation)
+    log_activity("export_word", entity_type="evaluacion", entity_id=evaluation.id)
+    return send_file(
+        buffer,
+        mimetype="application/vnd.openxmlformats-officedocument.wordprocessingml.document",
+        as_attachment=True,
+        download_name=f"reporte-{evaluation.dependencia.nombre}-{evaluation.periodo.nombre}.docx",
     )
 
 

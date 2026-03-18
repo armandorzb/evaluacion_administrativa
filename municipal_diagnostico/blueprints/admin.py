@@ -77,6 +77,7 @@ ACTIVITY_LABELS = {
     "download_evidence": "Descarga de evidencia",
     "export_pdf": "Exportación PDF",
     "export_excel": "Exportación Excel",
+    "export_word": "Exportación Word",
     "export_csv": "Exportación CSV",
     "create_period": "Creación de periodo",
     "open_period": "Apertura de periodo",

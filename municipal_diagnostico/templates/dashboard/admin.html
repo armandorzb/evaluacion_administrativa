@@ -14,7 +14,8 @@
         <div class="actions vertical">
             <a class="button button-primary" href="{{ url_for('campaigns.index') }}">Abrir campañas</a>
             <a class="button" href="{{ url_for('campaigns.assignments') }}">Gestionar asignaciones</a>
-            <a class="button" href="{{ url_for('campaigns.reports') }}">Ver reportes</a>
+            <a class="button" href="{{ url_for('campaigns.reports') }}">Reportes de campañas</a>
+            <a class="button" href="{{ url_for('reports.index') }}">Reportes ejecutivos</a>
             <a class="button" href="{{ url_for('admin.questionnaires') }}">Editar cuestionarios</a>
         </div>
     </article>
@@ -163,5 +164,44 @@
         <p class="muted">No hay asignaciones recientes para mostrar.</p>
     </article>
     {% endfor %}
+</section>
+
+<section class="section-heading">
+    <div>
+        <p class="eyebrow">Exportaciones</p>
+        <h2>Reportes listos para descarga</h2>
+    </div>
+</section>
+
+<section class="card-grid">
+{% for card in report_exports %}
+    <article class="report-card">
+        <div class="report-card-head">
+            <div>
+                <h3>{{ card.title }}</h3>
+                <p>{{ card.subtitle }}</p>
+            </div>
+            <span class="status status-{{ card.level_slug }}">{{ card.state_label }}</span>
+        </div>
+        <div class="metric-inline">
+            <span>Índice</span>
+            <strong>{{ card.index_score }}</strong>
+        </div>
+        <div class="metric-inline">
+            <span>Avance</span>
+            <strong>{{ card.completion }}%</strong>
+        </div>
+        <div class="actions">
+            <a class="button" href="{{ card.report_url }}">Reporte</a>
+            <a class="button" href="{{ card.pdf_url }}">PDF</a>
+            <a class="button" href="{{ card.xlsx_url }}">XLSX</a>
+            <a class="button button-primary" href="{{ card.word_url }}">Word</a>
+        </div>
+    </article>
+{% else %}
+    <article class="panel">
+        <p class="muted">No hay reportes disponibles para exportar todavía.</p>
+    </article>
+{% endfor %}
 </section>
 {% endblock %}

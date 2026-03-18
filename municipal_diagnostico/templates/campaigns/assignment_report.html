@@ -1,12 +1,12 @@
 {% extends "base.html" %}
-{% block title %}Reporte de asignacion | Diagnóstico Integral Municipal{% endblock %}
+{% block title %}Reporte de asignación | Diagnóstico Integral Municipal{% endblock %}
 {% block content %}
 <section class="executive-hero report-hero">
     <div class="hero-copy">
         <p class="eyebrow">Reporte detallado</p>
         <h1>{{ asignacion.objetivo_nombre }}</h1>
         <p class="lede">
-            Lectura consolidada de respuestas, comentarios y soportes por sección para la asignacion seleccionada.
+            Lectura consolidada de respuestas, comentarios y soportes por sección para la asignación seleccionada.
         </p>
         <div class="tag-row">
             <span class="tag">Campaña: {{ asignacion.campana.nombre }}</span>
@@ -17,8 +17,11 @@
     </div>
     <article class="hero-card compact">
         <div class="actions vertical">
+            <a class="button button-primary" href="{{ url_for('campaigns.assignment_pdf', assignment_id=asignacion.id) }}">Exportar PDF</a>
+            <a class="button" href="{{ url_for('campaigns.assignment_excel', assignment_id=asignacion.id) }}">Exportar XLSX</a>
+            <a class="button" href="{{ url_for('campaigns.assignment_word', assignment_id=asignacion.id) }}">Exportar Word</a>
             {% if current_user.rol in ['administrador', 'evaluador', 'respondente'] %}
-            <a class="button button-primary" href="{{ url_for('campaigns.respond', assignment_id=asignacion.id) }}">Abrir cuestionario</a>
+            <a class="button" href="{{ url_for('campaigns.respond', assignment_id=asignacion.id) }}">Abrir cuestionario</a>
             {% endif %}
             <a class="button" href="{{ url_for('campaigns.reports', campana_id=asignacion.campana_id) }}">Volver a reportes</a>
         </div>

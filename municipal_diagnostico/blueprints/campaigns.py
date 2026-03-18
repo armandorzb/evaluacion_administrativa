@@ -12,6 +12,7 @@ from flask import (
     redirect,
     render_template,
     request,
+    send_file,
     send_from_directory,
     url_for,
 )
@@ -39,6 +40,7 @@ from municipal_diagnostico.services.campaign_analytics import (
     summarize_assignment,
     summarize_campaign,
 )
+from municipal_diagnostico.services.exports import build_assignment_excel, build_assignment_pdf, build_assignment_word
 from municipal_diagnostico.timeutils import to_localtime, utcnow
 from municipal_diagnostico.utils import allowed_file, store_upload
 
@@ -362,6 +364,54 @@ def assignment_report(assignment_id: int):
         asignacion=assignment,
         summary=summary,
         module_cards=module_cards,
+    )
+
+
+@bp.route("/reportes/asignaciones/<int:assignment_id>/pdf")
+@role_required("administrador", "evaluador", "respondente", "consulta")
+def assignment_pdf(assignment_id: int):
+    assignment = AsignacionCuestionario.query.get_or_404(assignment_id)
+    if not user_can_view_assignment(assignment):
+        abort(403)
+    buffer = build_assignment_pdf(assignment)
+    log_activity("export_pdf", entity_type="asignacion", entity_id=assignment.id)
+    return send_file(
+        buffer,
+        mimetype="application/pdf",
+        as_attachment=True,
+        download_name=f"reporte-asignacion-{assignment.id}.pdf",
+    )
+
+
+@bp.route("/reportes/asignaciones/<int:assignment_id>/xlsx")
+@role_required("administrador", "evaluador", "respondente", "consulta")
+def assignment_excel(assignment_id: int):
+    assignment = AsignacionCuestionario.query.get_or_404(assignment_id)
+    if not user_can_view_assignment(assignment):
+        abort(403)
+    buffer = build_assignment_excel(assignment)
+    log_activity("export_excel", entity_type="asignacion", entity_id=assignment.id)
+    return send_file(
+        buffer,
+        mimetype="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
+        as_attachment=True,
+        download_name=f"reporte-asignacion-{assignment.id}.xlsx",
+    )
+
+
+@bp.route("/reportes/asignaciones/<int:assignment_id>/word")
+@role_required("administrador", "evaluador", "respondente", "consulta")
+def assignment_word(assignment_id: int):
+    assignment = AsignacionCuestionario.query.get_or_404(assignment_id)
+    if not user_can_view_assignment(assignment):
+        abort(403)
+    buffer = build_assignment_word(assignment)
+    log_activity("export_word", entity_type="asignacion", entity_id=assignment.id)
+    return send_file(
+        buffer,
+        mimetype="application/vnd.openxmlformats-officedocument.wordprocessingml.document",
+        as_attachment=True,
+        download_name=f"reporte-asignacion-{assignment.id}.docx",
     )
 
 

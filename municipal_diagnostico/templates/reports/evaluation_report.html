@@ -7,7 +7,7 @@
         <h1>{{ evaluacion.dependencia.nombre }} · {{ evaluacion.periodo.nombre }}</h1>
         <p class="lede">
             Síntesis institucional del avance por eje, índice global, mapa de brechas,
-            prioridades y seguimiento histórico de la dependencia.
+            prioridades y detalle del cuestionario respondido.
         </p>
         <div class="tag-row">
             <span class="tag">Estado: {{ summary.state_label }}</span>
@@ -34,22 +34,24 @@
             </div>
             <div class="metric-card">
                 <span>Evidencias</span>
-                <strong>{{ evaluacion.evidencias|length }}</strong>
+                <strong>{{ report_detail.total_evidence }}</strong>
             </div>
         </div>
         {% if summary.is_preliminary %}
         <div class="callout callout-warning">
             <strong>Resultado preliminar</strong>
-            <p>La evaluación aún no ha sido aprobada o cerrada, por lo que esta vista se considera operativa.</p>
+            <p>La evaluación sigue en seguimiento operativo y aún no forma parte del universo oficial cerrado.</p>
         </div>
         {% else %}
         <div class="callout callout-success">
             <strong>Resultado oficial</strong>
-            <p>La evaluación forma parte del universo aprobado/públicado para seguimiento comparativo.</p>
+            <p>La evaluación forma parte del universo aprobado para seguimiento histórico y comparativo.</p>
         </div>
         {% endif %}
         <div class="actions">
             <a class="button button-primary" href="{{ url_for('reports.evaluation_pdf', evaluation_id=evaluacion.id) }}">Exportar PDF</a>
+            <a class="button" href="{{ url_for('reports.evaluation_excel', evaluation_id=evaluacion.id) }}">Exportar XLSX</a>
+            <a class="button" href="{{ url_for('reports.evaluation_word', evaluation_id=evaluacion.id) }}">Exportar Word</a>
             {% if current_user.rol == 'administrador' %}
             <a class="button" href="{{ url_for('admin.evaluation_preview', evaluation_id=evaluacion.id) }}">Ver cuestionario</a>
             {% endif %}
@@ -66,10 +68,9 @@
             </div>
         </div>
         <div class="legend-table">
-            <div class="legend-row legend-low"><span>0.0 – 1.50</span><strong>Bajo</strong></div>
-            <div class="legend-row legend-medium"><span>1.51 – 2.00</span><strong>Medio</strong></div>
-            <div class="legend-row legend-high"><span>2.01 – 2.50</span><strong>Alto</strong></div>
-            <div class="legend-row legend-optimal"><span>2.51 – 3.00</span><strong>Óptimo</strong></div>
+            {% for guide in report_detail.score_guide %}
+            <div class="legend-row legend-{{ guide.slug }}"><span>{{ guide.range }}</span><strong>{{ guide.label }}</strong></div>
+            {% endfor %}
         </div>
     </article>
 
@@ -150,18 +151,24 @@
                 <thead>
                     <tr>
                         <th>Eje</th>
+                        <th>Bajo</th>
+                        <th>Medio</th>
+                        <th>Alto</th>
+                        <th>Óptimo</th>
                         <th>Promedio</th>
                         <th>Brecha</th>
-                        <th>Madurez</th>
                     </tr>
                 </thead>
                 <tbody>
-                    {% for axis in summary.axes %}
+                    {% for axis in report_detail.axes %}
                     <tr>
-                        <td>{{ axis.nombre }}</td>
-                        <td>{{ axis.promedio }}</td>
-                        <td>{{ axis.brecha }}</td>
-                        <td><span class="status status-{{ axis.maturity_slug }}">{{ axis.madurez }}</span></td>
+                        <td>{{ axis.clave }} · {{ axis.nombre }}</td>
+                        <td class="{% if axis.summary.maturity_slug == 'low' %}heatmap-cell heatmap-low{% endif %}">{% if axis.summary.maturity_slug == 'low' %}&#10003;{% endif %}</td>
+                        <td class="{% if axis.summary.maturity_slug == 'medium' %}heatmap-cell heatmap-medium{% endif %}">{% if axis.summary.maturity_slug == 'medium' %}&#10003;{% endif %}</td>
+                        <td class="{% if axis.summary.maturity_slug == 'high' %}heatmap-cell heatmap-high{% endif %}">{% if axis.summary.maturity_slug == 'high' %}&#10003;{% endif %}</td>
+                        <td class="{% if axis.summary.maturity_slug == 'optimal' %}heatmap-cell heatmap-optimal{% endif %}">{% if axis.summary.maturity_slug == 'optimal' %}&#10003;{% endif %}</td>
+                        <td>{{ axis.summary.promedio }}</td>
+                        <td>{{ axis.summary.brecha }}</td>
                     </tr>
                     {% endfor %}
                 </tbody>
@@ -175,7 +182,7 @@
         <div class="section-heading">
             <div>
                 <p class="eyebrow">Líneas de acción</p>
-                <h2>Recomendaciónes por eje</h2>
+                <h2>Recomendaciones por eje</h2>
             </div>
         </div>
         {% for axis in summary.axes_sorted %}
@@ -225,6 +232,98 @@
         </div>
     </article>
 </section>
+
+<section class="section-heading">
+    <div>
+        <p class="eyebrow">Cuestionario respondido</p>
+        <h2>Detalle reactivo por reactivo</h2>
+    </div>
+</section>
+
+{% for axis in report_detail.axes %}
+<article class="panel preview-panel">
+    <div class="section-heading">
+        <div>
+            <p class="eyebrow">{{ axis.clave }}</p>
+            <h2>{{ axis.nombre }}</h2>
+            <p class="muted">
+                Promedio {{ axis.summary.promedio }} · Brecha {{ axis.summary.brecha }} ·
+                Prioridad {{ axis.summary.prioridad }} · Avance {{ axis.summary.progreso }}%
+            </p>
+        </div>
+        <span class="status status-{{ axis.summary.priority_slug }}">{{ axis.summary.prioridad }}</span>
+    </div>
+
+    <div class="meta-grid">
+        <div>
+            <span class="meta-label">Comentario del eje</span>
+            <strong>{{ axis.axis_comment }}</strong>
+        </div>
+        <div>
+            <span class="meta-label">Responsable del eje</span>
+            <strong>{{ axis.axis_comment_area }}</strong>
+        </div>
+    </div>
+
+    {% for question in axis.questions %}
+    <div class="question-card">
+        <div class="question-head">
+            <strong>{{ question.codigo }}</strong>
+            <span class="question-score {% if not question.has_response %}is-empty{% endif %}">
+                {{ question.selected_level }}
+            </span>
+        </div>
+        <p class="question-text">{{ question.question }}</p>
+        <div class="choice-grid choice-grid-cards">
+            {% for option in question.options %}
+            <div class="choice-chip {% if option.selected %}is-selected{% endif %}">
+                <span>Nivel {{ option.value }}</span>
+                <strong>{{ option.label }}</strong>
+            </div>
+            {% endfor %}
+        </div>
+        <div class="meta-grid">
+            <div>
+                <span class="meta-label">Opción contestada</span>
+                <strong>{{ question.selected_option }}</strong>
+            </div>
+            <div>
+                <span class="meta-label">Área responsable</span>
+                <strong>{{ question.area_name }}</strong>
+            </div>
+            <div>
+                <span class="meta-label">Comentario</span>
+                <strong>{{ question.comment }}</strong>
+            </div>
+            <div>
+                <span class="meta-label">Última actualización</span>
+                <strong>{{ question.updated_at_label }}</strong>
+            </div>
+        </div>
+    </div>
+    {% endfor %}
+
+    <div class="insight-card">
+        <div class="insight-head">
+            <strong>Evidencias activas del eje</strong>
+            <span class="pill">{{ axis.evidence|length }} archivo(s)</span>
+        </div>
+        <div class="evidence-list">
+            {% for evidence in axis.evidence %}
+            <div class="list-row evidence-row">
+                <div>
+                    <strong>{{ evidence.name }}</strong>
+                    <p class="muted">v{{ evidence.version }} · {{ evidence.created_at_label }}</p>
+                </div>
+                <span class="pill">{{ evidence.mime_type }}</span>
+            </div>
+            {% else %}
+            <p class="muted">Sin evidencias activas registradas para este eje.</p>
+            {% endfor %}
+        </div>
+    </div>
+</article>
+{% endfor %}
 
 <script>
 const radarContext = document.getElementById('radarChart');

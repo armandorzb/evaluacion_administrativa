@@ -22,6 +22,7 @@ htmlcov/
 
 # Local application data
 diagnostico.db
+diagnostico.local-backup-*.db
 *.sqlite
 *.sqlite3
 instance/

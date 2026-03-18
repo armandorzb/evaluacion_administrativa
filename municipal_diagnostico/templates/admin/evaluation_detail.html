@@ -6,7 +6,7 @@
         <p class="eyebrow">Histórico interno</p>
         <h1>{{ evaluacion.dependencia.nombre }} · {{ evaluacion.periodo.nombre }}</h1>
         <p class="lede">
-            Esta vista pertenece al flujo legado por periodos. Se conserva como referencia interna y ya no administra nuevas asignaciones ni revisiónes.
+            Esta vista pertenece al flujo legado por periodos. Se conserva como referencia interna y ya no administra nuevas asignaciones ni revisiones.
         </p>
         <div class="tag-row">
             <span class="tag">Estado: {{ summary.state_label }}</span>
@@ -21,7 +21,7 @@
         </div>
         <div class="actions vertical">
             <a class="button button-primary" href="{{ url_for('reports.evaluation_report', evaluation_id=evaluacion.id) }}">Abrir reporte histórico</a>
-            <a class="button" href="{{ url_for('admin.evaluation_preview', evaluation_id=evaluacion.id) }}">Ver implementacion</a>
+            <a class="button" href="{{ url_for('admin.evaluation_preview', evaluation_id=evaluacion.id) }}">Ver implementación</a>
             <a class="button" href="{{ url_for('admin.evaluator_view', evaluation_id=evaluacion.id) }}">Vista capturista interna</a>
             <a class="button" href="{{ url_for('campaigns.reports') }}">Ir a reportes nuevos</a>
         </div>
@@ -32,7 +32,7 @@
     <article class="panel">
         <div class="section-heading">
             <div>
-                <p class="eyebrow">Revisión historica</p>
+                <p class="eyebrow">Revisión histórica</p>
                 <h2>Revisor registrado</h2>
             </div>
         </div>
@@ -42,7 +42,7 @@
     <article class="panel">
         <div class="section-heading">
             <div>
-                <p class="eyebrow">Captura historica</p>
+                <p class="eyebrow">Captura histórica</p>
                 <h2>Usuarios asignados</h2>
             </div>
         </div>

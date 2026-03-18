@@ -62,7 +62,13 @@ def build_admin_dashboard() -> dict:
     campaigns = CampanaCuestionario.query.order_by(CampanaCuestionario.created_at.desc()).all()
     active_campaign = next((campaign for campaign in campaigns if campaign.estado == "activa"), None)
     selected_campaign = active_campaign or (campaigns[0] if campaigns else None)
-    summary = summarize_campaign(selected_campaign, role="administrador") if selected_campaign else {
+    recent_evaluations = (
+        Evaluacion.query.filter(Evaluacion.estado.in_(REPORTABLE_EVALUATION_STATES))
+        .order_by(Evaluacion.updated_at.desc())
+        .limit(4)
+        .all()
+    )
+    campaign_summary = summarize_campaign(selected_campaign, role="administrador") if selected_campaign else {
         "rows": [],
         "visible_total": 0,
         "avg_completion": 0,
@@ -74,11 +80,50 @@ def build_admin_dashboard() -> dict:
         ordered = sorted(selected_campaign.asignaciones, key=lambda item: item.updated_at, reverse=True)
         for assignment in ordered[:6]:
             focus_assignments.append({"asignacion": assignment, "summary": summarize_assignment(assignment)})
+
+    report_exports = []
+    for evaluation in recent_evaluations:
+        evaluation_summary = summarize_evaluation(evaluation)
+        report_exports.append(
+            {
+                "title": evaluation.dependencia.nombre,
+                "subtitle": evaluation.periodo.nombre,
+                "state_label": evaluation_summary["state_label"],
+                "level_slug": evaluation_summary["level_slug"],
+                "index_score": evaluation_summary["index_score"],
+                "completion": evaluation_summary["completion"],
+                "report_url": url_for("reports.evaluation_report", evaluation_id=evaluation.id),
+                "pdf_url": url_for("reports.evaluation_pdf", evaluation_id=evaluation.id),
+                "xlsx_url": url_for("reports.evaluation_excel", evaluation_id=evaluation.id),
+                "word_url": url_for("reports.evaluation_word", evaluation_id=evaluation.id),
+            }
+        )
+
+    if not report_exports:
+        recent_assignments = AsignacionCuestionario.query.order_by(AsignacionCuestionario.updated_at.desc()).limit(4).all()
+        for assignment in recent_assignments:
+            assignment_summary = summarize_assignment(assignment)
+            report_exports.append(
+                {
+                    "title": assignment.objetivo_nombre,
+                    "subtitle": assignment.campana.nombre,
+                    "state_label": assignment_summary["state_label"],
+                    "level_slug": assignment_summary["level_slug"],
+                    "index_score": assignment_summary["index_score"],
+                    "completion": assignment_summary["completion"],
+                    "report_url": url_for("campaigns.assignment_report", assignment_id=assignment.id),
+                    "pdf_url": url_for("campaigns.assignment_pdf", assignment_id=assignment.id),
+                    "xlsx_url": url_for("campaigns.assignment_excel", assignment_id=assignment.id),
+                    "word_url": url_for("campaigns.assignment_word", assignment_id=assignment.id),
+                }
+            )
+
     return {
         "campaigns": campaigns[:5],
         "selected_campaign": selected_campaign,
-        "summary": summary,
+        "summary": campaign_summary,
         "focus_assignments": focus_assignments,
+        "report_exports": report_exports,
         "counts": {
             "campanas": len(campaigns),
             "asignaciones": AsignacionCuestionario.query.count(),

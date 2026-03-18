@@ -1,4 +1,8 @@
+import zipfile
 from datetime import date
+from io import BytesIO
+
+from openpyxl import load_workbook
 
 from municipal_diagnostico import create_app
 from municipal_diagnostico.extensions import db
@@ -294,3 +298,102 @@ def test_consulta_only_sees_final_assignments_in_simplified_reports():
     assert "Respondente" in html
     assert "Tesoreria" not in html
     assert client.get("/campanas/asignaciones").status_code == 403
+
+
+def test_assignment_report_exposes_downloads_and_generates_all_exports():
+    app, ids = build_app_with_campaign_data()
+    with app.app_context():
+        respondent = Usuario.query.filter_by(correo="respondente@local.test").first()
+        campaign = db.session.get(CampanaCuestionario, ids["campaign_id"])
+        assignment = AsignacionCuestionario(
+            campana=campaign,
+            target_type="usuario",
+            usuario=respondent,
+            dependencia=respondent.dependencia,
+            respondente=respondent,
+            estado="respondido",
+            progreso=100,
+        )
+        db.session.add(assignment)
+        db.session.flush()
+        complete_axis(assignment, campaign.cuestionario_version.ejes[0], respondent, 3, "Completo")
+        complete_axis(assignment, campaign.cuestionario_version.ejes[1], respondent, 2, "Con evidencia")
+        db.session.commit()
+        assignment_id = assignment.id
+
+    client = app.test_client()
+    login(client, "admin@local.test")
+
+    report = client.get(f"/campanas/reportes/asignaciones/{assignment_id}")
+    report_html = report.get_data(as_text=True)
+
+    assert report.status_code == 200
+    assert f"/campanas/reportes/asignaciones/{assignment_id}/pdf" in report_html
+    assert f"/campanas/reportes/asignaciones/{assignment_id}/xlsx" in report_html
+    assert f"/campanas/reportes/asignaciones/{assignment_id}/word" in report_html
+
+    pdf = client.get(f"/campanas/reportes/asignaciones/{assignment_id}/pdf")
+    assert pdf.status_code == 200
+    assert pdf.mimetype == "application/pdf"
+
+    xlsx = client.get(f"/campanas/reportes/asignaciones/{assignment_id}/xlsx")
+    assert xlsx.status_code == 200
+    assert xlsx.mimetype == "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet"
+    workbook = load_workbook(BytesIO(xlsx.data))
+    assert "Cuestionario" in workbook.sheetnames
+    questionnaire_values = [
+        value
+        for row in workbook["Cuestionario"].iter_rows(values_only=True)
+        for value in row
+        if isinstance(value, str)
+    ]
+    assert any("Completo" in value for value in questionnaire_values)
+
+    word = client.get(f"/campanas/reportes/asignaciones/{assignment_id}/word")
+    assert word.status_code == 200
+    assert word.mimetype == "application/vnd.openxmlformats-officedocument.wordprocessingml.document"
+    with zipfile.ZipFile(BytesIO(word.data)) as archive:
+        document_xml = archive.read("word/document.xml").decode("utf-8")
+    assert "Reporte ejecutivo de asignacion" in document_xml
+    assert "Con evidencia" in document_xml
+
+
+def test_dashboard_and_legacy_report_hub_fall_back_to_assignment_exports():
+    app, ids = build_app_with_campaign_data()
+    with app.app_context():
+        respondent = Usuario.query.filter_by(correo="respondente@local.test").first()
+        campaign = db.session.get(CampanaCuestionario, ids["campaign_id"])
+        assignment = AsignacionCuestionario(
+            campana=campaign,
+            target_type="usuario",
+            usuario=respondent,
+            dependencia=respondent.dependencia,
+            respondente=respondent,
+            estado="respondido",
+            progreso=100,
+        )
+        db.session.add(assignment)
+        db.session.flush()
+        complete_axis(assignment, campaign.cuestionario_version.ejes[0], respondent, 2, "Listo")
+        complete_axis(assignment, campaign.cuestionario_version.ejes[1], respondent, 2, "Listo")
+        db.session.commit()
+        assignment_id = assignment.id
+
+    client = app.test_client()
+    login(client, "admin@local.test")
+
+    dashboard = client.get("/dashboard/")
+    dashboard_html = dashboard.get_data(as_text=True)
+    assert dashboard.status_code == 200
+    assert f"/campanas/reportes/asignaciones/{assignment_id}/pdf" in dashboard_html
+    assert f"/campanas/reportes/asignaciones/{assignment_id}/xlsx" in dashboard_html
+    assert f"/campanas/reportes/asignaciones/{assignment_id}/word" in dashboard_html
+
+    redirect_response = client.get("/reportes/", follow_redirects=False)
+    assert redirect_response.status_code == 302
+    assert redirect_response.headers["Location"].endswith("/campanas/reportes")
+
+    redirected = client.get("/reportes/", follow_redirects=True)
+    redirected_html = redirected.get_data(as_text=True)
+    assert redirected.status_code == 200
+    assert "Seguimiento por campana, asignado y seccion" in redirected_html

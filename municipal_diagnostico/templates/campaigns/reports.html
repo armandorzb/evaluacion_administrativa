@@ -1,5 +1,5 @@
 {% extends "base.html" %}
-{% block title %}Reportes de campanas | Diagnóstico Integral Municipal{% endblock %}
+{% block title %}Reportes de campañas | Diagnóstico Integral Municipal{% endblock %}
 {% block content %}
 <section class="executive-hero">
     <div class="hero-copy">
@@ -52,6 +52,7 @@
                 <p class="eyebrow">Asignaciones</p>
                 <h2>Avance por objetivo</h2>
             </div>
+            <p class="muted">Cada asignación ya permite descargar PDF, XLSX y Word.</p>
         </div>
         <div class="table-wrap">
             <table class="executive-table">
@@ -63,6 +64,7 @@
                         <th>Estado</th>
                         <th>Avance</th>
                         <th>Índice</th>
+                        <th>Descargas</th>
                     </tr>
                 </thead>
                 <tbody>
@@ -74,9 +76,17 @@
                         <td><span class="status status-{{ row.nivel_slug }}">{{ row.estado_label }}</span></td>
                         <td>{{ row.avance }}%</td>
                         <td>{{ row.indice }}</td>
+                        <td>
+                            <div class="actions">
+                                <a class="button" href="{{ url_for('campaigns.assignment_report', assignment_id=row.asignacion.id) }}">Reporte</a>
+                                <a class="button" href="{{ url_for('campaigns.assignment_pdf', assignment_id=row.asignacion.id) }}">PDF</a>
+                                <a class="button" href="{{ url_for('campaigns.assignment_excel', assignment_id=row.asignacion.id) }}">XLSX</a>
+                                <a class="button" href="{{ url_for('campaigns.assignment_word', assignment_id=row.asignacion.id) }}">Word</a>
+                            </div>
+                        </td>
                     </tr>
                     {% else %}
-                    <tr><td colspan="6" class="muted">Sin asignaciones visibles para esta campaña.</td></tr>
+                    <tr><td colspan="7" class="muted">Sin asignaciones visibles para esta campaña.</td></tr>
                     {% endfor %}
                 </tbody>
             </table>
@@ -86,7 +96,7 @@
     <article class="panel">
         <div class="section-heading">
             <div>
-                <p class="eyebrow">Secciónes</p>
+                <p class="eyebrow">Secciones</p>
                 <h2>Promedio por eje</h2>
             </div>
         </div>
@@ -157,7 +167,7 @@
         <div class="section-heading">
             <div>
                 <p class="eyebrow">Por dependencia</p>
-                <h2>Desempeno agrupado</h2>
+                <h2>Desempeño agrupado</h2>
             </div>
         </div>
         <div class="table-wrap">

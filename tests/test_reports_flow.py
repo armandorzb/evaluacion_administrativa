@@ -1,4 +1,8 @@
+import zipfile
 from datetime import date
+from io import BytesIO
+
+from openpyxl import load_workbook
 
 from municipal_diagnostico import create_app
 from municipal_diagnostico.extensions import db
@@ -220,6 +224,7 @@ def test_admin_report_hub_and_preliminary_report_render_without_mojibake():
 
     assert report.status_code == 200
     assert "Resultado preliminar" in report_html
+    assert "Cuestionario respondido" in report_html
     assert "Índice de madurez" in report_html
     assert "Oficialía Mayor" in report_html
     assert "Ã" not in report_html
@@ -227,6 +232,27 @@ def test_admin_report_hub_and_preliminary_report_render_without_mojibake():
     pdf = client.get(f"/reportes/evaluaciones/{ids['preliminary_evaluation_id']}/pdf")
     assert pdf.status_code == 200
     assert pdf.mimetype == "application/pdf"
+
+    xlsx = client.get(f"/reportes/evaluaciones/{ids['preliminary_evaluation_id']}/xlsx")
+    assert xlsx.status_code == 200
+    assert xlsx.mimetype == "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet"
+    workbook = load_workbook(BytesIO(xlsx.data))
+    assert "Cuestionario" in workbook.sheetnames
+    questionnaire_values = [
+        value
+        for row in workbook["Cuestionario"].iter_rows(values_only=True)
+        for value in row
+        if isinstance(value, str)
+    ]
+    assert any("Avance documentado" in value for value in questionnaire_values)
+
+    word = client.get(f"/reportes/evaluaciones/{ids['preliminary_evaluation_id']}/word")
+    assert word.status_code == 200
+    assert word.mimetype == "application/vnd.openxmlformats-officedocument.wordprocessingml.document"
+    with zipfile.ZipFile(BytesIO(word.data)) as archive:
+        document_xml = archive.read("word/document.xml").decode("utf-8")
+    assert "Reporte ejecutivo de evaluacion" in document_xml
+    assert "Avance documentado" in document_xml
 
 
 def test_admin_can_open_executive_home_and_see_dependency_and_axis_cards():
@@ -570,3 +596,18 @@ def test_invalid_evaluator_view_redirects_to_admin_listing():
     assert response.status_code == 200
     assert "La evaluación solicitada no existe todavía" in html
     assert "Vista capturista para administración" in html
+
+
+def test_admin_dashboard_exposes_report_download_shortcuts():
+    app, ids = build_app_with_reporting_data()
+    client = app.test_client()
+
+    login(client, "admin@test.local")
+    response = client.get("/dashboard/")
+    html = response.get_data(as_text=True)
+
+    assert response.status_code == 200
+    assert "Reportes listos para descarga" in html
+    assert f"/reportes/evaluaciones/{ids['preliminary_evaluation_id']}/pdf" in html
+    assert f"/reportes/evaluaciones/{ids['preliminary_evaluation_id']}/xlsx" in html
+    assert f"/reportes/evaluaciones/{ids['preliminary_evaluation_id']}/word" in html

@@ -6,7 +6,7 @@
         <p class="eyebrow">Perfil archivado</p>
         <h1>Revisión formal fuera del flujo principal</h1>
         <p class="lede">
-            El rol de revisor se conserva por compatibilidad historica. La operación nueva de cuestionarios ya no utiliza esta bandeja como ruta principal.
+            El rol de revisor se conserva por compatibilidad histórica. La operación nueva de cuestionarios ya no utiliza esta bandeja como ruta principal.
         </p>
     </div>
 </section>
@@ -14,7 +14,7 @@
 <article class="panel">
     <div class="callout callout-warning">
         <strong>Uso interno</strong>
-        <p>Las revisiónes legacy solo sobreviven como consulta interna. Para nuevos despliegues, el seguimiento se realiza desde reportes de campanas.</p>
+        <p>Las revisiones legacy solo sobreviven como consulta interna. Para nuevos despliegues, el seguimiento se realiza desde reportes de campañas.</p>
     </div>
     <div class="actions">
         <a class="button button-primary" href="{{ url_for('campaigns.reports') if current_user.rol == 'administrador' else url_for('dashboard.home') }}">Volver al flujo principal</a>

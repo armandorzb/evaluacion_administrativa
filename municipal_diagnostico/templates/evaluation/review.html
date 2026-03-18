@@ -1,12 +1,12 @@
 {% extends "base.html" %}
-{% block title %}Revisión historica | Diagnóstico Integral Municipal{% endblock %}
+{% block title %}Revisión histórica | Diagnóstico Integral Municipal{% endblock %}
 {% block content %}
 <section class="executive-hero">
     <div class="hero-copy">
         <p class="eyebrow">Histórico interno</p>
         <h1>{{ evaluacion.dependencia.nombre }} · {{ evaluacion.periodo.nombre }}</h1>
         <p class="lede">
-            La revisión formal del flujo legado quedo archivada. Esta pantalla se conserva como consulta interna de observaciones y resoluciones historicas.
+            La revisión formal del flujo legado quedó archivada. Esta pantalla se conserva como consulta interna de observaciones y resoluciones históricas.
         </p>
         <div class="tag-row">
             <span class="tag">Estado: {{ summary.state_label }}</span>
@@ -24,7 +24,7 @@
         <div class="actions">
             <a class="button button-primary" href="{{ url_for('reports.evaluation_report', evaluation_id=evaluacion.id) }}">Ver reporte</a>
             {% if current_user.rol == 'administrador' %}
-            <a class="button" href="{{ url_for('admin.evaluation_preview', evaluation_id=evaluacion.id) }}">Ver implementacion</a>
+            <a class="button" href="{{ url_for('admin.evaluation_preview', evaluation_id=evaluacion.id) }}">Ver implementación</a>
             {% endif %}
         </div>
     </article>
