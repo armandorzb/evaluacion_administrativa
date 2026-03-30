@@ -239,6 +239,10 @@ def _empty_metric_bucket() -> dict[str, float]:
     return {"sum": 0.0, "count": 0}
 
 
+def _empty_option_bucket() -> dict[int, int]:
+    return {1: 0, 2: 0, 3: 0, 4: 0}
+
+
 def _metric_from_bucket(bucket: dict[str, float]) -> dict[str, float | int | None]:
     count = int(bucket["count"])
     if not count:
@@ -250,6 +254,43 @@ def _metric_from_bucket(bucket: dict[str, float]) -> dict[str, float | int | Non
         "percent": round((average / 4) * 100, 1),
         "count": count,
     }
+
+
+def _build_question_option_distribution(
+    question: BienestarPregunta,
+    option_bucket: dict[int, int],
+    option_buckets_by_stratum: dict[str, dict[int, int]],
+    strata_order: list[str],
+) -> list[dict]:
+    distribution = []
+    total_answers = sum(int(option_bucket.get(value, 0)) for value in (4, 3, 2, 1))
+    options = list(question.opciones or [])
+    while len(options) < 4:
+        options.append(f"Opción {len(options) + 1}")
+
+    for value, label in zip((4, 3, 2, 1), options):
+        count = int(option_bucket.get(value, 0))
+        by_stratum = {}
+        for stratum in strata_order:
+            stratum_bucket = option_buckets_by_stratum.get(stratum, _empty_option_bucket())
+            stratum_total = sum(int(stratum_bucket.get(item, 0)) for item in (4, 3, 2, 1))
+            stratum_count = int(stratum_bucket.get(value, 0))
+            by_stratum[stratum] = {
+                "count": stratum_count,
+                "percent": round((stratum_count / stratum_total) * 100, 1) if stratum_total else 0.0,
+            }
+
+        distribution.append(
+            {
+                "value": value,
+                "label": label,
+                "count": count,
+                "percent": round((count / total_answers) * 100, 1) if total_answers else 0.0,
+                "by_stratum": by_stratum,
+            }
+        )
+
+    return distribution
 
 
 def build_wellbeing_report_payload() -> dict:
@@ -266,6 +307,8 @@ def build_wellbeing_report_payload() -> dict:
         question.id: {
             "overall": _empty_metric_bucket(),
             "by_stratum": {stratum: _empty_metric_bucket() for stratum in strata_order},
+            "options": _empty_option_bucket(),
+            "options_by_stratum": {stratum: _empty_option_bucket() for stratum in strata_order},
         }
         for question in questions
     }
@@ -303,6 +346,9 @@ def build_wellbeing_report_payload() -> dict:
             stratum_bucket = question_bucket["by_stratum"].setdefault(stratum, _empty_metric_bucket())
             stratum_bucket["sum"] += response.valor
             stratum_bucket["count"] += 1
+            question_bucket["options"][response.valor] = int(question_bucket["options"].get(response.valor, 0)) + 1
+            option_stratum_bucket = question_bucket["options_by_stratum"].setdefault(stratum, _empty_option_bucket())
+            option_stratum_bucket[response.valor] = int(option_stratum_bucket.get(response.valor, 0)) + 1
 
             dimension_bucket = strata_bucket["dimensions"][response.dimension]
             dimension_bucket["sum"] += response.valor
@@ -358,6 +404,7 @@ def build_wellbeing_report_payload() -> dict:
                 "orden": question.orden,
                 "dimension": question.dimension,
                 "texto": normalize_wellbeing_question_text(question.texto),
+                "options": list(question.opciones or []),
                 "activa": question.activa,
                 "state_label": "Activa" if question.activa else "Inactiva",
                 "overall": _metric_from_bucket(bucket["overall"]),
@@ -365,6 +412,12 @@ def build_wellbeing_report_payload() -> dict:
                     stratum: _metric_from_bucket(bucket["by_stratum"].get(stratum, _empty_metric_bucket()))
                     for stratum in strata_order
                 },
+                "response_options": _build_question_option_distribution(
+                    question,
+                    bucket["options"],
+                    bucket["options_by_stratum"],
+                    strata_order,
+                ),
             }
         )
 
@@ -445,6 +498,7 @@ def build_wellbeing_report_payload() -> dict:
                 "dimension": question.dimension,
                 "texto": normalize_wellbeing_question_text(question.texto),
                 "activa": question.activa,
+                "options": list(question.opciones or []),
             }
             for question in questions
         ],

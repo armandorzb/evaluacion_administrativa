@@ -163,6 +163,9 @@ def test_public_wellbeing_survey_can_complete_and_admin_can_open_dashboard():
         assert any(item["stratum"] == "E3" and item["completed"] == 1 for item in report["strata"])
         assert report["question_rows"][0]["by_stratum"]["E3"]["count"] == 1
         assert report["summary"]["history"][0]["fecha"].endswith("AM") or report["summary"]["history"][0]["fecha"].endswith("PM")
+        assert report["question_rows"][0]["response_options"][0]["label"] == questions[0]["t_opc"][0]
+        assert report["question_rows"][0]["response_options"][0]["count"] == 1
+        assert report["question_rows"][0]["response_options"][0]["percent"] == 100.0
 
 
 def test_admin_can_manage_wellbeing_questions_and_consulta_is_read_only():

@@ -11,7 +11,7 @@ from reportlab.lib.enums import TA_CENTER
 from reportlab.lib.pagesizes import landscape, letter
 from reportlab.lib.styles import ParagraphStyle, getSampleStyleSheet
 from reportlab.lib.units import inch
-from reportlab.platypus import PageBreak, Paragraph, SimpleDocTemplate, Spacer, Table, TableStyle
+from reportlab.platypus import KeepTogether, PageBreak, Paragraph, SimpleDocTemplate, Spacer, Table, TableStyle
 
 from municipal_diagnostico.models import BienestarPregunta
 from municipal_diagnostico.services.exports import (
@@ -136,6 +136,16 @@ def build_wellbeing_pdf(*, public_url: str | None = None) -> BytesIO:
         story.append(Spacer(1, 0.12 * inch))
         story.append(Paragraph(escape(group["dimension"]), styles["subsection"]))
         story.append(_build_pdf_question_table(group["rows"], report["strata_order"], styles))
+        story.append(Spacer(1, 0.08 * inch))
+        story.append(
+            Paragraph(
+                "Distribución de respuesta por reactivo con las opciones reales del cuestionario.",
+                styles["body"],
+            )
+        )
+        for row_chunk in _chunked(group["rows"], 2):
+            story.append(Spacer(1, 0.05 * inch))
+            story.append(_build_pdf_question_panel_row(row_chunk, styles))
 
     document.build(story, onFirstPage=_draw_wellbeing_pdf_chrome, onLaterPages=_draw_wellbeing_pdf_chrome)
     buffer.seek(0)
@@ -759,6 +769,122 @@ def _build_pdf_question_table(rows: list[dict], strata_order: list[str], styles:
     return table
 
 
+def _build_pdf_question_panel_row(rows: list[dict], styles: dict[str, ParagraphStyle]) -> Table:
+    panels = [_build_pdf_question_panel(row, styles) for row in rows]
+    while len(panels) < 2:
+        panels.append(Spacer(1, 0.01 * inch))
+
+    table = Table([panels], colWidths=[4.85 * inch, 4.85 * inch])
+    table.setStyle(
+        TableStyle(
+            [
+                ("VALIGN", (0, 0), (-1, -1), "TOP"),
+                ("LEFTPADDING", (0, 0), (-1, -1), 0),
+                ("RIGHTPADDING", (0, 0), (-1, -1), 0),
+                ("TOPPADDING", (0, 0), (-1, -1), 0),
+                ("BOTTOMPADDING", (0, 0), (-1, -1), 0),
+            ]
+        )
+    )
+    return table
+
+
+def _build_pdf_question_panel(row: dict, styles: dict[str, ParagraphStyle]):
+    title = Paragraph(
+        f"<b>R{row['orden']}</b> · {escape(row['texto'])}",
+        styles["note"],
+    )
+    meta = Paragraph(
+        (
+            f"Estado: <b>{escape(row['state_label'])}</b> | "
+            f"Global: <b>{_metric_cell_text(row['overall'])}</b> | "
+            f"Respuestas observadas: <b>{row['overall']['count']}</b>"
+        ),
+        styles["note"],
+    )
+    distribution = _build_pdf_option_distribution_table(row["response_options"], styles)
+
+    panel = Table(
+        [
+            [title],
+            [meta],
+            [distribution],
+        ],
+        colWidths=[4.72 * inch],
+    )
+    panel.setStyle(
+        TableStyle(
+            [
+                ("BACKGROUND", (0, 0), (-1, -1), colors.white),
+                ("BOX", (0, 0), (-1, -1), 0.55, PDF_THEME["line"]),
+                ("ROUNDEDCORNERS", [10, 10, 10, 10]),
+                ("LEFTPADDING", (0, 0), (-1, -1), 8),
+                ("RIGHTPADDING", (0, 0), (-1, -1), 8),
+                ("TOPPADDING", (0, 0), (-1, -1), 7),
+                ("BOTTOMPADDING", (0, 0), (-1, -1), 7),
+                ("VALIGN", (0, 0), (-1, -1), "TOP"),
+            ]
+        )
+    )
+    return panel
+
+
+def _build_pdf_option_distribution_table(response_options: list[dict], styles: dict[str, ParagraphStyle]) -> Table:
+    if not response_options or not any(option["count"] for option in response_options):
+        table = Table([[Paragraph("Sin respuestas completadas para este reactivo.", styles["note"])]], colWidths=[4.52 * inch])
+        table.setStyle(
+            TableStyle(
+                [
+                    ("BACKGROUND", (0, 0), (-1, -1), PDF_THEME["navy_soft"]),
+                    ("BOX", (0, 0), (-1, -1), 0.4, PDF_THEME["line"]),
+                    ("LEFTPADDING", (0, 0), (-1, -1), 8),
+                    ("RIGHTPADDING", (0, 0), (-1, -1), 8),
+                    ("TOPPADDING", (0, 0), (-1, -1), 8),
+                    ("BOTTOMPADDING", (0, 0), (-1, -1), 8),
+                ]
+            )
+        )
+        return table
+
+    rows = []
+    for option in response_options:
+        label = Paragraph(
+            f"<b>Nivel {option['value']}</b><br/>{escape(option['label'])}",
+            styles["note"],
+        )
+        bar = _build_pdf_percent_bar(option["percent"], _option_color(option["value"]))
+        value = Paragraph(
+            f"<b>{option['count']}</b> respuestas<br/>{option['percent']}%",
+            styles["small_center"],
+        )
+        rows.append([label, bar, value])
+
+    table = Table(rows, colWidths=[2.08 * inch, 1.42 * inch, 0.92 * inch])
+    table.setStyle(
+        TableStyle(
+            [
+                ("ROWBACKGROUNDS", (0, 0), (-1, -1), [colors.white, PDF_THEME["navy_soft"]]),
+                ("GRID", (0, 0), (-1, -1), 0.35, PDF_THEME["line"]),
+                ("VALIGN", (0, 0), (-1, -1), "MIDDLE"),
+                ("LEFTPADDING", (0, 0), (-1, -1), 6),
+                ("RIGHTPADDING", (0, 0), (-1, -1), 6),
+                ("TOPPADDING", (0, 0), (-1, -1), 5),
+                ("BOTTOMPADDING", (0, 0), (-1, -1), 5),
+            ]
+        )
+    )
+    return table
+
+
+def _build_pdf_percent_bar(percent: float, color) -> Drawing:
+    drawing = Drawing(110, 14)
+    drawing.add(Rect(0, 2, 110, 10, fillColor=PDF_THEME["navy_soft"], strokeColor=PDF_THEME["line"], strokeWidth=0.4))
+    if percent > 0:
+        width = max(3, 110 * min(percent, 100) / 100)
+        drawing.add(Rect(0, 2, width, 10, fillColor=color, strokeColor=color, strokeWidth=0))
+    return drawing
+
+
 def _build_stratum_summary_text(stratum: dict) -> str:
     strongest = stratum["strongest_dimension"] or "sin una dimensión fuerte identificada"
     attention = stratum["attention_dimension"] or "sin una dimensión crítica por falta de muestra"
@@ -792,6 +918,20 @@ def _metric_cell_text(metric: dict) -> str:
     if not metric["count"] or metric["percent"] is None:
         return "—"
     return f"{metric['percent']}% ({metric['count']})"
+
+
+def _chunked(items: list, size: int) -> list[list]:
+    return [items[index:index + size] for index in range(0, len(items), size)]
+
+
+def _option_color(value: int):
+    color_map = {
+        4: PDF_THEME["optimal"],
+        3: PDF_THEME["high"],
+        2: PDF_THEME["medium"],
+        1: PDF_THEME["low"],
+    }
+    return color_map.get(value, PDF_THEME["sage"])
 
 
 def _score_color(percent: float):
