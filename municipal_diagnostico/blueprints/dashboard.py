@@ -1,12 +1,19 @@
-from flask import Blueprint, jsonify, redirect, render_template, url_for
-from flask_login import current_user, login_required
+from __future__ import annotations
 
-from municipal_diagnostico.decorators import role_required
+from flask import Blueprint, abort, flash, jsonify, redirect, render_template, url_for
+from flask_login import current_user, login_required, logout_user
+
 from municipal_diagnostico.extensions import db
-from municipal_diagnostico.models import AsignacionCuestionario, CampanaCuestionario, Evaluacion, Notificacion, PeriodoEvaluacion
-from municipal_diagnostico.services.activity_logger import log_activity, touch_platform_session
+from municipal_diagnostico.models import AsignacionCuestionario, CampanaCuestionario, Evaluacion, Notificacion
+from municipal_diagnostico.services.activity_logger import close_platform_session, log_activity, touch_platform_session
+from municipal_diagnostico.services.analytics import REPORTABLE_EVALUATION_STATES, summarize_evaluation
 from municipal_diagnostico.services.campaign_analytics import FINAL_ASSIGNMENT_STATES, summarize_assignment, summarize_campaign
-from municipal_diagnostico.services.analytics import REPORTABLE_EVALUATION_STATES, summarize_evaluation, summarize_period
+from municipal_diagnostico.services.module_access import (
+    MODULE_BIENESTAR,
+    MODULE_DIAGNOSTICO,
+    endpoint_for_module,
+    landing_endpoint_for_user,
+)
 from municipal_diagnostico.timeutils import to_localtime
 
 
@@ -16,7 +23,80 @@ bp = Blueprint("dashboard", __name__, url_prefix="/dashboard")
 @bp.route("/")
 @login_required
 def home():
-    log_activity("view_dashboard", metadata={"rol": current_user.rol})
+    target_endpoint = landing_endpoint_for_user(current_user)
+    if target_endpoint is None:
+        return reject_user_without_modules()
+    return redirect(url_for(target_endpoint))
+
+
+@bp.route("/modulos")
+@login_required
+def modules():
+    target_endpoint = landing_endpoint_for_user(current_user)
+    if target_endpoint is None:
+        return reject_user_without_modules()
+    if target_endpoint != "dashboard.modules":
+        return redirect(url_for(target_endpoint))
+
+    log_activity(
+        "view_module_selector",
+        metadata={"modulos": current_user.modulos_disponibles, "rol": current_user.rol},
+    )
+    return render_template(
+        "dashboard/modules.html",
+        modules=[
+            {
+                "slug": MODULE_DIAGNOSTICO,
+                "title": "Diagnóstico Integral Municipal",
+                "subtitle": "Cuestionarios, campañas, asignaciones y reportería operativa",
+                "description": "Mantiene la arquitectura actual del sistema para operación institucional, seguimiento y reportes ejecutivos.",
+                "url": url_for("dashboard.open_module", module_slug=MODULE_DIAGNOSTICO),
+                "is_available": current_user.puede_acceder_diagnostico,
+            },
+            {
+                "slug": MODULE_BIENESTAR,
+                "title": "Bienestar Policial",
+                "subtitle": "Encuesta pública, tablero propio y exportaciones ejecutivas",
+                "description": "Opera como módulo independiente con identidad visual propia, captura anónima y panel interno especializado.",
+                "url": url_for("dashboard.open_module", module_slug=MODULE_BIENESTAR),
+                "is_available": current_user.puede_acceder_bienestar,
+            },
+        ],
+    )
+
+
+@bp.route("/modulos/<string:module_slug>")
+@login_required
+def open_module(module_slug: str):
+    target_endpoint = endpoint_for_module(current_user, module_slug)
+    if target_endpoint is None:
+        log_activity(
+            "module_access_denied",
+            metadata={"modulo": module_slug, "rol": current_user.rol},
+        )
+        abort(403, description="No cuentas con acceso al módulo solicitado.")
+
+    log_activity(
+        "select_module",
+        metadata={"modulo": module_slug, "rol": current_user.rol},
+    )
+    return redirect(url_for(target_endpoint))
+
+
+@bp.route("/diagnostico")
+@login_required
+def diagnostic_home():
+    if not current_user.puede_acceder_diagnostico:
+        log_activity(
+            "module_access_denied",
+            metadata={"modulo": MODULE_DIAGNOSTICO, "rol": current_user.rol},
+        )
+        abort(403, description="No cuentas con acceso al módulo Diagnóstico Integral Municipal.")
+
+    log_activity(
+        "view_dashboard",
+        metadata={"rol": current_user.rol, "modulo": MODULE_DIAGNOSTICO},
+    )
     if current_user.rol == "administrador":
         return render_template("dashboard/admin.html", **build_admin_dashboard())
     if current_user.rol == "revisor":
@@ -56,6 +136,19 @@ def heartbeat():
             "last_seen": local_value.strftime("%d/%m/%Y %H:%M") if local_value else None,
         }
     )
+
+
+def reject_user_without_modules():
+    log_activity(
+        "login_denied_no_modules",
+        metadata={"rol": getattr(current_user, "rol", None)},
+        commit=False,
+    )
+    close_platform_session()
+    db.session.commit()
+    logout_user()
+    flash("Tu cuenta no tiene módulos asignados. Solicita acceso a un administrador.", "error")
+    return redirect(url_for("auth.login"))
 
 
 def build_admin_dashboard() -> dict:

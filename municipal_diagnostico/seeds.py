@@ -17,6 +17,7 @@ from municipal_diagnostico.models import (
     Usuario,
 )
 from municipal_diagnostico.seed_data import OFFICIAL_QUESTIONNAIRE
+from municipal_diagnostico.services.wellbeing import ensure_wellbeing_questions
 from municipal_diagnostico.timeutils import utcnow
 
 
@@ -78,6 +79,10 @@ def ensure_official_questionnaire() -> CuestionarioVersion:
     )
     db.session.commit()
     return version
+
+
+def ensure_wellbeing_catalog() -> None:
+    ensure_wellbeing_questions()
 
 
 def clone_questionnaire_version(
@@ -180,6 +185,7 @@ def register_cli_commands(app) -> None:
     def init_db_command(with_sample_data: bool) -> None:
         db.create_all()
         ensure_official_questionnaire()
+        ensure_wellbeing_catalog()
         if with_sample_data:
             seed_sample_catalogs()
 

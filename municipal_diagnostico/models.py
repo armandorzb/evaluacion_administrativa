@@ -1,10 +1,16 @@
 from __future__ import annotations
 
 from flask_login import UserMixin
-from sqlalchemy import UniqueConstraint
+from sqlalchemy import UniqueConstraint, event
 from werkzeug.security import check_password_hash, generate_password_hash
 
 from municipal_diagnostico.extensions import db
+from municipal_diagnostico.services.module_access import (
+    MODULE_BIENESTAR,
+    MODULE_DIAGNOSTICO,
+    WELLBEING_ALLOWED_ROLES,
+    normalize_module_flags,
+)
 from municipal_diagnostico.timeutils import utcnow
 
 
@@ -75,6 +81,8 @@ class Usuario(UserMixin, TimestampMixin, db.Model):
     password_hash = db.Column(db.String(255), nullable=False)
     rol = db.Column(db.String(30), nullable=False)
     activo = db.Column(db.Boolean, default=True, nullable=False)
+    acceso_diagnostico = db.Column(db.Boolean, nullable=False, default=True)
+    acceso_bienestar = db.Column(db.Boolean, nullable=False, default=False)
     dependencia_id = db.Column(db.Integer, db.ForeignKey("dependencia.id"))
     area_id = db.Column(db.Integer, db.ForeignKey("area.id"))
 
@@ -141,11 +149,26 @@ class Usuario(UserMixin, TimestampMixin, db.Model):
         foreign_keys="SoporteSeccion.usuario_id",
     )
 
+    def __init__(self, **kwargs):
+        super().__init__(**kwargs)
+        normalized = normalize_module_flags(
+            kwargs.get("rol", getattr(self, "rol", None)),
+            kwargs.get("acceso_diagnostico", getattr(self, "acceso_diagnostico", None)),
+            kwargs.get("acceso_bienestar", getattr(self, "acceso_bienestar", None)),
+        )
+        self.acceso_diagnostico = normalized["acceso_diagnostico"]
+        self.acceso_bienestar = normalized["acceso_bienestar"]
+
     def set_password(self, password: str) -> None:
         self.password_hash = generate_password_hash(password)
 
     def check_password(self, password: str) -> bool:
         return check_password_hash(self.password_hash, password)
+
+    def sync_module_accesses(self) -> None:
+        normalized = normalize_module_flags(self.rol, self.acceso_diagnostico, self.acceso_bienestar)
+        self.acceso_diagnostico = normalized["acceso_diagnostico"]
+        self.acceso_bienestar = normalized["acceso_bienestar"]
 
     @property
     def nombre_rol(self) -> str:
@@ -156,6 +179,46 @@ class Usuario(UserMixin, TimestampMixin, db.Model):
             "respondente": "Respondente",
             "consulta": "Consulta",
         }.get(self.rol, self.rol)
+
+    @property
+    def puede_acceder_diagnostico(self) -> bool:
+        return self.activo and bool(self.acceso_diagnostico)
+
+    @property
+    def puede_acceder_bienestar(self) -> bool:
+        return (
+            self.activo
+            and bool(self.acceso_bienestar)
+            and self.rol in WELLBEING_ALLOWED_ROLES
+        )
+
+    @property
+    def modulos_disponibles(self) -> list[str]:
+        modules = []
+        if self.puede_acceder_diagnostico:
+            modules.append(MODULE_DIAGNOSTICO)
+        if self.puede_acceder_bienestar:
+            modules.append(MODULE_BIENESTAR)
+        return modules
+
+    @property
+    def tiene_selector_modulos(self) -> bool:
+        return len(self.modulos_disponibles) > 1
+
+    @property
+    def modulos_asignados_label(self) -> str:
+        labels = []
+        if self.acceso_diagnostico:
+            labels.append("Diagnóstico")
+        if self.acceso_bienestar:
+            labels.append("Bienestar")
+        return " · ".join(labels) if labels else "Sin acceso"
+
+
+@event.listens_for(Usuario, "before_insert")
+@event.listens_for(Usuario, "before_update")
+def sync_usuario_module_accesses(_mapper, _connection, target: Usuario) -> None:
+    target.sync_module_accesses()
 
 
 class CuestionarioVersion(TimestampMixin, db.Model):
@@ -400,6 +463,57 @@ class SoporteSeccion(TimestampMixin, db.Model):
             "asignacion_id",
             "eje_version_id",
             name="uq_soporte_asignacion_eje",
+        ),
+    )
+
+
+class BienestarPregunta(TimestampMixin, db.Model):
+    id = db.Column(db.Integer, primary_key=True)
+    orden = db.Column(db.Integer, nullable=False, unique=True)
+    dimension = db.Column(db.String(100), nullable=False)
+    texto = db.Column(db.Text, nullable=False)
+    opciones = db.Column(db.JSON, nullable=False)
+    activa = db.Column(db.Boolean, default=True, nullable=False)
+
+    respuestas = db.relationship(
+        "BienestarRespuesta",
+        back_populates="pregunta",
+    )
+
+
+class BienestarEncuesta(TimestampMixin, db.Model):
+    id = db.Column(db.Integer, primary_key=True)
+    hash_id = db.Column(db.String(50), unique=True, nullable=False, index=True)
+    estrato = db.Column(db.String(10), nullable=False, default="E1")
+    iibp = db.Column(db.Float)
+    ivsp = db.Column(db.Float)
+    estado = db.Column(db.String(20), nullable=False, default="abandonada")
+    ultima_pregunta = db.Column(db.Integer, default=0, nullable=False)
+    completada_at = db.Column(db.DateTime)
+
+    respuestas = db.relationship(
+        "BienestarRespuesta",
+        back_populates="encuesta",
+        cascade="all, delete-orphan",
+        order_by="BienestarRespuesta.pregunta_id",
+    )
+
+
+class BienestarRespuesta(TimestampMixin, db.Model):
+    id = db.Column(db.Integer, primary_key=True)
+    encuesta_id = db.Column(db.Integer, db.ForeignKey("bienestar_encuesta.id"), nullable=False)
+    pregunta_id = db.Column(db.Integer, db.ForeignKey("bienestar_pregunta.id"), nullable=False)
+    dimension = db.Column(db.String(100), nullable=False)
+    valor = db.Column(db.Integer, nullable=False)
+
+    encuesta = db.relationship("BienestarEncuesta", back_populates="respuestas")
+    pregunta = db.relationship("BienestarPregunta", back_populates="respuestas")
+
+    __table_args__ = (
+        UniqueConstraint(
+            "encuesta_id",
+            "pregunta_id",
+            name="uq_bienestar_encuesta_pregunta",
         ),
     )
 

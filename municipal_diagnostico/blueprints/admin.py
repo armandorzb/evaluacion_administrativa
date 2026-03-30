@@ -35,6 +35,7 @@ from municipal_diagnostico.services.importers import (
     import_usuarios,
     load_rows,
 )
+from municipal_diagnostico.services.module_access import WELLBEING_ALLOWED_ROLES, normalize_module_flags
 from municipal_diagnostico.services.notifications import notify_user
 from municipal_diagnostico.timeutils import to_utc_naive, utcnow
 
@@ -108,6 +109,20 @@ ACTIVITY_LABELS = {
     "download_section_support": "Descarga de soporte por seccion",
     "view_campaign_reports": "Consulta de reportes de campana",
     "view_assignment_report": "Consulta de reporte de asignacion",
+    "view_wellbeing_survey": "Apertura de encuesta de bienestar",
+    "start_wellbeing_survey": "Inicio de encuesta de bienestar",
+    "save_wellbeing_survey": "Guardado de encuesta de bienestar",
+    "view_wellbeing_dashboard": "Consulta de tablero de bienestar",
+    "view_wellbeing_questions": "Consulta de preguntas de bienestar",
+    "create_wellbeing_question": "Alta de pregunta de bienestar",
+    "update_wellbeing_question": "Actualizacion de pregunta de bienestar",
+    "toggle_wellbeing_question": "Cambio de estado de pregunta de bienestar",
+    "delete_wellbeing_question": "Eliminacion de pregunta de bienestar",
+    "export_wellbeing_csv": "Exportacion CSV de bienestar",
+    "view_module_selector": "Consulta del selector de modulos",
+    "select_module": "Cambio de modulo",
+    "module_access_denied": "Acceso denegado por modulo",
+    "login_denied_no_modules": "Inicio sin modulos asignados",
     "clone_questionnaire": "Clonado de cuestionario",
     "publish_questionnaire": "Publicación de cuestionario",
     "archive_questionnaire": "Archivado de cuestionario",
@@ -292,12 +307,23 @@ def catalogs():
                     rol=user_data["rol"],
                     dependencia_id=user_data["dependencia_id"],
                     area_id=user_data["area_id"],
+                    acceso_diagnostico=user_data["acceso_diagnostico"],
+                    acceso_bienestar=user_data["acceso_bienestar"],
                     activo=True,
                 )
                 user.set_password(user_data["password"])
                 db.session.add(user)
                 db.session.commit()
-                log_activity("create_user", entity_type="usuario", entity_id=user.id, metadata={"rol": user.rol})
+                log_activity(
+                    "create_user",
+                    entity_type="usuario",
+                    entity_id=user.id,
+                    metadata={
+                        "rol": user.rol,
+                        "acceso_diagnostico": user.acceso_diagnostico,
+                        "acceso_bienestar": user.acceso_bienestar,
+                    },
+                )
                 flash("Usuario creado.", "success")
                 redirect_anchor = "catalogo-usuarios"
 
@@ -318,10 +344,21 @@ def catalogs():
                     user.rol = user_data["rol"]
                     user.dependencia_id = user_data["dependencia_id"]
                     user.area_id = user_data["area_id"]
+                    user.acceso_diagnostico = user_data["acceso_diagnostico"]
+                    user.acceso_bienestar = user_data["acceso_bienestar"]
                     if user_data["password"]:
                         user.set_password(user_data["password"])
                     db.session.commit()
-                    log_activity("update_user", entity_type="usuario", entity_id=user.id, metadata={"rol": user.rol})
+                    log_activity(
+                        "update_user",
+                        entity_type="usuario",
+                        entity_id=user.id,
+                        metadata={
+                            "rol": user.rol,
+                            "acceso_diagnostico": user.acceso_diagnostico,
+                            "acceso_bienestar": user.acceso_bienestar,
+                        },
+                    )
                     flash("Usuario actualizado.", "success")
                 redirect_anchor = "catalogo-usuarios"
 
@@ -396,6 +433,8 @@ def catalogs():
         "areas_activas": sum(1 for area in areas if area.activa),
         "usuarios_activos": sum(1 for user in users if user.activo),
         "administradores_activos": sum(1 for user in users if user.activo and user.rol == "administrador"),
+        "usuarios_diagnostico": sum(1 for user in users if user.acceso_diagnostico),
+        "usuarios_bienestar": sum(1 for user in users if user.acceso_bienestar),
     }
     log_activity("view_catalogs")
     return render_template(
@@ -406,6 +445,7 @@ def catalogs():
         dependencias_activas=active_dependencies,
         areas_activas=active_areas,
         role_definitions=ROLE_DEFINITIONS,
+        wellbeing_allowed_roles=sorted(WELLBEING_ALLOWED_ROLES),
         stats=stats,
     )
 
@@ -796,6 +836,8 @@ def validate_user_payload(form_data, *, current_user_id: int | None = None, pass
     rol = clean_catalog_text(form_data.get("rol"))
     dependencia_id = form_data.get("dependencia_id", type=int)
     area_id = form_data.get("area_id", type=int)
+    requested_diagnostic = form_data.get("acceso_diagnostico")
+    requested_wellbeing = form_data.get("acceso_bienestar")
 
     if not nombre:
         return None, "Captura el nombre del usuario."
@@ -808,6 +850,16 @@ def validate_user_payload(form_data, *, current_user_id: int | None = None, pass
         return None, "Selecciona un rol válido."
     if password_required and not password:
         return None, "Captura una contraseña inicial para el usuario."
+
+    module_access = normalize_module_flags(
+        rol,
+        acceso_diagnostico=requested_diagnostic is not None,
+        acceso_bienestar=requested_wellbeing is not None,
+    )
+    if not module_access["acceso_diagnostico"] and not module_access["acceso_bienestar"]:
+        return None, "Activa al menos un módulo para permitir el acceso del usuario."
+    if requested_wellbeing is not None and rol not in WELLBEING_ALLOWED_ROLES:
+        return None, "Bienestar Policial solo puede asignarse a usuarios con rol administrador o consulta."
 
     dependency = db.session.get(Dependencia, dependencia_id) if dependencia_id else None
     area = db.session.get(Area, area_id) if area_id else None
@@ -828,6 +880,8 @@ def validate_user_payload(form_data, *, current_user_id: int | None = None, pass
         "rol": rol,
         "dependencia_id": dependency.id if dependency else None,
         "area_id": area.id if area else None,
+        "acceso_diagnostico": module_access["acceso_diagnostico"],
+        "acceso_bienestar": module_access["acceso_bienestar"],
     }, None
 
 

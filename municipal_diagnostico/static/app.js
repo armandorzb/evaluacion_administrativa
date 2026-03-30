@@ -108,6 +108,18 @@
     target.innerHTML = `<strong>${label}</strong><p>${description}</p>`;
   }
 
+  function syncModuleAccessOptions(select) {
+    const form = select.closest("form");
+    if (!form) return;
+    const wellbeingCheckbox = form.querySelector('input[name="acceso_bienestar"]');
+    if (!wellbeingCheckbox) return;
+    const allowsWellbeing = ["administrador", "consulta"].includes(select.value);
+    wellbeingCheckbox.disabled = !allowsWellbeing;
+    if (!allowsWellbeing) {
+      wellbeingCheckbox.checked = false;
+    }
+  }
+
   function buildGuideList(items) {
     if (!items || !items.length) {
       return "<li>Sin columnas opcionales.</li>";
@@ -145,6 +157,31 @@
     triggerReveal(target);
   }
 
+  function initializeResponsiveTables() {
+    document.querySelectorAll(".table-wrap table").forEach((table) => {
+      const headers = Array.from(table.querySelectorAll("thead th")).map((header) =>
+        header.textContent.replace(/\s+/g, " ").trim(),
+      );
+
+      if (!headers.length) return;
+
+      table.classList.add("js-responsive-table");
+
+      table.querySelectorAll("tbody tr").forEach((row) => {
+        const cells = Array.from(row.children).filter((cell) => cell.tagName === "TD");
+        cells.forEach((cell, index) => {
+          const colspan = Number(cell.getAttribute("colspan") || "1");
+          if (colspan > 1 || !headers[index]) {
+            cell.dataset.label = "";
+            cell.classList.add("table-cell-full");
+            return;
+          }
+          cell.dataset.label = headers[index];
+        });
+      });
+    });
+  }
+
   function syncAreaSelect(dependencySelect) {
     const targetId = dependencySelect.dataset.areaTarget;
     if (!targetId) return;
@@ -169,7 +206,11 @@
 
   document.querySelectorAll("[data-role-help-target]").forEach((select) => {
     syncRoleHelp(select);
-    select.addEventListener("change", () => syncRoleHelp(select));
+    syncModuleAccessOptions(select);
+    select.addEventListener("change", () => {
+      syncRoleHelp(select);
+      syncModuleAccessOptions(select);
+    });
   });
 
   document.querySelectorAll("[data-import-guide-target]").forEach((select) => {
@@ -181,6 +222,8 @@
     syncAreaSelect(select);
     select.addEventListener("change", () => syncAreaSelect(select));
   });
+
+  initializeResponsiveTables();
 
   if (window.Chart) {
     window.Chart.defaults.animation = prefersReducedMotion

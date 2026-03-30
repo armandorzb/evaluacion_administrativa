@@ -1,0 +1,89 @@
+{% extends "bienestar_base.html" %}
+{% block title %}Inicio | Bienestar Policial{% endblock %}
+{% block content %}
+<section class="executive-hero wellbeing-hero {% if public_mode %}wellbeing-public-hero{% endif %}">
+    <div class="hero-copy">
+        <p class="eyebrow">{% if public_mode %}Encuesta pública{% else %}Módulo institucional independiente{% endif %}</p>
+        <h1>Encuesta anónima de Bienestar Policial</h1>
+        <p class="lede">
+            {% if public_mode %}
+            Selecciona tu estrato y comienza la encuesta. No necesitas iniciar sesión ni capturar datos personales.
+            {% else %}
+            La captura pública es anónima y comparte sesión interna con la plataforma,
+            pero opera con identidad, tablero y reportes propios para seguimiento del bienestar policial.
+            {% endif %}
+        </p>
+        <div class="tag-row">
+            <span class="tag">{{ total_questions }} reactivos activos</span>
+            <span class="tag">Captura anónima</span>
+            {% if not public_mode %}
+            <span class="tag">Panel interno con reportería ejecutiva</span>
+            {% endif %}
+        </div>
+    </div>
+
+    <article class="hero-card compact {% if public_mode %}wellbeing-public-card{% endif %}">
+        <div class="card-kicker">Inicio rápido</div>
+        <form class="stack" data-wellbeing-home data-start-url="{{ url_for('wellbeing.api_start_survey') }}" data-survey-url="{{ url_for('wellbeing.survey') }}">
+            <label>Estrato
+                <select name="estrato">
+                    {% for estrato in estratos %}
+                    <option value="{{ estrato }}">{{ estrato }}</option>
+                    {% endfor %}
+                </select>
+            </label>
+            <button class="button button-primary" type="submit">Comenzar encuesta</button>
+            {% if public_mode %}
+            <p class="muted">El sistema generará un folio anónimo para continuar con la captura.</p>
+            {% endif %}
+            {% if not public_mode %}
+            {% if current_user.is_authenticated and current_user.puede_acceder_bienestar %}
+            <a class="button" href="{{ url_for('wellbeing.dashboard') }}">Abrir panel interno</a>
+            {% endif %}
+            {% endif %}
+        </form>
+    </article>
+</section>
+
+{% if not public_mode %}
+<article class="panel">
+    <div class="section-heading">
+        <div>
+            <p class="eyebrow">Difusión pública</p>
+            <h2>URL lista para compartir</h2>
+        </div>
+    </div>
+    <div class="stack">
+        <p class="muted">
+            Comparte esta liga para que el personal entre directamente al portal público y genere su folio anónimo.
+        </p>
+        <label>Liga pública
+            <input type="text" readonly value="{{ public_url }}">
+        </label>
+        <div class="actions">
+            <a class="button button-primary" href="{{ public_url }}" target="_blank" rel="noopener">Abrir liga pública</a>
+        </div>
+    </div>
+</article>
+
+<section class="metric-grid">
+    <article class="metric-card">
+        <span>Anonimato</span>
+        <strong>100%</strong>
+    </article>
+    <article class="metric-card">
+        <span>Persistencia</span>
+        <strong>Por folio</strong>
+    </article>
+    <article class="metric-card">
+        <span>Escala</span>
+        <strong>1 a 4</strong>
+    </article>
+    <article class="metric-card">
+        <span>Acceso interno</span>
+        <strong>Admin y consulta</strong>
+    </article>
+</section>
+{% endif %}
+<script defer src="{{ url_for('static', filename='bienestar.js') }}"></script>
+{% endblock %}

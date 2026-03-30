@@ -17,7 +17,7 @@
         <p>Las revisiones legacy solo sobreviven como consulta interna. Para nuevos despliegues, el seguimiento se realiza desde reportes de campañas.</p>
     </div>
     <div class="actions">
-        <a class="button button-primary" href="{{ url_for('campaigns.reports') if current_user.rol == 'administrador' else url_for('dashboard.home') }}">Volver al flujo principal</a>
+        <a class="button button-primary" href="{{ url_for('campaigns.reports') if current_user.rol == 'administrador' else url_for('dashboard.diagnostic_home') }}">Volver al flujo principal</a>
     </div>
 </article>
 

@@ -3,30 +3,30 @@
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
-    <title>{% block title %}Diagnóstico Integral Municipal{% endblock %}</title>
+    <title>{% block title %}Bienestar Policial{% endblock %}</title>
     <link rel="preconnect" href="https://fonts.googleapis.com">
     <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
-    <link href="https://fonts.googleapis.com/css2?family=Urbanist:wght@300;400;500;600;700;800&family=Cormorant+Garamond:wght@600;700&family=Source+Sans+3:wght@400;600;700&display=swap" rel="stylesheet">
+    <link href="https://fonts.googleapis.com/css2?family=Space+Grotesk:wght@400;500;700&family=Literata:opsz,wght@7..72,600;7..72,700&family=Source+Sans+3:wght@400;600;700&display=swap" rel="stylesheet">
     <link rel="stylesheet" href="{{ url_for('static', filename='style.css') }}">
     <script src="https://cdn.jsdelivr.net/npm/chart.js"></script>
     <script defer src="{{ url_for('static', filename='app.js') }}"></script>
+    {% block head_extra %}{% endblock %}
 </head>
-<body class="{% block body_class %}{% endblock %}" {% if current_user.is_authenticated %}data-heartbeat-url="{{ url_for('dashboard.heartbeat') }}"{% endif %}>
-    <div class="site-shell">
-        <header class="site-header" data-header-region>
+<body class="wellbeing-body {% if public_mode %}wellbeing-public-mode{% endif %} {% block body_class %}{% endblock %}" {% if current_user.is_authenticated %}data-heartbeat-url="{{ url_for('dashboard.heartbeat') }}"{% endif %}>
+    <div class="site-shell wellbeing-shell">
+        <header class="site-header wellbeing-site-header" data-header-region>
             <div class="header-frame">
                 <div class="brand-block">
                     <p class="eyebrow">{% block header_eyebrow %}Ayuntamiento de Hermosillo{% endblock %}</p>
-                    <a href="{{ url_for('dashboard.diagnostic_home') }}" class="brand">{% block header_brand %}Diagnóstico Integral Municipal{% endblock %}</a>
-                    <p class="brand-subtitle">{% block header_subtitle %}Cuestionarios, seguimiento operativo y reportería institucional{% endblock %}</p>
+                    <a href="{{ url_for('wellbeing.home') }}" class="brand wellbeing-brand">{% block header_brand %}Bienestar Policial{% endblock %}</a>
                 </div>
 
-                {% if current_user.is_authenticated %}
+                {% if not public_mode %}
                 <button
                     class="menu-toggle"
                     type="button"
                     aria-expanded="false"
-                    aria-controls="platform-navigation"
+                    aria-controls="wellbeing-navigation"
                     data-menu-toggle
                 >
                     <span class="menu-toggle-lines" aria-hidden="true">
@@ -37,34 +37,27 @@
                     <strong>Menú</strong>
                 </button>
 
-                <div class="header-shell" id="platform-navigation" data-header-shell data-open="false">
-                    <nav class="main-nav" aria-label="Principal">
-                        <a href="{{ url_for('dashboard.diagnostic_home') }}" style="--menu-order: 0;">Tablero</a>
+                <div class="header-shell" id="wellbeing-navigation" data-header-shell data-open="false">
+                    <nav class="main-nav wellbeing-nav" aria-label="Bienestar">
+                        <a href="{{ url_for('wellbeing.home') }}" style="--menu-order: 0;">Inicio</a>
+                        <a href="{{ url_for('wellbeing.public_entry') }}" style="--menu-order: 1;">Liga pública</a>
+                        {% if current_user.is_authenticated and current_user.puede_acceder_bienestar %}
+                        <a href="{{ url_for('wellbeing.dashboard') }}" style="--menu-order: 2;">Panel interno</a>
                         {% if current_user.rol == 'administrador' %}
-                        <a href="{{ url_for('admin.questionnaires') }}" style="--menu-order: 1;">Cuestionarios</a>
-                        <a href="{{ url_for('campaigns.index') }}" style="--menu-order: 2;">Campañas</a>
-                        <a href="{{ url_for('campaigns.assignments') }}" style="--menu-order: 3;">Asignaciones</a>
-                        <a href="{{ url_for('campaigns.reports') }}" style="--menu-order: 4;">Reportes campañas</a>
-                        <a href="{{ url_for('reports.index') }}" style="--menu-order: 5;">Reportes ejecutivos</a>
-                        <a href="{{ url_for('admin.catalogs') }}" style="--menu-order: 6;">Catálogos</a>
-                        <a href="{{ url_for('admin.monitoring') }}" style="--menu-order: 7;">Monitoreo</a>
-                        {% elif current_user.rol in ['evaluador', 'respondente'] %}
-                        <a href="{{ url_for('campaigns.assignments') }}" style="--menu-order: 1;">Asignaciones</a>
-                        <a href="{{ url_for('campaigns.reports') }}" style="--menu-order: 2;">Reportes</a>
-                        {% elif current_user.rol == 'consulta' %}
-                        <a href="{{ url_for('campaigns.reports') }}" style="--menu-order: 1;">Reportes campañas</a>
-                        <a href="{{ url_for('reports.executive_home') }}" style="--menu-order: 2;">Centro ejecutivo</a>
-                        {% elif current_user.rol == 'revisor' %}
-                        <a href="{{ url_for('evaluation.index') }}" style="--menu-order: 1;">Revisión</a>
-                        <a href="{{ url_for('reports.executive_home') }}" style="--menu-order: 2;">Resultados</a>
+                        <a href="{{ url_for('wellbeing.questions') }}" style="--menu-order: 3;">Preguntas</a>
+                        {% endif %}
+                        {% endif %}
+                        {% if current_user.is_authenticated and current_user.tiene_selector_modulos %}
+                        <a href="{{ url_for('dashboard.modules') }}" style="--menu-order: 4;">Cambiar módulo</a>
+                        {% elif current_user.is_authenticated and current_user.puede_acceder_diagnostico %}
+                        <a href="{{ url_for('dashboard.diagnostic_home') }}" style="--menu-order: 4;">Ir a Diagnóstico</a>
+                        {% else %}
+                        <a href="{{ url_for('auth.login') }}" style="--menu-order: 4;">Acceso interno</a>
                         {% endif %}
                     </nav>
 
                     <div class="header-tools" style="--menu-order: 9;">
-                        {% if current_user.tiene_selector_modulos %}
-                        <a class="secondary-link" href="{{ url_for('dashboard.modules') }}">Cambiar módulo</a>
-                        {% endif %}
-
+                        {% if current_user.is_authenticated %}
                         <details class="notifications">
                             <summary>
                                 <span>Notificaciones</span>
@@ -92,16 +85,19 @@
                         </div>
 
                         <a class="secondary-link" href="{{ url_for('auth.logout') }}">Salir</a>
+                        {% else %}
+                        <a class="secondary-link" href="{{ url_for('auth.login') }}">Acceso interno</a>
+                        {% endif %}
                     </div>
                 </div>
                 {% endif %}
             </div>
         </header>
-        {% if current_user.is_authenticated %}
+        {% if not public_mode %}
         <div class="menu-scrim" data-menu-scrim aria-hidden="true"></div>
         {% endif %}
 
-        <main class="content-shell">
+        <main class="content-shell wellbeing-content">
             {% with messages = get_flashed_messages(with_categories=true) %}
                 {% if messages %}
                 <div class="flash-stack">

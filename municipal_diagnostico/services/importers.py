@@ -7,6 +7,7 @@ from openpyxl import load_workbook
 
 from municipal_diagnostico.extensions import db
 from municipal_diagnostico.models import Area, Dependencia, Usuario
+from municipal_diagnostico.services.module_access import WELLBEING_ALLOWED_ROLES, normalize_module_flags, parse_optional_flag
 
 
 def load_rows(file_storage) -> list[dict]:
@@ -94,6 +95,21 @@ def import_usuarios(rows: list[dict]) -> dict:
             errors.append(f"Usuario nuevo sin contraseña: {email}")
             continue
 
+        try:
+            requested_diagnostic = parse_optional_flag(row.get("acceso_diagnostico"))
+            requested_wellbeing = parse_optional_flag(row.get("acceso_bienestar"))
+        except ValueError:
+            errors.append(f"Valor de acceso inválido para usuario {email}. Usa si/no, true/false o 1/0.")
+            continue
+        if requested_wellbeing is True and role not in WELLBEING_ALLOWED_ROLES:
+            errors.append(f"Bienestar Policial solo puede asignarse a administrador o consulta: {email}")
+            continue
+
+        module_access = normalize_module_flags(role, requested_diagnostic, requested_wellbeing)
+        if not module_access["acceso_diagnostico"] and not module_access["acceso_bienestar"]:
+            errors.append(f"El usuario {email} debe conservar al menos un módulo activo.")
+            continue
+
         dependency = None
         area = None
         dependency_name = str(row.get("dependencia", "")).strip()
@@ -121,6 +137,8 @@ def import_usuarios(rows: list[dict]) -> dict:
         user.rol = role
         user.dependencia = dependency
         user.area = area
+        user.acceso_diagnostico = module_access["acceso_diagnostico"]
+        user.acceso_bienestar = module_access["acceso_bienestar"]
         user.activo = True
         if password:
             user.set_password(password)

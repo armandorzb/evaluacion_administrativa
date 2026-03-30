@@ -174,7 +174,7 @@ def submit(evaluation_id: int):
     db.session.commit()
     log_activity("submit_review", entity_type="evaluacion", entity_id=evaluation.id)
     flash("Evaluación enviada a revisión.", "success")
-    return redirect(url_for("dashboard.home"))
+    return redirect(url_for("dashboard.diagnostic_home"))
 
 
 @bp.route("/<int:evaluation_id>/revision", methods=["GET", "POST"])

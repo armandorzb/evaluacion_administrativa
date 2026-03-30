@@ -19,6 +19,15 @@ def login():
         password = request.form.get("password", "")
         user = Usuario.query.filter_by(correo=email, activo=True).first()
         if user and user.check_password(password):
+            if not user.modulos_disponibles:
+                flash("Tu cuenta no tiene módulos asignados. Solicita acceso a un administrador.", "error")
+                log_activity(
+                    "login_denied_no_modules",
+                    entity_type="usuario",
+                    entity_id=user.id,
+                    metadata={"rol": user.rol},
+                )
+                return render_template("auth/login.html", admin_exists=Usuario.query.filter_by(rol="administrador").first() is not None)
             login_user(user)
             open_platform_session(user)
             log_activity(

@@ -12,9 +12,15 @@ from municipal_diagnostico.blueprints.campaigns import bp as campaigns_bp
 from municipal_diagnostico.blueprints.dashboard import bp as dashboard_bp
 from municipal_diagnostico.blueprints.evaluation import bp as evaluation_bp
 from municipal_diagnostico.blueprints.reports import bp as reports_bp
+from municipal_diagnostico.blueprints.wellbeing import bp as wellbeing_bp
 from municipal_diagnostico.extensions import db, login_manager, migrate
 from municipal_diagnostico.models import Notificacion, Usuario
-from municipal_diagnostico.seeds import bootstrap_admin, ensure_official_questionnaire, register_cli_commands
+from municipal_diagnostico.seeds import (
+    bootstrap_admin,
+    ensure_official_questionnaire,
+    ensure_wellbeing_catalog,
+    register_cli_commands,
+)
 from municipal_diagnostico.timeutils import app_timezone, to_localtime, utcnow
 
 
@@ -70,6 +76,7 @@ def ensure_database_ready(app: Flask) -> None:
         db.create_all()
         ensure_schema_compatibility(app)
         ensure_official_questionnaire()
+        ensure_wellbeing_catalog()
 
         if not has_user_table:
             email = app.config.get("BOOTSTRAP_ADMIN_EMAIL")
@@ -93,6 +100,31 @@ def ensure_schema_compatibility(app: Flask) -> None:
                 connection.execute(text("ALTER TABLE area ADD COLUMN activa BOOLEAN NOT NULL DEFAULT 1"))
             app.logger.info("Columna area.activa agregada automáticamente.")
 
+    if inspector.has_table("usuario"):
+        columns = {column["name"] for column in inspector.get_columns("usuario")}
+        needs_diagnostic_backfill = "acceso_diagnostico" not in columns
+        needs_wellbeing_backfill = "acceso_bienestar" not in columns
+        with db.engine.begin() as connection:
+            if needs_diagnostic_backfill:
+                connection.execute(text("ALTER TABLE usuario ADD COLUMN acceso_diagnostico BOOLEAN NOT NULL DEFAULT 1"))
+                app.logger.info("Columna usuario.acceso_diagnostico agregada automáticamente.")
+            if needs_wellbeing_backfill:
+                connection.execute(text("ALTER TABLE usuario ADD COLUMN acceso_bienestar BOOLEAN NOT NULL DEFAULT 0"))
+                app.logger.info("Columna usuario.acceso_bienestar agregada automáticamente.")
+            if needs_diagnostic_backfill or needs_wellbeing_backfill:
+                connection.execute(
+                    text(
+                        """
+                        UPDATE usuario
+                        SET acceso_diagnostico = 1,
+                            acceso_bienestar = CASE
+                                WHEN rol IN ('administrador', 'consulta') THEN 1
+                                ELSE 0
+                            END
+                        """
+                    )
+                )
+
 
 def register_blueprints(app: Flask) -> None:
     app.register_blueprint(auth_bp)
@@ -101,6 +133,7 @@ def register_blueprints(app: Flask) -> None:
     app.register_blueprint(campaigns_bp)
     app.register_blueprint(evaluation_bp)
     app.register_blueprint(reports_bp)
+    app.register_blueprint(wellbeing_bp)
 
     @app.route("/")
     def index():
@@ -143,8 +176,6 @@ def register_context_processors(app: Flask) -> None:
 
 def register_error_handlers(app: Flask) -> None:
     @app.errorhandler(403)
-    def forbidden(_error):
-        return (
-            "No cuentas con permisos para acceder a este recurso.",
-            403,
-        )
+    def forbidden(error):
+        message = getattr(error, "description", None) or "No cuentas con permisos para acceder a este recurso."
+        return (message, 403)

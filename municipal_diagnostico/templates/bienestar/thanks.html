@@ -1,0 +1,38 @@
+{% extends "bienestar_base.html" %}
+{% block title %}Encuesta completada | Bienestar Policial{% endblock %}
+{% block content %}
+<section class="executive-hero wellbeing-hero">
+    <div class="hero-copy">
+        <p class="eyebrow">Encuesta completada</p>
+        <h1>Gracias por participar</h1>
+        <p class="lede">
+            Las respuestas quedaron registradas de forma anónima y ya forman parte del concentrado institucional del módulo de bienestar.
+        </p>
+    </div>
+    <article class="hero-card compact">
+        <div class="actions vertical">
+            <a class="button button-primary" href="{{ url_for('wellbeing.home') }}">Responder otra encuesta</a>
+            <a class="button" href="{{ url_for('wellbeing.public_entry') }}">Volver al portal público</a>
+        </div>
+    </article>
+</section>
+
+<section class="metric-grid">
+    <article class="metric-card">
+        <span>Captura</span>
+        <strong>Completada</strong>
+    </article>
+    <article class="metric-card">
+        <span>Tipo</span>
+        <strong>Anónima</strong>
+    </article>
+    <article class="metric-card">
+        <span>Persistencia</span>
+        <strong>En base de datos</strong>
+    </article>
+    <article class="metric-card">
+        <span>Uso</span>
+        <strong>Panel interno</strong>
+    </article>
+</section>
+{% endblock %}

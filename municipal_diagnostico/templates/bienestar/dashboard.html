@@ -1,0 +1,180 @@
+{% extends "bienestar_base.html" %}
+{% block title %}Panel interno | Bienestar Policial{% endblock %}
+{% block content %}
+<section class="executive-hero wellbeing-hero">
+    <div class="hero-copy">
+        <p class="eyebrow">Centro operativo del módulo</p>
+        <h1>Panel interno de Bienestar Policial</h1>
+        <p class="lede">
+            Consolida las encuestas anónimas del módulo para seguimiento institucional, análisis por dimensión y reportería ejecutiva.
+        </p>
+        <div class="tag-row">
+            <span class="tag">Total: {{ summary.total }}</span>
+            <span class="tag">Completadas: {{ summary.completadas }}</span>
+            <span class="tag">Abandonadas: {{ summary.abandonadas }}</span>
+        </div>
+    </div>
+
+    <article class="hero-card compact">
+        <div class="card-kicker">Acciones</div>
+        <div class="actions vertical">
+            <a class="button button-primary" href="{{ url_for('wellbeing.export_pdf') }}">Exportar PDF</a>
+            <a class="button" href="{{ url_for('wellbeing.export_excel') }}">Exportar XLSX</a>
+            <a class="button" href="{{ url_for('wellbeing.export_word') }}">Exportar Word</a>
+            <a class="button" href="{{ url_for('wellbeing.export_csv') }}">Exportar CSV</a>
+            <a class="button" href="{{ public_url }}" target="_blank" rel="noopener">Abrir liga pública</a>
+            {% if current_user.rol == 'administrador' %}
+            <a class="button" href="{{ url_for('wellbeing.questions') }}">Administrar preguntas</a>
+            {% endif %}
+        </div>
+    </article>
+</section>
+
+<section class="metric-grid">
+    <article class="metric-card">
+        <span>IIBP promedio</span>
+        <strong>{{ summary.avg_iibp }}</strong>
+    </article>
+    <article class="metric-card">
+        <span>IVSP promedio</span>
+        <strong>{{ summary.avg_ivsp }}</strong>
+    </article>
+    <article class="metric-card">
+        <span>Tasa de finalización</span>
+        <strong>{{ summary.completion_rate }}%</strong>
+    </article>
+    <article class="metric-card">
+        <span>En progreso</span>
+        <strong>{{ summary.en_progreso }}</strong>
+    </article>
+</section>
+
+<article class="panel">
+    <div class="section-heading">
+        <div>
+            <p class="eyebrow">Difusión</p>
+            <h2>Liga pública para compartir</h2>
+        </div>
+    </div>
+    <div class="stack">
+        <p class="muted">
+            Esta liga no requiere autenticación y abre directamente la entrada pública del módulo para comenzar la encuesta.
+        </p>
+        <label>Liga pública
+            <input type="text" readonly value="{{ public_url }}">
+        </label>
+        <div class="actions">
+            <a class="button button-primary" href="{{ public_url }}" target="_blank" rel="noopener">Abrir en nueva ventana</a>
+        </div>
+    </div>
+</article>
+
+<section class="section-grid two">
+    <article class="panel">
+        <div class="section-heading">
+            <div>
+                <p class="eyebrow">Dimensiones</p>
+                <h2>Promedio por dimensión</h2>
+            </div>
+        </div>
+        <div class="table-wrap">
+            <table class="executive-table">
+                <thead>
+                    <tr>
+                        <th>Dimensión</th>
+                        <th>Promedio</th>
+                        <th>Puntaje</th>
+                        <th>Respuestas</th>
+                    </tr>
+                </thead>
+                <tbody>
+                    {% for row in summary.dimensions %}
+                    <tr>
+                        <td>{{ row.name }}</td>
+                        <td>{{ row.average }}</td>
+                        <td>{{ row.percent }}%</td>
+                        <td>{{ row.count }}</td>
+                    </tr>
+                    {% else %}
+                    <tr><td colspan="4" class="muted">Aún no hay encuestas completadas para consolidar dimensiones.</td></tr>
+                    {% endfor %}
+                </tbody>
+            </table>
+        </div>
+    </article>
+
+    <article class="panel">
+        <div class="section-heading">
+            <div>
+                <p class="eyebrow">Estratos</p>
+                <h2>Distribución de encuestas completadas</h2>
+            </div>
+        </div>
+        <div class="table-wrap">
+            <table class="executive-table">
+                <thead>
+                    <tr>
+                        <th>Estrato</th>
+                        <th>Encuestas</th>
+                    </tr>
+                </thead>
+                <tbody>
+                    {% for estrato, total in summary.strata_counts.items() %}
+                    <tr>
+                        <td>{{ estrato }}</td>
+                        <td>{{ total }}</td>
+                    </tr>
+                    {% endfor %}
+                </tbody>
+            </table>
+        </div>
+    </article>
+</section>
+
+<article class="panel">
+        <div class="section-heading">
+            <div>
+                <p class="eyebrow">Historial</p>
+                <h2>Sesiones capturadas</h2>
+            </div>
+    </div>
+    <div class="table-wrap">
+        <table class="executive-table">
+            <thead>
+                <tr>
+                    <th>Folio</th>
+                    <th>Fecha</th>
+                    <th>Estrato</th>
+                    <th>Estado</th>
+                    <th>Última pregunta</th>
+                    <th>IIBP</th>
+                    <th>IVSP</th>
+                </tr>
+            </thead>
+            <tbody>
+                {% for row in summary.history %}
+                <tr>
+                    <td><strong>{{ row.hash }}</strong></td>
+                    <td>{{ row.fecha }}</td>
+                    <td>{{ row.estrato }}</td>
+                    <td>
+                        {% if row.estado == 'completada' %}
+                        <span class="status status-opportune">{{ row.estado_label }}</span>
+                        {% elif row.estado == 'en_progreso' %}
+                        <span class="status status-medium">{{ row.estado_label }}</span>
+                        {% else %}
+                        <span class="status status-low">{{ row.estado_label }}</span>
+                        {% endif %}
+                    </td>
+                    <td>{{ row.ultima_pregunta }}</td>
+                    <td>{{ row.iibp if row.iibp is not none else "-" }}</td>
+                    <td>{{ row.ivsp if row.ivsp is not none else "-" }}</td>
+                </tr>
+                    {% else %}
+                <tr><td colspan="7" class="muted">Todavía no hay sesiones registradas.</td></tr>
+                {% endfor %}
+            </tbody>
+        </table>
+    </div>
+</article>
+{% endblock %}

@@ -14,6 +14,8 @@
             <span class="tag">Unidades activas: {{ stats.areas_activas }}</span>
             <span class="tag">Usuarios activos: {{ stats.usuarios_activos }}</span>
             <span class="tag">Administradores activos: {{ stats.administradores_activos }}</span>
+            <span class="tag">Acceso Diagnóstico: {{ stats.usuarios_diagnostico }}</span>
+            <span class="tag">Acceso Bienestar: {{ stats.usuarios_bienestar }}</span>
         </div>
     </div>
 
@@ -86,6 +88,13 @@
             </article>
             {% endfor %}
         </div>
+        <div class="callout callout-warning">
+            <strong>Rol global + accesos por módulo</strong>
+            <p>
+                El rol define la capacidad operativa general. Los accesos por módulo determinan si la cuenta entra a
+                Diagnóstico Integral Municipal, a Bienestar Policial o a ambos.
+            </p>
+        </div>
     </article>
 </section>
 
@@ -103,6 +112,7 @@
                 <tr>
                     <th>Usuario</th>
                     <th>Rol</th>
+                    <th>Módulos</th>
                     <th>Dependencia</th>
                     <th>Unidad administrativa</th>
                     <th>Estado</th>
@@ -117,6 +127,19 @@
                         <div class="muted">{{ usuario.correo }}</div>
                     </td>
                     <td>{{ usuario.nombre_rol }}</td>
+                    <td>
+                        <div class="tag-row compact">
+                            {% if usuario.acceso_diagnostico %}
+                            <span class="tag">Diagnóstico</span>
+                            {% endif %}
+                            {% if usuario.acceso_bienestar %}
+                            <span class="tag">Bienestar</span>
+                            {% endif %}
+                            {% if not usuario.acceso_diagnostico and not usuario.acceso_bienestar %}
+                            <span class="tag">Sin acceso</span>
+                            {% endif %}
+                        </div>
+                    </td>
                     <td>{{ usuario.dependencia.nombre if usuario.dependencia else "Sin dependencia" }}</td>
                     <td>{{ usuario.area.nombre if usuario.area else "Sin unidad" }}</td>
                     <td><span class="status status-{{ 'opportune' if usuario.activo else 'low' }}">{{ "Activo" if usuario.activo else "Inactivo" }}</span></td>
@@ -142,7 +165,7 @@
                     </td>
                 </tr>
                 {% else %}
-                <tr><td colspan="6" class="muted">Sin usuarios registrados.</td></tr>
+                <tr><td colspan="7" class="muted">Sin usuarios registrados.</td></tr>
                 {% endfor %}
             </tbody>
         </table>
@@ -273,7 +296,7 @@
         <button class="button" type="button" data-dialog-open="dialog-import-create">Abrir importación</button>
     </div>
     <p class="muted">
-        Usa CSV o Excel con encabezados simples: <code>nombre</code>, <code>tipo</code>, <code>dependencia</code>, <code>area</code>, <code>correo</code>, <code>rol</code>, <code>password</code>.
+        Usa CSV o Excel con encabezados simples: <code>nombre</code>, <code>tipo</code>, <code>dependencia</code>, <code>area</code>, <code>correo</code>, <code>rol</code>, <code>password</code>, <code>acceso_diagnostico</code> y <code>acceso_bienestar</code>.
     </p>
 </article>
 
@@ -303,6 +326,29 @@
         <div class="callout callout-warning role-help-output" id="role-help-user-create" data-role-help-output>
             <strong>Administrador</strong>
             <p>{{ role_definitions["administrador"] }}</p>
+        </div>
+        <div class="callout callout-warning">
+            <strong>Accesos por módulo</strong>
+            <p>
+                El rol define qué puede hacer la cuenta. Los accesos definen en qué arquitectura puede iniciar.
+                Bienestar Policial solo está disponible para {{ wellbeing_allowed_roles|join(" y ") }}.
+            </p>
+        </div>
+        <div class="module-access-grid">
+            <label class="checkbox-card">
+                <input type="checkbox" name="acceso_diagnostico" checked>
+                <span>
+                    <strong>Acceso a Diagnóstico</strong>
+                    <small>Permite entrar a la arquitectura actual.</small>
+                </span>
+            </label>
+            <label class="checkbox-card">
+                <input type="checkbox" name="acceso_bienestar" {% if "administrador" in wellbeing_allowed_roles %}checked{% endif %}>
+                <span>
+                    <strong>Acceso a Bienestar Policial</strong>
+                    <small>Permite entrar al módulo independiente de bienestar.</small>
+                </span>
+            </label>
         </div>
         <label>Dependencia
             <select name="dependencia_id" data-dependency-select data-area-target="user-create-area">
@@ -474,6 +520,28 @@
             <strong>{{ usuario.nombre_rol }}</strong>
             <p>{{ role_definitions[usuario.rol] }}</p>
         </div>
+        <div class="callout callout-warning">
+            <strong>Accesos por módulo</strong>
+            <p>
+                Mantén al menos un módulo activo. Bienestar Policial solo puede quedar habilitado para administrador o consulta.
+            </p>
+        </div>
+        <div class="module-access-grid">
+            <label class="checkbox-card">
+                <input type="checkbox" name="acceso_diagnostico" {% if usuario.acceso_diagnostico %}checked{% endif %}>
+                <span>
+                    <strong>Acceso a Diagnóstico</strong>
+                    <small>Arquitectura actual del sistema.</small>
+                </span>
+            </label>
+            <label class="checkbox-card">
+                <input type="checkbox" name="acceso_bienestar" {% if usuario.acceso_bienestar %}checked{% endif %}>
+                <span>
+                    <strong>Acceso a Bienestar Policial</strong>
+                    <small>Módulo independiente de bienestar y reportería propia.</small>
+                </span>
+            </label>
+        </div>
         <label>Dependencia
             <select name="dependencia_id" data-dependency-select data-area-target="user-edit-area-{{ usuario.id }}">
                 <option value="">Sin dependencia</option>
@@ -578,8 +646,8 @@
         "format": "CSV o Excel",
         "description": "Carga una fila por usuario. Puedes crear cuentas nuevas o actualizar usuarios existentes por correo institucional.",
         "required": ["nombre", "correo", "rol"],
-        "optional": ["password", "dependencia", "area"],
-        "example": "nombre,correo,rol,password,dependencia,area",
+        "optional": ["password", "dependencia", "area", "acceso_diagnostico", "acceso_bienestar"],
+        "example": "nombre,correo,rol,password,dependencia,area,acceso_diagnostico,acceso_bienestar",
         "note_title": "Consideraciones importantes",
         "note": "Los roles válidos son administrador, revisor, evaluador, respondente y consulta. Si incluyes dependencia o area, deben existir previamente en catálogos."
     }

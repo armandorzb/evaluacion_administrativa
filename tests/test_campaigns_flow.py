@@ -382,7 +382,7 @@ def test_dashboard_and_legacy_report_hub_fall_back_to_assignment_exports():
     client = app.test_client()
     login(client, "admin@local.test")
 
-    dashboard = client.get("/dashboard/")
+    dashboard = client.get("/dashboard/diagnostico")
     dashboard_html = dashboard.get_data(as_text=True)
     assert dashboard.status_code == 200
     assert f"/campanas/reportes/asignaciones/{assignment_id}/pdf" in dashboard_html

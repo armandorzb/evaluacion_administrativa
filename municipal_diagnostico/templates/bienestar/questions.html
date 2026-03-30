@@ -1,0 +1,163 @@
+{% extends "bienestar_base.html" %}
+{% block title %}Preguntas | Bienestar Policial{% endblock %}
+{% block content %}
+<section class="executive-hero wellbeing-hero">
+    <div class="hero-copy">
+        <p class="eyebrow">Administración del módulo</p>
+        <h1>Banco de preguntas de bienestar</h1>
+        <p class="lede">
+            Aquí se administra el cuestionario del módulo con trazabilidad propia y sin mezclar su navegación con el resto del sistema.
+        </p>
+        <div class="tag-row">
+            <span class="tag">Activas: {{ active_count }}</span>
+            <span class="tag">Inactivas: {{ inactive_count }}</span>
+            <span class="tag">Dimensiones: {{ dimensions|length }}</span>
+        </div>
+    </div>
+
+    <article class="hero-card compact">
+        <div class="card-kicker">Navegación</div>
+        <div class="actions vertical">
+            <a class="button button-primary" href="{{ url_for('wellbeing.dashboard') }}">Volver al panel</a>
+            <a class="button" href="{{ url_for('wellbeing.home') }}">Abrir captura pública</a>
+        </div>
+    </article>
+</section>
+
+<section class="metric-grid">
+    <article class="metric-card">
+        <span>Total</span>
+        <strong>{{ questions|length }}</strong>
+    </article>
+    <article class="metric-card">
+        <span>Activas</span>
+        <strong>{{ active_count }}</strong>
+    </article>
+    <article class="metric-card">
+        <span>Inactivas</span>
+        <strong>{{ inactive_count }}</strong>
+    </article>
+    <article class="metric-card">
+        <span>Opciones por reactivo</span>
+        <strong>4</strong>
+    </article>
+</section>
+
+<section class="section-grid two">
+    <article class="panel">
+        <div class="section-heading">
+            <div>
+                <p class="eyebrow">Nueva pregunta</p>
+                <h2>Alta de reactivo</h2>
+            </div>
+        </div>
+        <form method="post" class="stack">
+            <input type="hidden" name="action" value="add">
+            <label>Orden
+                <input type="number" name="orden" min="1" required>
+            </label>
+            <label>Dimensión
+                <input type="text" name="dimension" required>
+            </label>
+            <label>Texto
+                <textarea name="texto" rows="4" required></textarea>
+            </label>
+            <label>Opción 1
+                <input type="text" name="opcion_1" required>
+            </label>
+            <label>Opción 2
+                <input type="text" name="opcion_2" required>
+            </label>
+            <label>Opción 3
+                <input type="text" name="opcion_3" required>
+            </label>
+            <label>Opción 4
+                <input type="text" name="opcion_4" required>
+            </label>
+            <div class="actions">
+                <button class="button button-primary" type="submit">Crear pregunta</button>
+            </div>
+        </form>
+    </article>
+
+    <article class="panel">
+        <div class="section-heading">
+            <div>
+                <p class="eyebrow">Reglas de mantenimiento</p>
+                <h2>Criterios de seguridad del módulo</h2>
+            </div>
+        </div>
+        <div class="stack">
+            <div class="insight-card">
+                <strong>Sin borrado riesgoso</strong>
+                <p class="muted">Si una pregunta ya tiene respuestas registradas, la ruta segura es desactivarla.</p>
+            </div>
+            <div class="insight-card">
+                <strong>Orden único</strong>
+                <p class="muted">El cuestionario usa un orden secuencial para mantener consistencia en captura y exportación.</p>
+            </div>
+            <div class="insight-card">
+                <strong>Roles existentes</strong>
+                <p class="muted">Solo administración puede editar el banco; consulta mantiene acceso de solo lectura al tablero.</p>
+            </div>
+        </div>
+    </article>
+</section>
+
+<article class="panel">
+    <div class="section-heading">
+        <div>
+            <p class="eyebrow">Preguntas registradas</p>
+            <h2>Mantenimiento individual</h2>
+        </div>
+    </div>
+    <div class="stack">
+        {% for question in questions %}
+        <details class="panel">
+            <summary class="panel-head">
+                <div>
+                    <p class="eyebrow">{{ question.dimension }}</p>
+                    <h2>{{ question.orden }}. {{ question.texto }}</h2>
+                </div>
+                <span class="status status-{{ 'opportune' if question.activa else 'low' }}">{{ "Activa" if question.activa else "Inactiva" }}</span>
+            </summary>
+            <form method="post" class="stack">
+                <input type="hidden" name="action" value="update">
+                <input type="hidden" name="question_id" value="{{ question.id }}">
+                <label>Orden
+                    <input type="number" name="orden" min="1" value="{{ question.orden }}" required>
+                </label>
+                <label>Dimensión
+                    <input type="text" name="dimension" value="{{ question.dimension }}" required>
+                </label>
+                <label>Texto
+                    <textarea name="texto" rows="4" required>{{ question.texto }}</textarea>
+                </label>
+                {% for option in question.opciones %}
+                <label>Opción {{ loop.index }}
+                    <input type="text" name="opcion_{{ loop.index }}" value="{{ option }}" required>
+                </label>
+                {% endfor %}
+                <div class="actions">
+                    <button class="button button-primary" type="submit">Guardar cambios</button>
+                </div>
+            </form>
+            <div class="actions">
+                <form method="post">
+                    <input type="hidden" name="action" value="toggle">
+                    <input type="hidden" name="question_id" value="{{ question.id }}">
+                    <button class="button" type="submit">{{ "Desactivar" if question.activa else "Activar" }}</button>
+                </form>
+                <form method="post">
+                    <input type="hidden" name="action" value="delete">
+                    <input type="hidden" name="question_id" value="{{ question.id }}">
+                    <button class="button danger" type="submit">Eliminar</button>
+                </form>
+            </div>
+        </details>
+        {% else %}
+        <p class="muted">No hay preguntas registradas todavía.</p>
+        {% endfor %}
+    </div>
+</article>
+{% endblock %}

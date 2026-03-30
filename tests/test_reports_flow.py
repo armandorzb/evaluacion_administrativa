@@ -603,7 +603,7 @@ def test_admin_dashboard_exposes_report_download_shortcuts():
     client = app.test_client()
 
     login(client, "admin@test.local")
-    response = client.get("/dashboard/")
+    response = client.get("/dashboard/diagnostico")
     html = response.get_data(as_text=True)
 
     assert response.status_code == 200

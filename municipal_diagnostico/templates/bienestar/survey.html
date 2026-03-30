@@ -1,0 +1,146 @@
+{% extends "bienestar_base.html" %}
+{% block title %}Encuesta | Bienestar Policial{% endblock %}
+{% block content %}
+<section
+    class="panel wellbeing-survey-panel"
+    data-wellbeing-survey
+    data-folio="{{ folio }}"
+    data-questions-url="{{ url_for('wellbeing.api_questions') }}"
+    data-survey-url="{{ url_for('wellbeing.api_get_survey', folio=folio) }}"
+    data-save-url="{{ url_for('wellbeing.api_save_survey') }}"
+>
+    <div class="wellbeing-survey-layout">
+        <aside class="wellbeing-survey-sidebar">
+            <article class="insight-card wellbeing-survey-meta">
+                <div class="panel-head">
+                    <div>
+                        <p class="eyebrow">Resumen de captura</p>
+                        <strong>Tu avance se guarda automáticamente</strong>
+                    </div>
+                    <span class="pill" id="wellbeing-percent-label">0%</span>
+                </div>
+                <div class="survey-stat-grid">
+                    <div class="survey-stat">
+                        <span>Respondidos</span>
+                        <strong id="wellbeing-answered-count">0</strong>
+                    </div>
+                    <div class="survey-stat">
+                        <span>Pendientes</span>
+                        <strong id="wellbeing-pending-count">{{ total_questions }}</strong>
+                    </div>
+                </div>
+                <div class="metric-inline">
+                    <span>Estrato</span>
+                    <strong id="wellbeing-stratum-label">--</strong>
+                </div>
+                <div class="metric-inline">
+                    <span>Folio</span>
+                    <strong>{{ folio }}</strong>
+                </div>
+                <button class="button" id="wellbeing-jump-pending" type="button">Ir a la primera pendiente</button>
+            </article>
+
+            <article class="insight-card wellbeing-scale-card">
+                <p class="eyebrow">Cómo responder</p>
+                <div class="survey-scale-list">
+                    <div class="survey-scale-item">
+                        <span class="survey-scale-level">4</span>
+                        <div>
+                            <strong>Escenario favorable</strong>
+                            <p class="muted">Elige esta opción cuando la situación descrita refleje mayor bienestar o menor afectación.</p>
+                        </div>
+                    </div>
+                    <div class="survey-scale-item">
+                        <span class="survey-scale-level">3</span>
+                        <div>
+                            <strong>Condición estable</strong>
+                            <p class="muted">Úsala cuando tu experiencia sea funcional, aunque con áreas de atención moderada.</p>
+                        </div>
+                    </div>
+                    <div class="survey-scale-item">
+                        <span class="survey-scale-level">2</span>
+                        <div>
+                            <strong>Señal de alerta</strong>
+                            <p class="muted">Indica que la situación ya afecta tu bienestar o requiere apoyo institucional.</p>
+                        </div>
+                    </div>
+                    <div class="survey-scale-item">
+                        <span class="survey-scale-level">1</span>
+                        <div>
+                            <strong>Prioridad alta</strong>
+                            <p class="muted">Selecciona esta opción cuando la afectación sea frecuente, intensa o claramente desfavorable.</p>
+                        </div>
+                    </div>
+                </div>
+            </article>
+
+            <article class="insight-card wellbeing-question-map-card">
+                <div class="panel-head">
+                    <div>
+                        <p class="eyebrow">Mapa de reactivos</p>
+                        <strong>Navega o revisa respuestas</strong>
+                    </div>
+                    <span class="pill" id="wellbeing-map-status">Actual</span>
+                </div>
+                <div class="survey-question-nav" id="wellbeing-question-nav" aria-label="Mapa de reactivos"></div>
+            </article>
+        </aside>
+
+        <div class="wellbeing-survey-main">
+            <div class="section-heading">
+                <div>
+                    <p class="eyebrow" id="wellbeing-dimension-label">Dimensión</p>
+                    <h2 id="wellbeing-question-progress">Reactivo 1 de {{ total_questions }}</h2>
+                    <p class="muted" id="wellbeing-status-label" aria-live="polite">Preparando captura...</p>
+                </div>
+                <span class="pill" id="wellbeing-scale-label">Escala de 1 a 4</span>
+            </div>
+
+            <div class="survey-progress-meta">
+                <span class="tag" id="wellbeing-progress-summary">0 respondidos</span>
+                <span class="tag" id="wellbeing-progress-pending">{{ total_questions }} pendientes</span>
+                <span class="tag" id="wellbeing-progress-restore">La encuesta puede retomarse con el mismo folio.</span>
+            </div>
+
+            <div class="progress capture-progress-shell progress-hero">
+                <span data-progress-bar id="wellbeing-progress-bar" data-progress-value="0"></span>
+            </div>
+
+            <article class="question-card" id="wellbeing-question-card" tabindex="-1">
+                <div class="question-meta-row">
+                    <div class="question-reference">
+                        <span class="question-index" id="wellbeing-question-order">Reactivo</span>
+                        <strong id="wellbeing-question-dimension">Dimensión</strong>
+                    </div>
+                    <span class="question-score" id="wellbeing-question-score">Sin respuesta</span>
+                </div>
+                <p class="question-text" id="wellbeing-question-text">Cargando reactivo...</p>
+                <p class="survey-question-hint muted" id="wellbeing-question-hint">
+                    Selecciona la opción que mejor describa tu situación actual. Puedes cambiar tu respuesta antes de finalizar.
+                </p>
+                <div class="choice-grid choice-grid-cards" id="wellbeing-options"></div>
+            </article>
+
+            <div class="callout compact wellbeing-survey-feedback" aria-live="polite">
+                <strong id="wellbeing-feedback-title">Captura protegida</strong>
+                <p id="wellbeing-feedback-text">Tus respuestas se guardan conforme avanzas para que puedas retomar el folio.</p>
+            </div>
+
+            <div class="module-toolbar wellbeing-survey-toolbar">
+                <div class="save-meta">
+                    <span class="save-indicator" id="wellbeing-save-state" data-state="idle" aria-live="polite">
+                        <span id="wellbeing-save-label">Listo para responder</span>
+                    </span>
+                    <span>Folio: <strong>{{ folio }}</strong></span>
+                </div>
+                <div class="module-actions actions">
+                    <button class="button" id="wellbeing-prev" type="button">Anterior</button>
+                    <button class="button button-primary" id="wellbeing-next" type="button" disabled>Siguiente</button>
+                </div>
+            </div>
+        </div>
+    </div>
+</section>
+
+<script defer src="{{ url_for('static', filename='bienestar.js') }}"></script>
+{% endblock %}
