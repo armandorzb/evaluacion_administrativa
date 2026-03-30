@@ -759,6 +759,11 @@ table,
     min-width: 100%;
 }
 
+.wellbeing-cube-table {
+    table-layout: auto;
+    min-width: 52rem;
+}
+
 th,
 td {
     padding: 0.95rem 0.9rem;
@@ -774,6 +779,27 @@ th {
     text-transform: uppercase;
     letter-spacing: 0.12em;
     font-weight: 700;
+}
+
+.wellbeing-cube-table th,
+.wellbeing-cube-table td {
+    overflow-wrap: normal;
+    word-break: normal;
+    hyphens: none;
+}
+
+.wellbeing-cube-table th {
+    white-space: nowrap;
+}
+
+.wellbeing-cube-table th:first-child,
+.wellbeing-cube-table td:first-child {
+    min-width: 12rem;
+}
+
+.wellbeing-cube-table th:not(:first-child),
+.wellbeing-cube-table td:not(:first-child) {
+    text-align: right;
 }
 
 tbody tr:hover {
@@ -2733,6 +2759,143 @@ body.wellbeing-body {
     background: rgba(245, 176, 100, 0.18);
 }
 
+.wellbeing-dashboard-root {
+    display: grid;
+    gap: 1.2rem;
+}
+
+.wellbeing-dashboard-hero {
+    align-items: start;
+}
+
+.wellbeing-dashboard-actions {
+    align-self: stretch;
+}
+
+.wellbeing-cube-control-panel {
+    background:
+        linear-gradient(135deg, rgba(15, 36, 56, 0.04), rgba(36, 98, 124, 0.08)),
+        rgba(255, 255, 255, 0.9);
+}
+
+.wellbeing-live-status {
+    display: grid;
+    gap: 0.35rem;
+    justify-items: end;
+    text-align: right;
+}
+
+.wellbeing-filter-grid {
+    display: grid;
+    grid-template-columns: repeat(5, minmax(0, 1fr));
+    gap: 0.9rem;
+    margin-top: 0.8rem;
+}
+
+.wellbeing-live-metrics {
+    display: grid;
+    grid-template-columns: repeat(6, minmax(0, 1fr));
+    gap: 1rem;
+}
+
+.wellbeing-live-card {
+    display: grid;
+    gap: 0.4rem;
+    padding: 1.15rem 1.2rem;
+    border-radius: var(--radius-lg);
+    border: 1px solid rgba(15, 36, 56, 0.08);
+    background:
+        linear-gradient(180deg, rgba(255, 255, 255, 0.98), rgba(240, 246, 248, 0.94)),
+        radial-gradient(circle at top right, rgba(223, 106, 47, 0.08), transparent 14rem);
+    box-shadow: var(--shadow-sm);
+}
+
+.wellbeing-live-card span {
+    color: var(--ink-muted);
+    font-size: 0.78rem;
+    font-weight: 800;
+    letter-spacing: 0.12em;
+    text-transform: uppercase;
+}
+
+.wellbeing-live-card strong {
+    color: var(--navy-900);
+    font-size: clamp(1.95rem, 3.2vw, 2.45rem);
+    line-height: 1;
+}
+
+.wellbeing-live-card small {
+    color: var(--ink-muted);
+    line-height: 1.45;
+}
+
+.wellbeing-chart-grid {
+    display: grid;
+    grid-template-columns: repeat(2, minmax(0, 1fr));
+    gap: 1rem;
+}
+
+.wellbeing-chart-panel {
+    display: grid;
+    gap: 0.8rem;
+    min-width: 0;
+    overflow: hidden;
+}
+
+.wellbeing-chart-stage {
+    position: relative;
+    width: 100%;
+    min-width: 0;
+    height: clamp(16rem, 33vw, 21rem);
+}
+
+.wellbeing-chart-stage-lg {
+    height: clamp(15rem, 30vw, 19rem);
+}
+
+.wellbeing-chart-stage-xl {
+    height: clamp(18rem, 36vw, 23rem);
+}
+
+.wellbeing-chart-stage canvas {
+    display: block;
+    width: 100% !important;
+    height: 100% !important;
+}
+
+.wellbeing-dashboard-secondary {
+    align-items: start;
+}
+
+.wellbeing-insight-panel {
+    min-height: 100%;
+}
+
+.wellbeing-insight-stack {
+    display: grid;
+    gap: 0.9rem;
+}
+
+.wellbeing-insight-card {
+    display: grid;
+    gap: 0.35rem;
+    padding: 1rem 1.05rem;
+    border: 1px solid rgba(15, 36, 56, 0.08);
+    border-radius: var(--radius-md);
+    background:
+        linear-gradient(180deg, rgba(255, 255, 255, 0.96), rgba(247, 249, 246, 0.94)),
+        radial-gradient(circle at top right, rgba(55, 117, 142, 0.08), transparent 12rem);
+}
+
+.wellbeing-insight-card strong {
+    color: var(--navy-900);
+    font-size: 1rem;
+}
+
+.wellbeing-public-link-panel input[readonly] {
+    font-weight: 700;
+}
+
 .module-access-grid {
     display: grid;
     gap: 0.9rem;
@@ -2856,6 +3019,9 @@ body.wellbeing-body {
 @media (max-width: 900px) {
     .wellbeing-public-hero,
     .wellbeing-survey-layout,
+    .wellbeing-filter-grid,
+    .wellbeing-live-metrics,
+    .wellbeing-chart-grid,
     .module-access-grid,
     .module-grid,
     .module-selector-hero {
@@ -2944,6 +3110,22 @@ body.wellbeing-body {
     .wellbeing-public-hero .hero-copy,
     .wellbeing-public-hero .hero-card {
         padding: 1.1rem;
+    }
+
+    .wellbeing-live-status {
+        justify-items: start;
+        text-align: left;
+    }
+
+    .wellbeing-chart-stage,
+    .wellbeing-chart-stage-lg,
+    .wellbeing-chart-stage-xl {
+        height: 17rem;
+    }
+
+    .wellbeing-live-card,
+    .wellbeing-insight-card {
+        padding: 1rem;
     }
 
     .js .table-wrap {

@@ -104,12 +104,23 @@ def test_public_wellbeing_survey_can_complete_and_admin_can_open_dashboard():
     assert "Acceso interno" not in survey_html
 
     login(client, "admin@local.test")
+    module_home = client.get("/bienestar/")
+    assert module_home.status_code == 302
+    assert module_home.headers["Location"].endswith("/bienestar/panel")
     dashboard = client.get("/bienestar/panel")
     html = dashboard.get_data(as_text=True)
     assert dashboard.status_code == 200
     assert "Panel interno de Bienestar Policial" in html
-    assert "IIBP promedio" in html
+    assert "Cubo de datos" in html
     assert "/bienestar/publico" in html
+
+    dashboard_api = client.get("/bienestar/api/dashboard")
+    assert dashboard_api.status_code == 200
+    dashboard_payload = dashboard_api.get_json()
+    assert dashboard_payload["summary"]["total"] >= 1
+    assert len(dashboard_payload["survey_rows"]) >= 1
+    assert "question_catalog" in dashboard_payload
+    assert dashboard_payload["survey_rows"][0]["fecha"].endswith("AM") or dashboard_payload["survey_rows"][0]["fecha"].endswith("PM")
 
     pdf_export = client.get("/bienestar/exportar/pdf")
     assert pdf_export.status_code == 200
@@ -151,6 +162,7 @@ def test_public_wellbeing_survey_can_complete_and_admin_can_open_dashboard():
         assert len(report["question_rows"]) == BienestarPregunta.query.count()
         assert any(item["stratum"] == "E3" and item["completed"] == 1 for item in report["strata"])
         assert report["question_rows"][0]["by_stratum"]["E3"]["count"] == 1
+        assert report["summary"]["history"][0]["fecha"].endswith("AM") or report["summary"]["history"][0]["fecha"].endswith("PM")
 
 
 def test_admin_can_manage_wellbeing_questions_and_consulta_is_read_only():

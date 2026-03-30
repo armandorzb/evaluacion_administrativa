@@ -27,6 +27,7 @@ from municipal_diagnostico.timeutils import app_timezone, to_localtime, utcnow
 def create_app(config_object: type[Config] = Config) -> Flask:
     app = Flask(__name__)
     app.config.from_object(config_object)
+    app.config.setdefault("APP_TIMEZONE", "America/Hermosillo")
     os.makedirs(app.config["UPLOAD_FOLDER"], exist_ok=True)
 
     configure_logging(app)

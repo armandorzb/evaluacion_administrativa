@@ -27,6 +27,11 @@ WELLBEING_DIMENSION_LABELS = {
 }
 
 
+def format_wellbeing_datetime(value) -> str:
+    local_value = to_localtime(value)
+    return local_value.strftime("%d/%m/%Y %I:%M %p") if local_value else "-"
+
+
 def _canonical_spanish(value: str) -> str:
     cleaned = " ".join((value or "").strip().split()).lower()
     cleaned = cleaned.replace("Â", "").replace("¿", "").replace("?", "")
@@ -199,11 +204,10 @@ def build_wellbeing_dashboard_summary() -> dict:
     history = []
     for survey in surveys:
         response_map = {response.pregunta_id: response.valor for response in survey.respuestas}
-        local_created = to_localtime(survey.created_at)
         history.append(
             {
                 "hash": survey.hash_id,
-                "fecha": local_created.strftime("%d/%m/%Y %H:%M") if local_created else "-",
+                "fecha": format_wellbeing_datetime(survey.created_at),
                 "estrato": survey.estrato,
                 "estado": survey.estado,
                 "estado_label": humanize_wellbeing_state(survey.estado),
@@ -253,6 +257,7 @@ def build_wellbeing_report_payload() -> dict:
     questions = BienestarPregunta.query.order_by(BienestarPregunta.orden.asc()).all()
     surveys = BienestarEncuesta.query.order_by(BienestarEncuesta.created_at.desc()).all()
     completed = [survey for survey in surveys if survey.estado == "completada"]
+    question_lookup = {question.id: question for question in questions}
 
     dimension_order = list(dict.fromkeys(question.dimension for question in questions))
     strata_order = list(dict.fromkeys([*DEFAULT_WELLBEING_STRATA, *(survey.estrato for survey in completed)]))
@@ -368,6 +373,46 @@ def build_wellbeing_report_payload() -> dict:
         dimension_rows = [row for row in question_rows if row["dimension"] == dimension]
         question_groups.append({"dimension": dimension, "rows": dimension_rows})
 
+    survey_rows = []
+    for survey in surveys:
+        local_created = to_localtime(survey.created_at)
+        response_items = []
+        dimension_buckets: dict[str, dict[str, float]] = defaultdict(_empty_metric_bucket)
+        for response in survey.respuestas:
+            question = question_lookup.get(response.pregunta_id)
+            response_items.append(
+                {
+                    "question_id": response.pregunta_id,
+                    "orden": question.orden if question else None,
+                    "dimension": response.dimension,
+                    "value": response.valor,
+                }
+            )
+            dimension_bucket = dimension_buckets[response.dimension]
+            dimension_bucket["sum"] += response.valor
+            dimension_bucket["count"] += 1
+
+        survey_rows.append(
+            {
+                "hash": survey.hash_id,
+                "fecha": format_wellbeing_datetime(survey.created_at),
+                "created_at": local_created.isoformat() if local_created else None,
+                "estrato": survey.estrato,
+                "estado": survey.estado,
+                "estado_label": humanize_wellbeing_state(survey.estado),
+                "ultima_pregunta": survey.ultima_pregunta,
+                "iibp": round(survey.iibp, 1) if survey.iibp is not None else None,
+                "ivsp": round(survey.ivsp, 1) if survey.ivsp is not None else None,
+                "answered_count": len(response_items),
+                "completion_percent": round((len(response_items) / len(questions)) * 100, 1) if questions else 0.0,
+                "responses": response_items,
+                "dimension_scores": {
+                    dimension: _metric_from_bucket(bucket)
+                    for dimension, bucket in dimension_buckets.items()
+                },
+            }
+        )
+
     dimensions_with_data = [row for row in summary["dimensions"] if row["count"]]
     most_represented_stratum = max(strata_sections, key=lambda row: (row["completed"], row["stratum"])) if strata_sections else None
     executive_notes = []
@@ -393,12 +438,24 @@ def build_wellbeing_report_payload() -> dict:
     return {
         "summary": summary,
         "questions": questions,
+        "question_catalog": [
+            {
+                "id": question.id,
+                "orden": question.orden,
+                "dimension": question.dimension,
+                "texto": normalize_wellbeing_question_text(question.texto),
+                "activa": question.activa,
+            }
+            for question in questions
+        ],
         "question_rows": question_rows,
         "question_groups": question_groups,
         "strata": strata_sections,
         "strata_order": strata_order,
         "dimension_order": dimension_order,
         "executive_notes": executive_notes,
+        "survey_rows": survey_rows,
+        "generated_at": to_localtime(utcnow()).isoformat(),
     }
 
 

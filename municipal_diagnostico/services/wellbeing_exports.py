@@ -395,6 +395,35 @@ def _build_pdf_styles() -> dict[str, ParagraphStyle]:
             textColor=PDF_THEME["muted"],
             alignment=TA_CENTER,
         ),
+        "metric_label": ParagraphStyle(
+            "WellbeingPdfMetricLabel",
+            parent=styles["BodyText"],
+            fontName="Helvetica-Bold",
+            fontSize=8,
+            leading=10,
+            textColor=PDF_THEME["muted"],
+            alignment=TA_CENTER,
+            spaceAfter=2,
+        ),
+        "metric_value": ParagraphStyle(
+            "WellbeingPdfMetricValue",
+            parent=styles["BodyText"],
+            fontName="Helvetica-Bold",
+            fontSize=24,
+            leading=26,
+            textColor=PDF_THEME["navy"],
+            alignment=TA_CENTER,
+            spaceAfter=2,
+        ),
+        "metric_caption": ParagraphStyle(
+            "WellbeingPdfMetricCaption",
+            parent=styles["BodyText"],
+            fontName="Helvetica",
+            fontSize=8,
+            leading=10,
+            textColor=PDF_THEME["muted"],
+            alignment=TA_CENTER,
+        ),
     }
 
 
@@ -415,17 +444,31 @@ def _build_pdf_metric_cards(summary: dict, styles: dict[str, ParagraphStyle]) ->
         chunk = cards[index:index + 4]
         row = []
         for title, value, caption in chunk:
-            row.append(
-                Paragraph(
-                    f"<font size='8' color='#516673'><b>{escape(str(title).upper())}</b></font>"
-                    f"<br/><font size='20' color='#163042'><b>{escape(str(value))}</b></font>"
-                    f"<br/><font size='8' color='#516673'>{escape(str(caption))}</font>",
-                    styles["small_center"],
+            card = Table(
+                [
+                    [Paragraph(escape(str(title).upper()), styles["metric_label"])],
+                    [Paragraph(escape(str(value)), styles["metric_value"])],
+                    [Paragraph(escape(str(caption)), styles["metric_caption"])],
+                ],
+                colWidths=[2.12 * inch],
+                rowHeights=[0.3 * inch, 0.44 * inch, 0.28 * inch],
+            )
+            card.setStyle(
+                TableStyle(
+                    [
+                        ("VALIGN", (0, 0), (-1, -1), "MIDDLE"),
+                        ("ALIGN", (0, 0), (-1, -1), "CENTER"),
+                        ("LEFTPADDING", (0, 0), (-1, -1), 2),
+                        ("RIGHTPADDING", (0, 0), (-1, -1), 2),
+                        ("TOPPADDING", (0, 0), (-1, -1), 0),
+                        ("BOTTOMPADDING", (0, 0), (-1, -1), 0),
+                    ]
                 )
             )
+            row.append(card)
         rows.append(row)
 
-    table = Table(rows, colWidths=[2.38 * inch] * 4)
+    table = Table(rows, colWidths=[2.38 * inch] * 4, rowHeights=[1.15 * inch] * len(rows))
     table.setStyle(
         TableStyle(
             [

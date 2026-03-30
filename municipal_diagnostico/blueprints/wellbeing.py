@@ -12,6 +12,7 @@ from municipal_diagnostico.services.activity_logger import log_activity
 from municipal_diagnostico.services.wellbeing import (
     build_wellbeing_csv,
     build_wellbeing_dashboard_summary,
+    build_wellbeing_report_payload,
     ensure_wellbeing_questions,
     list_active_questions,
     persist_wellbeing_progress,
@@ -32,6 +33,8 @@ bp = Blueprint("wellbeing", __name__, url_prefix="/bienestar")
 
 @bp.route("/")
 def home():
+    if current_user.is_authenticated and getattr(current_user, "puede_acceder_bienestar", False):
+        return redirect(url_for("wellbeing.dashboard"))
     return render_public_home(public_mode=False)
 
 
@@ -84,7 +87,47 @@ def dashboard():
     summary = build_wellbeing_dashboard_summary()
     log_activity("view_wellbeing_dashboard", metadata={"modulo": "bienestar"})
     public_url = url_for("wellbeing.public_entry", _external=True)
-    return render_template("bienestar/dashboard.html", summary=summary, public_url=public_url)
+    return render_template(
+        "bienestar/dashboard.html",
+        summary=summary,
+        public_url=public_url,
+        dashboard_api_url=url_for("wellbeing.api_dashboard"),
+    )
+
+
+@bp.route("/api/dashboard")
+@wellbeing_role_required("administrador", "consulta")
+def api_dashboard():
+    report = build_wellbeing_report_payload()
+    public_url = url_for("wellbeing.public_entry", _external=True)
+    summary = report["summary"]
+    return jsonify(
+        {
+            "summary": {
+                "total": summary["total"],
+                "completadas": summary["completadas"],
+                "abandonadas": summary["abandonadas"],
+                "en_progreso": summary["en_progreso"],
+                "avg_iibp": summary["avg_iibp"],
+                "avg_ivsp": summary["avg_ivsp"],
+                "completion_rate": summary["completion_rate"],
+                "strata_counts": summary["strata_counts"],
+                "dimensions": summary["dimensions"],
+                "history": summary["history"],
+                "state_counts": dict(summary["state_counts"]),
+            },
+            "strata": report["strata"],
+            "strata_order": report["strata_order"],
+            "dimension_order": report["dimension_order"],
+            "executive_notes": report["executive_notes"],
+            "question_rows": report["question_rows"],
+            "question_groups": report["question_groups"],
+            "question_catalog": report["question_catalog"],
+            "survey_rows": report["survey_rows"],
+            "generated_at": report["generated_at"],
+            "public_url": public_url,
+        }
+    )
 
 
 @bp.route("/preguntas", methods=["GET", "POST"])

@@ -1,21 +1,22 @@
 {% extends "bienestar_base.html" %}
 {% block title %}Panel interno | Bienestar Policial{% endblock %}
 {% block content %}
-<section class="executive-hero wellbeing-hero">
+<section class="executive-hero wellbeing-hero wellbeing-dashboard-hero">
     <div class="hero-copy">
-        <p class="eyebrow">Centro operativo del módulo</p>
+        <p class="eyebrow">Centro analítico en tiempo real</p>
         <h1>Panel interno de Bienestar Policial</h1>
         <p class="lede">
-            Consolida las encuestas anónimas del módulo para seguimiento institucional, análisis por dimensión y reportería ejecutiva.
+            Consolida la captura anónima del módulo en un tablero vivo con filtros, cubo de datos y visualizaciones
+            actualizadas automáticamente para seguimiento institucional.
         </p>
         <div class="tag-row">
-            <span class="tag">Total: {{ summary.total }}</span>
-            <span class="tag">Completadas: {{ summary.completadas }}</span>
-            <span class="tag">Abandonadas: {{ summary.abandonadas }}</span>
+            <span class="tag">IIBP promedio: {{ summary.avg_iibp }}</span>
+            <span class="tag">IVSP promedio: {{ summary.avg_ivsp }}</span>
+            <span class="tag">Finalización: {{ summary.completion_rate }}%</span>
         </div>
     </div>
 
-    <article class="hero-card compact">
+    <article class="hero-card compact wellbeing-dashboard-actions">
         <div class="card-kicker">Acciones</div>
         <div class="actions vertical">
             <a class="button button-primary" href="{{ url_for('wellbeing.export_pdf') }}">Exportar PDF</a>
@@ -30,151 +31,237 @@
     </article>
 </section>
 
-<section class="metric-grid">
-    <article class="metric-card">
-        <span>IIBP promedio</span>
-        <strong>{{ summary.avg_iibp }}</strong>
-    </article>
-    <article class="metric-card">
-        <span>IVSP promedio</span>
-        <strong>{{ summary.avg_ivsp }}</strong>
-    </article>
-    <article class="metric-card">
-        <span>Tasa de finalización</span>
-        <strong>{{ summary.completion_rate }}%</strong>
-    </article>
-    <article class="metric-card">
-        <span>En progreso</span>
-        <strong>{{ summary.en_progreso }}</strong>
-    </article>
-</section>
-
-<article class="panel">
-    <div class="section-heading">
-        <div>
-            <p class="eyebrow">Difusión</p>
-            <h2>Liga pública para compartir</h2>
+<div
+    class="wellbeing-dashboard-root"
+    data-wellbeing-dashboard
+    data-api-url="{{ dashboard_api_url }}"
+    data-refresh-ms="30000"
+>
+    <section class="panel wellbeing-cube-control-panel">
+        <div class="section-heading">
+            <div>
+                <p class="eyebrow">Cubo de datos</p>
+                <h2>Filtros vivos y corte analítico</h2>
+            </div>
+            <div class="wellbeing-live-status">
+                <span class="status status-opportune" id="wellbeing-live-sync">Sincronizando…</span>
+                <span class="muted" id="wellbeing-live-updated">Última actualización: preparando corte</span>
+            </div>
         </div>
-    </div>
-    <div class="stack">
-        <p class="muted">
-            Esta liga no requiere autenticación y abre directamente la entrada pública del módulo para comenzar la encuesta.
-        </p>
-        <label>Liga pública
-            <input type="text" readonly value="{{ public_url }}">
-        </label>
-        <div class="actions">
-            <a class="button button-primary" href="{{ public_url }}" target="_blank" rel="noopener">Abrir en nueva ventana</a>
-        </div>
-    </div>
-</article>
 
-<section class="section-grid two">
+        <div class="wellbeing-filter-grid">
+            <label>Estrato
+                <select id="wellbeing-filter-stratum">
+                    <option value="all">Todos los estratos</option>
+                </select>
+            </label>
+            <label>Estado
+                <select id="wellbeing-filter-state">
+                    <option value="all">Todos los estados</option>
+                    <option value="completada">Completadas</option>
+                    <option value="en_progreso">En progreso</option>
+                    <option value="abandonada">Abandonadas</option>
+                </select>
+            </label>
+            <label>Dimensión foco
+                <select id="wellbeing-filter-dimension">
+                    <option value="all">Todas las dimensiones</option>
+                </select>
+            </label>
+            <label>Agrupar cubo por
+                <select id="wellbeing-cube-group">
+                    <option value="estrato">Estrato</option>
+                    <option value="estado">Estado</option>
+                    <option value="dimension">Dimensión</option>
+                    <option value="reactivo">Reactivo</option>
+                </select>
+            </label>
+            <label>Ordenar cubo por
+                <select id="wellbeing-cube-sort">
+                    <option value="sample">Muestra</option>
+                    <option value="score">Puntaje</option>
+                    <option value="completion">Avance</option>
+                    <option value="iibp">IIBP</option>
+                    <option value="ivsp">IVSP</option>
+                </select>
+            </label>
+        </div>
+    </section>
+
+    <section class="wellbeing-live-metrics">
+        <article class="wellbeing-live-card">
+            <span>Sesiones filtradas</span>
+            <strong id="wellbeing-kpi-total">{{ summary.total }}</strong>
+            <small id="wellbeing-kpi-total-caption">Universo visible en este corte</small>
+        </article>
+        <article class="wellbeing-live-card">
+            <span>Encuestas completadas</span>
+            <strong id="wellbeing-kpi-completed">{{ summary.completadas }}</strong>
+            <small id="wellbeing-kpi-completed-caption">Base cerrada para análisis</small>
+        </article>
+        <article class="wellbeing-live-card">
+            <span>IIBP promedio</span>
+            <strong id="wellbeing-kpi-iibp">{{ summary.avg_iibp }}</strong>
+            <small id="wellbeing-kpi-iibp-caption">Promedio institucional filtrado</small>
+        </article>
+        <article class="wellbeing-live-card">
+            <span>IVSP promedio</span>
+            <strong id="wellbeing-kpi-ivsp">{{ summary.avg_ivsp }}</strong>
+            <small id="wellbeing-kpi-ivsp-caption">Riesgo agregado del corte</small>
+        </article>
+        <article class="wellbeing-live-card">
+            <span>Avance medio</span>
+            <strong id="wellbeing-kpi-progress">{{ summary.completion_rate }}%</strong>
+            <small id="wellbeing-kpi-progress-caption">Porcentaje promedio de captura</small>
+        </article>
+        <article class="wellbeing-live-card">
+            <span>Estratos activos</span>
+            <strong id="wellbeing-kpi-strata">0</strong>
+            <small id="wellbeing-kpi-strata-caption">Estratos con muestra disponible</small>
+        </article>
+    </section>
+
+    <section class="wellbeing-chart-grid">
+        <article class="panel wellbeing-chart-panel">
+            <div class="section-heading">
+                <div>
+                    <p class="eyebrow">Distribución</p>
+                    <h2>Sesiones por estrato y estado</h2>
+                </div>
+            </div>
+            <div class="wellbeing-chart-stage wellbeing-chart-stage-lg">
+                <canvas id="wellbeing-chart-strata"></canvas>
+            </div>
+        </article>
+
+        <article class="panel wellbeing-chart-panel">
+            <div class="section-heading">
+                <div>
+                    <p class="eyebrow">Ritmo del módulo</p>
+                    <h2>Estados del embudo</h2>
+                </div>
+            </div>
+            <div class="wellbeing-chart-stage wellbeing-chart-stage-lg">
+                <canvas id="wellbeing-chart-states"></canvas>
+            </div>
+        </article>
+
+        <article class="panel wellbeing-chart-panel">
+            <div class="section-heading">
+                <div>
+                    <p class="eyebrow">Desempeño</p>
+                    <h2>Radar de dimensiones</h2>
+                </div>
+            </div>
+            <div class="wellbeing-chart-stage wellbeing-chart-stage-xl">
+                <canvas id="wellbeing-chart-dimensions"></canvas>
+            </div>
+        </article>
+
+        <article class="panel wellbeing-chart-panel">
+            <div class="section-heading">
+                <div>
+                    <p class="eyebrow">Reactivos</p>
+                    <h2>Top reactivos por puntaje</h2>
+                </div>
+            </div>
+            <div class="wellbeing-chart-stage wellbeing-chart-stage-xl">
+                <canvas id="wellbeing-chart-questions"></canvas>
+            </div>
+        </article>
+    </section>
+
+    <section class="section-grid two wellbeing-dashboard-secondary">
+        <article class="panel">
+            <div class="section-heading">
+                <div>
+                    <p class="eyebrow">Cubo analítico</p>
+                    <h2>Resumen multidimensional</h2>
+                </div>
+            </div>
+            <div class="table-wrap">
+                <table class="executive-table wellbeing-cube-table">
+                    <thead>
+                        <tr>
+                            <th>Corte</th>
+                            <th>Muestra</th>
+                            <th>Promedio</th>
+                            <th>Puntaje</th>
+                            <th>IIBP</th>
+                            <th>IVSP</th>
+                            <th>Avance</th>
+                        </tr>
+                    </thead>
+                    <tbody id="wellbeing-cube-body">
+                        <tr><td colspan="7" class="muted">Preparando cubo de datos…</td></tr>
+                    </tbody>
+                </table>
+            </div>
+        </article>
+
+        <article class="panel wellbeing-insight-panel">
+            <div class="section-heading">
+                <div>
+                    <p class="eyebrow">Hallazgos</p>
+                    <h2>Lectura ejecutiva instantánea</h2>
+                </div>
+            </div>
+            <div class="wellbeing-insight-stack" id="wellbeing-insights">
+                <div class="wellbeing-insight-card">
+                    <strong>Sincronizando tablero</strong>
+                    <p class="muted">Las conclusiones ejecutivas se actualizarán con el primer corte disponible.</p>
+                </div>
+            </div>
+        </article>
+    </section>
+
     <article class="panel">
         <div class="section-heading">
             <div>
-                <p class="eyebrow">Dimensiones</p>
-                <h2>Promedio por dimensión</h2>
+                <p class="eyebrow">Trazabilidad</p>
+                <h2>Sesiones recientes del módulo</h2>
             </div>
         </div>
         <div class="table-wrap">
             <table class="executive-table">
                 <thead>
                     <tr>
-                        <th>Dimensión</th>
-                        <th>Promedio</th>
-                        <th>Puntaje</th>
-                        <th>Respuestas</th>
-                    </tr>
-                </thead>
-                <tbody>
-                    {% for row in summary.dimensions %}
-                    <tr>
-                        <td>{{ row.name }}</td>
-                        <td>{{ row.average }}</td>
-                        <td>{{ row.percent }}%</td>
-                        <td>{{ row.count }}</td>
-                    </tr>
-                    {% else %}
-                    <tr><td colspan="4" class="muted">Aún no hay encuestas completadas para consolidar dimensiones.</td></tr>
-                    {% endfor %}
-                </tbody>
-            </table>
-        </div>
-    </article>
-
-    <article class="panel">
-        <div class="section-heading">
-            <div>
-                <p class="eyebrow">Estratos</p>
-                <h2>Distribución de encuestas completadas</h2>
-            </div>
-        </div>
-        <div class="table-wrap">
-            <table class="executive-table">
-                <thead>
-                    <tr>
+                        <th>Folio</th>
+                        <th>Fecha</th>
                         <th>Estrato</th>
-                        <th>Encuestas</th>
+                        <th>Estado</th>
+                        <th>Avance</th>
+                        <th>IIBP</th>
+                        <th>IVSP</th>
                     </tr>
                 </thead>
-                <tbody>
-                    {% for estrato, total in summary.strata_counts.items() %}
-                    <tr>
-                        <td>{{ estrato }}</td>
-                        <td>{{ total }}</td>
-                    </tr>
-                    {% endfor %}
+                <tbody id="wellbeing-history-body">
+                    <tr><td colspan="7" class="muted">Cargando historial del módulo…</td></tr>
                 </tbody>
             </table>
         </div>
     </article>
-</section>
 
-<article class="panel">
+    <article class="panel wellbeing-public-link-panel">
         <div class="section-heading">
             <div>
-                <p class="eyebrow">Historial</p>
-                <h2>Sesiones capturadas</h2>
+                <p class="eyebrow">Difusión</p>
+                <h2>Liga pública lista para compartir</h2>
             </div>
-    </div>
-    <div class="table-wrap">
-        <table class="executive-table">
-            <thead>
-                <tr>
-                    <th>Folio</th>
-                    <th>Fecha</th>
-                    <th>Estrato</th>
-                    <th>Estado</th>
-                    <th>Última pregunta</th>
-                    <th>IIBP</th>
-                    <th>IVSP</th>
-                </tr>
-            </thead>
-            <tbody>
-                {% for row in summary.history %}
-                <tr>
-                    <td><strong>{{ row.hash }}</strong></td>
-                    <td>{{ row.fecha }}</td>
-                    <td>{{ row.estrato }}</td>
-                    <td>
-                        {% if row.estado == 'completada' %}
-                        <span class="status status-opportune">{{ row.estado_label }}</span>
-                        {% elif row.estado == 'en_progreso' %}
-                        <span class="status status-medium">{{ row.estado_label }}</span>
-                        {% else %}
-                        <span class="status status-low">{{ row.estado_label }}</span>
-                        {% endif %}
-                    </td>
-                    <td>{{ row.ultima_pregunta }}</td>
-                    <td>{{ row.iibp if row.iibp is not none else "-" }}</td>
-                    <td>{{ row.ivsp if row.ivsp is not none else "-" }}</td>
-                </tr>
-                    {% else %}
-                <tr><td colspan="7" class="muted">Todavía no hay sesiones registradas.</td></tr>
-                {% endfor %}
-            </tbody>
-        </table>
-    </div>
-</article>
+        </div>
+        <div class="stack">
+            <p class="muted">
+                Este vínculo abre el acceso público directo para responder la encuesta anónima sin autenticación.
+            </p>
+            <label>Liga pública
+                <input type="text" id="wellbeing-public-url" readonly value="{{ public_url }}">
+            </label>
+            <div class="actions">
+                <a class="button button-primary" id="wellbeing-public-link-action" href="{{ public_url }}" target="_blank" rel="noopener">Abrir liga pública</a>
+            </div>
+        </div>
+    </article>
+</div>
+
+<script defer src="{{ url_for('static', filename='bienestar.js') }}"></script>
 {% endblock %}
