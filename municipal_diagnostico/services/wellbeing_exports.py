@@ -39,6 +39,7 @@ WELLBEING_PDF_FOOTER = "Bienestar Policial | Ayuntamiento de Hermosillo"
 def build_wellbeing_pdf(*, public_url: str | None = None) -> BytesIO:
     report = build_wellbeing_report_payload()
     summary = report["summary"]
+    profile_questions = report["profile_socioeconomico"]["questions"]
 
     buffer = BytesIO()
     document = SimpleDocTemplate(
@@ -147,6 +148,23 @@ def build_wellbeing_pdf(*, public_url: str | None = None) -> BytesIO:
             story.append(Spacer(1, 0.05 * inch))
             story.append(_build_pdf_question_panel_row(row_chunk, styles))
 
+    story.append(PageBreak())
+    story.append(Paragraph("Composición económica del hogar", styles["section"]))
+    story.append(
+        Paragraph(
+            "Este capítulo consolida los reactivos de perfil socioeconómico. Sus respuestas aportan contexto del hogar y no modifican IIBP ni IVSP.",
+            styles["body"],
+        )
+    )
+    for question in profile_questions:
+        story.append(Spacer(1, 0.12 * inch))
+        story.append(Paragraph(f"Reactivo {question['orden']}", styles["subsection"]))
+        story.append(Paragraph(escape(question["texto"]), styles["body"]))
+        story.append(Spacer(1, 0.04 * inch))
+        story.append(_build_pdf_profile_distribution_chart(question))
+        story.append(Spacer(1, 0.05 * inch))
+        story.append(_build_pdf_profile_distribution_table(question, report["strata_order"]))
+
     document.build(story, onFirstPage=_draw_wellbeing_pdf_chrome, onLaterPages=_draw_wellbeing_pdf_chrome)
     buffer.seek(0)
     return buffer
@@ -156,6 +174,7 @@ def build_wellbeing_excel(*, public_url: str | None = None) -> BytesIO:
     report = build_wellbeing_report_payload()
     summary = report["summary"]
     questions = BienestarPregunta.query.order_by(BienestarPregunta.orden.asc()).all()
+    profile_questions = report["profile_socioeconomico"]["questions"]
     workbook = Workbook()
 
     summary_sheet = workbook.active
@@ -200,13 +219,14 @@ def build_wellbeing_excel(*, public_url: str | None = None) -> BytesIO:
     _set_widths(strata_sheet, {"A": 10, "B": 12, "C": 14, "D": 10, "E": 10, "F": 28, "G": 28})
 
     reactives_sheet = workbook.create_sheet("Reactivos")
-    reactive_header = ["Reactivo", "Estado", "Dimensión", "Texto", "Global"]
+    reactive_header = ["Reactivo", "Estado", "Clasificación", "Dimensión", "Texto", "Global"]
     reactive_header.extend(report["strata_order"])
     reactives_sheet.append(reactive_header)
     for row in report["question_rows"]:
         values = [
             row["orden"],
             row["state_label"],
+            row["tipo_reactivo_label"],
             row["dimension"],
             row["texto"],
             _metric_cell_text(row["overall"]),
@@ -214,10 +234,48 @@ def build_wellbeing_excel(*, public_url: str | None = None) -> BytesIO:
         values.extend(_metric_cell_text(row["by_stratum"][stratum]) for stratum in report["strata_order"])
         reactives_sheet.append(values)
     _style_table(reactives_sheet, header_row=1)
-    widths = {"A": 10, "B": 12, "C": 24, "D": 54, "E": 14}
-    for index in range(6, len(reactive_header) + 1):
+    widths = {"A": 10, "B": 12, "C": 14, "D": 24, "E": 54, "F": 14}
+    for index in range(7, len(reactive_header) + 1):
         widths[_column_letter(index)] = 11
     _set_widths(reactives_sheet, widths)
+
+    profile_sheet = workbook.create_sheet("Perfil socioeconómico")
+    profile_sheet.append(["Reactivo", "Texto", "Opción", "Conteo global", "Porcentaje global"])
+    for question in profile_questions:
+        for option in question["response_options"]:
+            profile_sheet.append(
+                [
+                    f"R{question['orden']}",
+                    question["texto"],
+                    option["label"],
+                    option["count"],
+                    option["percent"],
+                ]
+            )
+    if profile_sheet.max_row == 1:
+        profile_sheet.append(["Sin datos", "-", "-", 0, 0])
+    _style_table(profile_sheet, header_row=1)
+    _set_widths(profile_sheet, {"A": 12, "B": 56, "C": 28, "D": 16, "E": 18})
+
+    profile_strata_sheet = workbook.create_sheet("Perfil por estrato")
+    profile_strata_sheet.append(["Reactivo", "Opción", "Estrato", "Conteo", "Porcentaje"])
+    for question in profile_questions:
+        for option in question["response_options"]:
+            for stratum in report["strata_order"]:
+                detail = option["by_stratum"].get(stratum, {"count": 0, "percent": 0.0})
+                profile_strata_sheet.append(
+                    [
+                        f"R{question['orden']}",
+                        option["label"],
+                        stratum,
+                        detail["count"],
+                        detail["percent"],
+                    ]
+                )
+    if profile_strata_sheet.max_row == 1:
+        profile_strata_sheet.append(["Sin datos", "-", "-", 0, 0])
+    _style_table(profile_strata_sheet, header_row=1)
+    _set_widths(profile_strata_sheet, {"A": 12, "B": 28, "C": 12, "D": 12, "E": 14})
 
     history_sheet = workbook.create_sheet("Historial")
     history_sheet.append(["Folio", "Fecha", "Estrato", "Estado", "Última pregunta", "IIBP", "IVSP"])
@@ -263,6 +321,7 @@ def build_wellbeing_excel(*, public_url: str | None = None) -> BytesIO:
 def build_wellbeing_word(*, public_url: str | None = None) -> BytesIO:
     report = build_wellbeing_report_payload()
     summary = report["summary"]
+    profile_questions = report["profile_socioeconomico"]["questions"]
     body = [
         _docx_paragraph("Reporte ejecutivo de Bienestar Policial", bold=True, size=32, spacing_after=120),
         _docx_paragraph(
@@ -324,6 +383,27 @@ def build_wellbeing_word(*, public_url: str | None = None) -> BytesIO:
     if len(history_rows) == 1:
         history_rows.append(["Sin datos", "-", "-", "-", "-", "-", "-"])
     body.append(_docx_table(history_rows, col_widths=[1400, 1800, 1000, 1400, 1200, 900, 900]))
+
+    body.append(_docx_page_break())
+    body.append(_docx_paragraph("Composición económica del hogar", bold=True, size=24))
+    body.append(
+        _docx_paragraph(
+            "Este capítulo consolida los reactivos de perfil socioeconómico para dar contexto del hogar sin alterar IIBP ni IVSP.",
+            size=18,
+            color=WORD_THEME["muted"],
+        )
+    )
+    for question in profile_questions:
+        body.append(_docx_paragraph(f"Reactivo {question['orden']}", bold=True, size=20, spacing_before=60))
+        body.append(_docx_paragraph(question["texto"], size=18))
+        rows = [_docx_header_row(["Opción", "Global", *report["strata_order"]])]
+        for option in question["response_options"]:
+            cells = [option["label"], f"{option['count']} | {option['percent']}%"]
+            for stratum in report["strata_order"]:
+                detail = option["by_stratum"].get(stratum, {"count": 0, "percent": 0.0})
+                cells.append(f"{detail['count']} | {detail['percent']}%")
+            rows.append(cells)
+        body.append(_docx_table(rows, col_widths=[2400, 1400, *([1000] * len(report["strata_order"]))]))
 
     return _package_docx("".join(body), title="Reporte ejecutivo de Bienestar Policial")
 
@@ -870,6 +950,72 @@ def _build_pdf_option_distribution_table(response_options: list[dict], styles: d
                 ("RIGHTPADDING", (0, 0), (-1, -1), 6),
                 ("TOPPADDING", (0, 0), (-1, -1), 5),
                 ("BOTTOMPADDING", (0, 0), (-1, -1), 5),
+            ]
+        )
+    )
+    return table
+
+
+def _build_pdf_profile_distribution_chart(question: dict) -> Drawing:
+    drawing = Drawing(680, 118)
+    drawing.add(String(2, 102, "Distribución global por opción", fontName="Helvetica-Bold", fontSize=9.5, fillColor=PDF_THEME["navy"]))
+
+    options = question["response_options"]
+    if not options or not any(option["count"] for option in options):
+        drawing.add(String(340, 54, "Sin respuestas completadas para este reactivo", fontName="Helvetica", fontSize=9, fillColor=PDF_THEME["muted"], textAnchor="middle"))
+        return drawing
+
+    plot_x = 206
+    plot_width = 360
+    bar_height = 12
+    start_y = 76
+    gap = 20
+    max_count = max(option["count"] for option in options) or 1
+    for index, option in enumerate(options):
+        y = start_y - index * gap
+        drawing.add(String(4, y + 1, option["label"], fontName="Helvetica", fontSize=8, fillColor=PDF_THEME["muted"]))
+        drawing.add(Rect(plot_x, y, plot_width, bar_height, fillColor=PDF_THEME["navy_soft"], strokeColor=PDF_THEME["line"], strokeWidth=0.3))
+        if option["count"] > 0:
+            color = _option_color(option["value"])
+            drawing.add(Rect(plot_x, y, plot_width * option["count"] / max_count, bar_height, fillColor=color, strokeColor=color, strokeWidth=0))
+        drawing.add(String(plot_x + plot_width + 8, y + 1, f"{option['count']} respuestas | {option['percent']}%", fontName="Helvetica-Bold", fontSize=7.5, fillColor=PDF_THEME["navy"]))
+
+    return drawing
+
+
+def _build_pdf_profile_distribution_table(question: dict, strata_order: list[str]) -> Table:
+    header = ["Opción", "Global"]
+    header.extend(strata_order)
+    rows = [header]
+
+    for option in question["response_options"]:
+        values = [
+            option["label"],
+            f"{option['count']} | {option['percent']}%",
+        ]
+        for stratum in strata_order:
+            detail = option["by_stratum"].get(stratum, {"count": 0, "percent": 0.0})
+            values.append(f"{detail['count']} | {detail['percent']}%")
+        rows.append(values)
+
+    table = Table(rows, colWidths=[3.2 * inch, 1.0 * inch, *([1.0 * inch] * len(strata_order))], repeatRows=1)
+    table.setStyle(
+        TableStyle(
+            [
+                ("BACKGROUND", (0, 0), (-1, 0), PDF_THEME["sage"]),
+                ("TEXTCOLOR", (0, 0), (-1, 0), colors.white),
+                ("FONTNAME", (0, 0), (-1, 0), "Helvetica-Bold"),
+                ("ROWBACKGROUNDS", (0, 1), (-1, -1), [colors.white, PDF_THEME["sage_soft"]]),
+                ("FONTNAME", (0, 1), (-1, -1), "Helvetica"),
+                ("FONTSIZE", (0, 0), (-1, -1), 7.3),
+                ("LEADING", (0, 0), (-1, -1), 9),
+                ("GRID", (0, 0), (-1, -1), 0.35, PDF_THEME["line"]),
+                ("VALIGN", (0, 0), (-1, -1), "TOP"),
+                ("ALIGN", (1, 1), (-1, -1), "CENTER"),
+                ("LEFTPADDING", (0, 0), (-1, -1), 5),
+                ("RIGHTPADDING", (0, 0), (-1, -1), 5),
+                ("TOPPADDING", (0, 0), (-1, -1), 4),
+                ("BOTTOMPADDING", (0, 0), (-1, -1), 4),
             ]
         )
     )

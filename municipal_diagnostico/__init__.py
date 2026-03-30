@@ -126,6 +126,28 @@ def ensure_schema_compatibility(app: Flask) -> None:
                     )
                 )
 
+    if inspector.has_table("bienestar_pregunta"):
+        columns = {column["name"] for column in inspector.get_columns("bienestar_pregunta")}
+        if "tipo_reactivo" not in columns:
+            with db.engine.begin() as connection:
+                connection.execute(
+                    text(
+                        "ALTER TABLE bienestar_pregunta ADD COLUMN tipo_reactivo VARCHAR(20) NOT NULL DEFAULT 'indicador'"
+                    )
+                )
+                connection.execute(
+                    text(
+                        """
+                        UPDATE bienestar_pregunta
+                        SET tipo_reactivo = CASE
+                            WHEN orden BETWEEN 36 AND 45 THEN 'perfil'
+                            ELSE 'indicador'
+                        END
+                        """
+                    )
+                )
+            app.logger.info("Columna bienestar_pregunta.tipo_reactivo agregada automáticamente.")
+
 
 def register_blueprints(app: Flask) -> None:
     app.register_blueprint(auth_bp)

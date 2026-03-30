@@ -11,7 +11,8 @@
         <div class="tag-row">
             <span class="tag">Activas: {{ active_count }}</span>
             <span class="tag">Inactivas: {{ inactive_count }}</span>
-            <span class="tag">Dimensiones: {{ dimensions|length }}</span>
+            <span class="tag">Indicadores: {{ indicator_count }}</span>
+            <span class="tag">Perfil: {{ profile_count }}</span>
         </div>
     </div>
 
@@ -38,6 +39,14 @@
         <strong>{{ inactive_count }}</strong>
     </article>
     <article class="metric-card">
+        <span>Indicadores</span>
+        <strong>{{ indicator_count }}</strong>
+    </article>
+    <article class="metric-card">
+        <span>Perfil socioeconómico</span>
+        <strong>{{ profile_count }}</strong>
+    </article>
+    <article class="metric-card">
         <span>Opciones por reactivo</span>
         <strong>4</strong>
     </article>
@@ -58,6 +67,12 @@
             </label>
             <label>Dimensión
                 <input type="text" name="dimension" required>
+            </label>
+            <label>Clasificación del reactivo
+                <select name="tipo_reactivo">
+                    <option value="indicador">Indicador de bienestar</option>
+                    <option value="perfil">Perfil socioeconómico</option>
+                </select>
             </label>
             <label>Texto
                 <textarea name="texto" rows="4" required></textarea>
@@ -100,6 +115,10 @@
                 <strong>Roles existentes</strong>
                 <p class="muted">Solo administración puede editar el banco; consulta mantiene acceso de solo lectura al tablero.</p>
             </div>
+            <div class="insight-card">
+                <strong>Indicador vs perfil</strong>
+                <p class="muted">Los indicadores alimentan IIBP e IVSP; los reactivos de perfil solo enriquecen la reportería socioeconómica.</p>
+            </div>
         </div>
     </article>
 </section>
@@ -118,8 +137,12 @@
                 <div>
                     <p class="eyebrow">{{ question.dimension }}</p>
                     <h2>{{ question.orden }}. {{ question.texto }}</h2>
+                    <p class="muted">Clasificación: {{ "Indicador" if question.tipo_reactivo == "indicador" else "Perfil socioeconómico" }}</p>
                 </div>
-                <span class="status status-{{ 'opportune' if question.activa else 'low' }}">{{ "Activa" if question.activa else "Inactiva" }}</span>
+                <div class="stack">
+                    <span class="status status-{{ 'opportune' if question.activa else 'low' }}">{{ "Activa" if question.activa else "Inactiva" }}</span>
+                    <span class="status status-{{ 'medium' if question.tipo_reactivo == 'perfil' else 'opportune' }}">{{ "Perfil" if question.tipo_reactivo == "perfil" else "Indicador" }}</span>
+                </div>
             </summary>
             <form method="post" class="stack">
                 <input type="hidden" name="action" value="update">
@@ -129,6 +152,12 @@
                 </label>
                 <label>Dimensión
                     <input type="text" name="dimension" value="{{ question.dimension }}" required>
+                </label>
+                <label>Clasificación del reactivo
+                    <select name="tipo_reactivo">
+                        <option value="indicador" {% if question.tipo_reactivo == "indicador" %}selected{% endif %}>Indicador de bienestar</option>
+                        <option value="perfil" {% if question.tipo_reactivo == "perfil" %}selected{% endif %}>Perfil socioeconómico</option>
+                    </select>
                 </label>
                 <label>Texto
                     <textarea name="texto" rows="4" required>{{ question.texto }}</textarea>

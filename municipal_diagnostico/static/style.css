@@ -2908,6 +2908,35 @@ body.wellbeing-body {
     overflow: hidden;
 }
 
+.wellbeing-profile-panel {
+    display: grid;
+    gap: 1rem;
+}
+
+.wellbeing-profile-grid {
+    display: grid;
+    grid-template-columns: repeat(2, minmax(0, 1fr));
+    gap: 1rem;
+}
+
+.wellbeing-profile-selector {
+    min-width: min(100%, 22rem);
+}
+
+.wellbeing-profile-selector label {
+    display: grid;
+    gap: 0.4rem;
+}
+
+.wellbeing-profile-table {
+    min-width: 52rem;
+}
+
+.wellbeing-profile-table th:not(:first-child),
+.wellbeing-profile-table td:not(:first-child) {
+    text-align: center;
+}
+
 .wellbeing-chart-stage {
     position: relative;
     width: 100%;
@@ -3007,6 +3036,12 @@ body.wellbeing-body {
     width: min(calc(100% - 2rem), 1180px);
     margin: 0 auto;
     padding: 2.2rem 0 3rem;
+}
+
+@media (max-width: 980px) {
+    .wellbeing-profile-grid {
+        grid-template-columns: 1fr;
+    }
 }
 
 .module-selector-hero {

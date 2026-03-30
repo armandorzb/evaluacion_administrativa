@@ -1,8 +1,13 @@
-def q(dimension: str, texto: str, opciones: list[str]) -> dict:
+WELLBEING_REACTIVE_INDICATOR = "indicador"
+WELLBEING_REACTIVE_PROFILE = "perfil"
+
+
+def q(dimension: str, texto: str, opciones: list[str], *, tipo_reactivo: str = WELLBEING_REACTIVE_INDICATOR) -> dict:
     return {
         "dimension": dimension,
         "texto": texto,
         "opciones": opciones,
+        "tipo_reactivo": tipo_reactivo,
     }
 
 
@@ -42,6 +47,16 @@ DEFAULT_WELLBEING_QUESTIONS = [
     q("Apoyo Familiar", "¿Sus horarios le permiten convivir con calidad con su familia?", ["Buen equilibrio", "Es difícil", "Poco tiempo", "No lo permite"]),
     q("Apoyo Familiar", "¿Su familia vive con temor constante por su labor?", ["Lo asimilan", "Normal", "Mucha preocupación", "Temor constante"]),
     q("Apoyo Familiar", "¿Tiene con quién hablar abiertamente sobre experiencias difíciles?", ["Familia o amigos", "Compañeros", "Rara vez", "Me lo guardo"]),
+    q("Situación Socioeconómica", "¿Cuál es su estado civil actual?", ["Soltero(a)", "Casado(a) o unión libre", "Separado(a) o divorciado(a)", "Viudo(a)"], tipo_reactivo=WELLBEING_REACTIVE_PROFILE),
+    q("Situación Socioeconómica", "¿Cuántos dependientes económicos tiene actualmente?", ["Ninguno", "1", "2 a 3", "4 o más"], tipo_reactivo=WELLBEING_REACTIVE_PROFILE),
+    q("Situación Socioeconómica", "¿Cuántos de sus dependientes económicos son menores de edad?", ["Ninguno", "1", "2", "3 o más"], tipo_reactivo=WELLBEING_REACTIVE_PROFILE),
+    q("Situación Socioeconómica", "¿Cuántos de sus dependientes económicos son personas adultas mayores?", ["Ninguno", "1", "2", "3 o más"], tipo_reactivo=WELLBEING_REACTIVE_PROFILE),
+    q("Situación Socioeconómica", "¿Es usted el principal sostén económico de su hogar?", ["Sí, totalmente", "Sí, compartido con otra persona", "Aporto, pero no soy principal", "No soy sostén económico principal"], tipo_reactivo=WELLBEING_REACTIVE_PROFILE),
+    q("Situación Socioeconómica", "¿Cuántas personas aportan ingreso económico en su hogar?", ["1 persona", "2 personas", "3 personas", "4 o más"], tipo_reactivo=WELLBEING_REACTIVE_PROFILE),
+    q("Situación Socioeconómica", "¿Cuál describe mejor la composición actual de su hogar?", ["Vive solo(a)", "Pareja sin hijos", "Pareja con hijos o hijas", "Hogar extendido o multigeneracional"], tipo_reactivo=WELLBEING_REACTIVE_PROFILE),
+    q("Situación Socioeconómica", "¿Tiene algún dependiente económico con discapacidad, enfermedad crónica o necesidad permanente de cuidados?", ["No", "Sí, uno con apoyo controlado", "Sí, uno con alta demanda de cuidado", "Sí, dos o más"], tipo_reactivo=WELLBEING_REACTIVE_PROFILE),
+    q("Situación Socioeconómica", "¿Tiene dependientes económicos que actualmente estudian y dependen de su ingreso?", ["Ninguno", "1", "2", "3 o más"], tipo_reactivo=WELLBEING_REACTIVE_PROFILE),
+    q("Situación Socioeconómica", "¿Qué nivel de presión económica representan sus dependientes para el gasto mensual del hogar?", ["Baja", "Moderada", "Alta", "Muy alta"], tipo_reactivo=WELLBEING_REACTIVE_PROFILE),
 ]
 
 DEFAULT_WELLBEING_STRATA = ["E1", "E2", "E3", "E4", "E5"]

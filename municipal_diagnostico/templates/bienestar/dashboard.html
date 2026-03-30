@@ -171,6 +171,59 @@
         </article>
     </section>
 
+    <section class="panel wellbeing-profile-panel">
+        <div class="section-heading">
+            <div>
+                <p class="eyebrow">Perfil socioeconómico</p>
+                <h2>Composición económica del hogar</h2>
+            </div>
+            <div class="wellbeing-profile-selector">
+                <label>Reactivo de perfil
+                    <select id="wellbeing-profile-question-select"></select>
+                </label>
+            </div>
+        </div>
+        <p class="muted">
+            Este bloque muestra la distribución real de respuestas de los 10 reactivos de perfil. Su captura
+            fortalece la lectura institucional, pero no altera IIBP ni IVSP.
+        </p>
+
+        <div class="wellbeing-profile-grid">
+            <article class="panel wellbeing-chart-panel">
+                <div class="section-heading">
+                    <div>
+                        <p class="eyebrow">Distribución global</p>
+                        <h2 id="wellbeing-profile-question-title">Composición económica del hogar</h2>
+                    </div>
+                </div>
+                <div class="wellbeing-chart-stage wellbeing-chart-stage-lg">
+                    <canvas id="wellbeing-chart-profile-global"></canvas>
+                </div>
+            </article>
+
+            <article class="panel wellbeing-chart-panel">
+                <div class="section-heading">
+                    <div>
+                        <p class="eyebrow">Lectura por estrato</p>
+                        <h2>Comparativo de opciones</h2>
+                    </div>
+                </div>
+                <div class="wellbeing-chart-stage wellbeing-chart-stage-lg">
+                    <canvas id="wellbeing-chart-profile-strata"></canvas>
+                </div>
+            </article>
+        </div>
+
+        <div class="table-wrap">
+            <table class="executive-table wellbeing-profile-table">
+                <thead id="wellbeing-profile-table-head"></thead>
+                <tbody id="wellbeing-profile-table-body">
+                    <tr><td colspan="4" class="muted">Preparando distribución del perfil socioeconómico…</td></tr>
+                </tbody>
+            </table>
+        </div>
+    </section>
+
     <section class="section-grid two wellbeing-dashboard-secondary">
         <article class="panel">
             <div class="section-heading">

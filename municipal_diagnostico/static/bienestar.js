@@ -17,9 +17,7 @@
 
   async function fetchJson(url) {
     const response = await fetch(url, {
-      headers: {
-        "X-Requested-With": "fetch",
-      },
+      headers: { "X-Requested-With": "fetch" },
       cache: "no-store",
     });
     const data = await response.json().catch(() => ({}));
@@ -76,7 +74,9 @@
   function formatTimestamp(value) {
     if (!value) return "sin corte";
     const normalizedValue =
-      typeof value === "string" && /^\d{4}-\d{2}-\d{2}T\d{2}:\d{2}:\d{2}/.test(value) && !/[zZ]|[+\-]\d{2}:\d{2}$/.test(value)
+      typeof value === "string" &&
+      /^\d{4}-\d{2}-\d{2}T\d{2}:\d{2}:\d{2}/.test(value) &&
+      !/[zZ]|[+\-]\d{2}:\d{2}$/.test(value)
         ? `${value}Z`
         : value;
     const date = new Date(normalizedValue);
@@ -117,6 +117,21 @@
       select.appendChild(option);
     });
     select.value = nextValue;
+  }
+
+  function updateExactSelectOptions(select, options, currentValue) {
+    if (!select) return null;
+    select.innerHTML = "";
+    options.forEach((item) => {
+      const option = document.createElement("option");
+      option.value = String(item.value);
+      option.textContent = item.label;
+      select.appendChild(option);
+    });
+    const allowedValues = new Set(options.map((item) => String(item.value)));
+    const nextValue = allowedValues.has(String(currentValue)) ? String(currentValue) : (options[0] ? String(options[0].value) : "");
+    select.value = nextValue;
+    return nextValue;
   }
 
   const homeDialog = document.querySelector("[data-wellbeing-start-dialog]");
@@ -208,6 +223,10 @@
     const dimensionFilter = document.getElementById("wellbeing-filter-dimension");
     const cubeGroup = document.getElementById("wellbeing-cube-group");
     const cubeSort = document.getElementById("wellbeing-cube-sort");
+    const profileQuestionSelect = document.getElementById("wellbeing-profile-question-select");
+    const profileQuestionTitle = document.getElementById("wellbeing-profile-question-title");
+    const profileTableHead = document.getElementById("wellbeing-profile-table-head");
+    const profileTableBody = document.getElementById("wellbeing-profile-table-body");
     const syncLabel = document.getElementById("wellbeing-live-sync");
     const updatedLabel = document.getElementById("wellbeing-live-updated");
     const insights = document.getElementById("wellbeing-insights");
@@ -234,6 +253,8 @@
       states: document.getElementById("wellbeing-chart-states"),
       dimensions: document.getElementById("wellbeing-chart-dimensions"),
       questions: document.getElementById("wellbeing-chart-questions"),
+      profileGlobal: document.getElementById("wellbeing-chart-profile-global"),
+      profileStrata: document.getElementById("wellbeing-chart-profile-strata"),
     };
 
     const state = {
@@ -248,6 +269,7 @@
       charts: {},
       timer: null,
       refreshing: false,
+      selectedProfileQuestion: null,
     };
 
     [stratumFilter, stateFilter, dimensionFilter, cubeGroup, cubeSort].forEach((control) => {
@@ -261,6 +283,11 @@
         };
         renderDashboard();
       });
+    });
+
+    profileQuestionSelect?.addEventListener("change", () => {
+      state.selectedProfileQuestion = profileQuestionSelect.value;
+      renderDashboard();
     });
 
     document.addEventListener("visibilitychange", () => {
@@ -309,6 +336,21 @@
           state.filters.dimension,
           "Todas las dimensiones",
         );
+
+        const profileQuestions = payload.profile_socioeconomico?.questions || [];
+        const defaultProfileValue =
+          state.selectedProfileQuestion ||
+          payload.profile_socioeconomico?.default_question_id ||
+          (profileQuestions[0] ? profileQuestions[0].id : "");
+        state.selectedProfileQuestion = updateExactSelectOptions(
+          profileQuestionSelect,
+          profileQuestions.map((question) => ({
+            value: question.id,
+            label: `R${question.orden} · ${truncateText(question.texto, 56)}`,
+          })),
+          defaultProfileValue,
+        );
+
         if (publicUrlField) {
           publicUrlField.value = payload.public_url || publicUrlField.value;
         }
@@ -357,7 +399,7 @@
         (state.payload.question_catalog || []).map((question) => [String(question.id), question]),
       );
       const filteredSurveys = getFilteredSurveys(state.payload.survey_rows || [], state.filters);
-      const filteredResponses = flattenResponses(filteredSurveys, questionById, state.filters.dimension);
+      const filteredResponses = flattenIndicatorResponses(filteredSurveys, questionById, state.filters.dimension);
       const overview = buildOverview(filteredSurveys);
       const dimensionStats = buildDimensionStats(filteredResponses);
       const questionStats = buildQuestionStats(filteredResponses);
@@ -371,6 +413,10 @@
       renderStatesChart(overview);
       renderDimensionChart(dimensionStats);
       renderQuestionChart(questionStats);
+      renderProfileSection(
+        state.payload.profile_socioeconomico?.questions || [],
+        state.payload.strata_order || [],
+      );
     }
 
     function getFilteredSurveys(surveys, filters) {
@@ -381,12 +427,13 @@
       });
     }
 
-    function flattenResponses(surveys, questionById, dimensionValue) {
+    function flattenIndicatorResponses(surveys, questionById, dimensionValue) {
       const rows = [];
       surveys.forEach((survey) => {
         (survey.responses || []).forEach((response) => {
-          if (dimensionValue !== "all" && response.dimension !== dimensionValue) return;
           const question = questionById.get(String(response.question_id)) || {};
+          if (question.tipo_reactivo === "perfil" || response.tipo_reactivo === "perfil") return;
+          if (dimensionValue !== "all" && response.dimension !== dimensionValue) return;
           rows.push({
             surveyHash: survey.hash,
             stratum: survey.estrato,
@@ -823,6 +870,174 @@
       });
     }
 
+    function renderProfileSection(profileQuestions, strataOrder) {
+      if (!profileTableBody || !profileTableHead) return;
+      if (!profileQuestions.length) {
+        if (profileQuestionTitle) {
+          profileQuestionTitle.textContent = "Sin reactivos de perfil";
+        }
+        profileTableHead.innerHTML = "<tr><th>Opción</th><th>Detalle</th></tr>";
+        profileTableBody.innerHTML = '<tr><td colspan="2" class="muted">Aún no hay reactivos socioeconómicos de perfil configurados.</td></tr>';
+        upsertChart("profileGlobal", chartNodes.profileGlobal, emptyBarChartConfig("Sin datos"));
+        upsertChart("profileStrata", chartNodes.profileStrata, emptyBarChartConfig("Sin datos"));
+        return;
+      }
+
+      const selectedId = String(state.selectedProfileQuestion || profileQuestions[0].id);
+      const question = profileQuestions.find((item) => String(item.id) === selectedId) || profileQuestions[0];
+      state.selectedProfileQuestion = String(question.id);
+      if (profileQuestionSelect && profileQuestionSelect.value !== state.selectedProfileQuestion) {
+        profileQuestionSelect.value = state.selectedProfileQuestion;
+      }
+      if (profileQuestionTitle) {
+        profileQuestionTitle.textContent = `R${question.orden} · ${question.texto}`;
+      }
+
+      renderProfileGlobalChart(question);
+      renderProfileStrataChart(question, strataOrder);
+      renderProfileTable(question, strataOrder);
+    }
+
+    function renderProfileGlobalChart(question) {
+      const options = question.response_options || [];
+      const hasData = options.some((item) => Number(item.count || 0) > 0);
+      upsertChart("profileGlobal", chartNodes.profileGlobal, {
+        type: "bar",
+        data: {
+          labels: hasData ? options.map((item) => truncateText(item.label, 26)) : ["Sin datos"],
+          datasets: [
+            {
+              label: "Respuestas",
+              data: hasData ? options.map((item) => Number(item.count || 0)) : [0],
+              backgroundColor: [
+                "rgba(36, 98, 124, 0.88)",
+                "rgba(223, 106, 47, 0.82)",
+                "rgba(122, 150, 90, 0.82)",
+                "rgba(93, 109, 126, 0.82)",
+              ],
+              borderRadius: 10,
+              borderSkipped: false,
+            },
+          ],
+        },
+        options: {
+          responsive: true,
+          maintainAspectRatio: false,
+          resizeDelay: 120,
+          plugins: {
+            legend: { display: false },
+            tooltip: {
+              callbacks: {
+                label(context) {
+                  const option = options[context.dataIndex];
+                  if (!option) return "";
+                  return `${option.count} respuestas | ${formatPercent(option.percent)}`;
+                },
+              },
+            },
+          },
+          scales: {
+            x: { grid: { display: false } },
+            y: { beginAtZero: true, ticks: { precision: 0 } },
+          },
+        },
+      });
+    }
+
+    function renderProfileStrataChart(question, strataOrder) {
+      const options = question.response_options || [];
+      const labels = (strataOrder || []).filter((stratum) =>
+        options.some((item) => Number(item.by_stratum?.[stratum]?.count || 0) > 0),
+      );
+      const effectiveLabels = labels.length ? labels : ["Sin datos"];
+      const datasets = options.map((item, index) => ({
+        label: item.label,
+        data: effectiveLabels.map((label) => Number(item.by_stratum?.[label]?.count || 0)),
+        backgroundColor: [
+          "rgba(36, 98, 124, 0.88)",
+          "rgba(223, 106, 47, 0.82)",
+          "rgba(122, 150, 90, 0.82)",
+          "rgba(93, 109, 126, 0.82)",
+        ][index % 4],
+        borderRadius: 8,
+        borderSkipped: false,
+      }));
+
+      upsertChart("profileStrata", chartNodes.profileStrata, {
+        type: "bar",
+        data: {
+          labels: effectiveLabels,
+          datasets: labels.length ? datasets : [{ label: "Sin datos", data: [0], backgroundColor: "rgba(201, 212, 220, 0.88)" }],
+        },
+        options: {
+          responsive: true,
+          maintainAspectRatio: false,
+          resizeDelay: 120,
+          interaction: { mode: "index", intersect: false },
+          plugins: { legend: { position: "bottom" } },
+          scales: {
+            x: { grid: { display: false } },
+            y: { beginAtZero: true, ticks: { precision: 0 } },
+          },
+        },
+      });
+    }
+
+    function renderProfileTable(question, strataOrder) {
+      const options = question.response_options || [];
+      const headerCells = ["<tr><th>Opción</th><th>Global</th>"];
+      (strataOrder || []).forEach((stratum) => {
+        headerCells.push(`<th>${escapeHtml(stratum)}</th>`);
+      });
+      headerCells.push("</tr>");
+      profileTableHead.innerHTML = headerCells.join("");
+
+      if (!options.length) {
+        profileTableBody.innerHTML = '<tr><td colspan="3" class="muted">No hay respuestas disponibles para este reactivo.</td></tr>';
+        return;
+      }
+
+      profileTableBody.innerHTML = options
+        .map((option) => {
+          const cells = [
+            `<td><strong>${escapeHtml(option.label)}</strong></td>`,
+            `<td>${option.count} · ${formatPercent(option.percent)}</td>`,
+          ];
+          (strataOrder || []).forEach((stratum) => {
+            const detail = option.by_stratum?.[stratum] || { count: 0, percent: 0 };
+            cells.push(`<td>${detail.count} · ${formatPercent(detail.percent)}</td>`);
+          });
+          return `<tr>${cells.join("")}</tr>`;
+        })
+        .join("");
+    }
+
+    function emptyBarChartConfig(label) {
+      return {
+        type: "bar",
+        data: {
+          labels: [label],
+          datasets: [
+            {
+              label: "Sin datos",
+              data: [0],
+              backgroundColor: "rgba(201, 212, 220, 0.88)",
+            },
+          ],
+        },
+        options: {
+          responsive: true,
+          maintainAspectRatio: false,
+          resizeDelay: 120,
+          plugins: { legend: { display: false } },
+          scales: {
+            x: { grid: { display: false } },
+            y: { beginAtZero: true },
+          },
+        },
+      };
+    }
+
     function upsertChart(key, canvas, config) {
       if (!canvas || typeof Chart === "undefined") return;
       if (state.charts[key]) {
@@ -886,6 +1101,7 @@
     const jumpPendingButton = document.getElementById("wellbeing-jump-pending");
     const feedbackTitle = document.getElementById("wellbeing-feedback-title");
     const feedbackText = document.getElementById("wellbeing-feedback-text");
+    const scaleLabel = document.getElementById("wellbeing-scale-label");
 
     let questions = [];
     let currentIndex = 0;
@@ -969,9 +1185,7 @@
         const answered = responses.has(question.id);
         const chip = document.createElement("button");
         chip.type = "button";
-        chip.className = `survey-question-chip ${answered ? "is-answered" : "is-pending"} ${
-          index === currentIndex ? "is-current" : ""
-        }`;
+        chip.className = `survey-question-chip ${answered ? "is-answered" : "is-pending"} ${index === currentIndex ? "is-current" : ""}`;
         chip.innerHTML = `<span>${index + 1}</span>`;
         chip.setAttribute(
           "aria-label",
@@ -1018,11 +1232,13 @@
       const question = currentQuestion();
       if (!question) return;
 
+      const isProfileQuestion = question.tipo_reactivo === "perfil";
       const selectedValue = responses.get(question.id);
       const answered = answeredCount();
       const pending = Math.max(questions.length - answered, 0);
       const isLastQuestion = currentIndex === questions.length - 1;
-      dimensionLabel.textContent = question.dim;
+
+      dimensionLabel.textContent = isProfileQuestion ? "Composición económica del hogar" : question.dim;
       progressLabel.textContent = `Reactivo ${currentIndex + 1} de ${questions.length}`;
       statusLabel.textContent = completed
         ? "La encuesta ya fue completada."
@@ -1030,24 +1246,33 @@
           ? isLastQuestion
             ? "Último reactivo respondido. Puedes revisar o finalizar la encuesta."
             : "Respuesta registrada. Continúa o ajusta tu selección antes de seguir."
-          : pending === questions.length
-            ? "Selecciona la opción que mejor describa tu situación actual para iniciar la captura."
-            : "Selecciona la opción que mejor refleje tu experiencia reciente.";
+          : isProfileQuestion
+            ? "Este reactivo aporta contexto del hogar y no modifica IIBP ni IVSP."
+            : pending === questions.length
+              ? "Selecciona la opción que mejor describa tu situación actual para iniciar la captura."
+              : "Selecciona la opción que mejor refleje tu experiencia reciente.";
       questionOrder.textContent = `Reactivo ${question.orden}`;
-      questionDimension.textContent = question.dim;
+      questionDimension.textContent = isProfileQuestion ? "Perfil socioeconómico" : question.dim;
       questionText.textContent = question.txt;
-      questionScore.textContent = Number.isFinite(selectedValue) ? `Nivel ${selectedValue}` : "Sin respuesta";
+      questionScore.textContent = Number.isFinite(selectedValue)
+        ? (isProfileQuestion ? "Respuesta registrada" : `Nivel ${selectedValue}`)
+        : (isProfileQuestion ? "Reactivo de perfil" : "Sin respuesta");
       questionScore.classList.toggle("is-empty", !Number.isFinite(selectedValue));
       questionCard?.classList.toggle("has-answer", Number.isFinite(selectedValue));
+      if (scaleLabel) {
+        scaleLabel.textContent = isProfileQuestion ? "Perfil socioeconómico" : "Escala de 1 a 4";
+      }
 
       if (questionHint) {
         questionHint.textContent = completed
           ? "La encuesta ya fue enviada."
-          : isLastQuestion
-            ? "Estás en el último reactivo. Al continuar se enviará la encuesta completa."
-            : Number.isFinite(selectedValue)
-              ? "Si lo necesitas, puedes cambiar esta respuesta antes de pasar al siguiente reactivo."
-              : "Tus respuestas se guardan automáticamente al seleccionar una opción.";
+          : isProfileQuestion
+            ? "Estas respuestas enriquecen la lectura socioeconómica del hogar y se guardan automáticamente."
+            : isLastQuestion
+              ? "Estás en el último reactivo. Al continuar se enviará la encuesta completa."
+              : Number.isFinite(selectedValue)
+                ? "Si lo necesitas, puedes cambiar esta respuesta antes de pasar al siguiente reactivo."
+                : "Tus respuestas se guardan automáticamente al seleccionar una opción.";
       }
 
       optionsContainer.innerHTML = "";
@@ -1060,8 +1285,8 @@
         wrapper.setAttribute("aria-pressed", selectedValue === value ? "true" : "false");
         wrapper.innerHTML = `
           <input type="radio" name="wellbeing_option" value="${value}" ${selectedValue === value ? "checked" : ""} ${completed ? "disabled" : ""}>
-          <span>Nivel ${value}</span>
-          <strong>${label}</strong>
+          <span>${isProfileQuestion ? `Opción ${index + 1}` : `Nivel ${value}`}</span>
+          <strong>${escapeHtml(label)}</strong>
         `;
         const input = wrapper.querySelector("input");
         input.addEventListener("change", async () => {
@@ -1137,10 +1362,8 @@
       scrollQuestionCard();
     });
 
-    Promise.all([fetch(questionsUrl), fetch(surveyUrl)])
-      .then(async ([questionsResponse, surveyResponse]) => {
-        const questionsPayload = await questionsResponse.json();
-        const surveyPayload = await surveyResponse.json();
+    Promise.all([fetchJson(questionsUrl), fetchJson(surveyUrl)])
+      .then(([questionsPayload, surveyPayload]) => {
         questions = questionsPayload.preguntas || [];
         surveyMeta.estrato = surveyPayload.estrato || "--";
         surveyMeta.ultimaPregunta = Math.max(Number(surveyPayload.ultima_pregunta || 0), 0);

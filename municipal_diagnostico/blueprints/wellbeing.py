@@ -123,6 +123,7 @@ def api_dashboard():
             "question_rows": report["question_rows"],
             "question_groups": report["question_groups"],
             "question_catalog": report["question_catalog"],
+            "profile_socioeconomico": report["profile_socioeconomico"],
             "survey_rows": report["survey_rows"],
             "generated_at": report["generated_at"],
             "public_url": public_url,
@@ -150,6 +151,7 @@ def questions():
                     dimension=payload["dimension"],
                     texto=payload["texto"],
                     opciones=payload["opciones"],
+                    tipo_reactivo=payload["tipo_reactivo"],
                     activa=True,
                 )
                 db.session.add(question)
@@ -172,6 +174,7 @@ def questions():
                     question.dimension = payload["dimension"]
                     question.texto = payload["texto"]
                     question.opciones = payload["opciones"]
+                    question.tipo_reactivo = payload["tipo_reactivo"]
                     db.session.commit()
                     log_activity("update_wellbeing_question", entity_type="bienestar_pregunta", entity_id=question.id)
                     flash("Pregunta actualizada.", "success")
@@ -213,6 +216,8 @@ def questions():
         questions=questions_query,
         active_count=len([question for question in questions_query if question.activa]),
         inactive_count=len([question for question in questions_query if not question.activa]),
+        indicator_count=len([question for question in questions_query if question.tipo_reactivo == "indicador"]),
+        profile_count=len([question for question in questions_query if question.tipo_reactivo == "perfil"]),
         dimensions=sorted({question.dimension for question in questions_query}),
     )
 

@@ -473,6 +473,7 @@ class BienestarPregunta(TimestampMixin, db.Model):
     dimension = db.Column(db.String(100), nullable=False)
     texto = db.Column(db.Text, nullable=False)
     opciones = db.Column(db.JSON, nullable=False)
+    tipo_reactivo = db.Column(db.String(20), nullable=False, default="indicador")
     activa = db.Column(db.Boolean, default=True, nullable=False)
 
     respuestas = db.relationship(

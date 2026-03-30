@@ -5,7 +5,7 @@ from openpyxl import load_workbook
 
 from municipal_diagnostico import create_app
 from municipal_diagnostico.extensions import db
-from municipal_diagnostico.models import BienestarEncuesta, BienestarPregunta, Usuario
+from municipal_diagnostico.models import BienestarEncuesta, BienestarPregunta, BienestarRespuesta, Usuario
 from municipal_diagnostico.services.wellbeing import build_wellbeing_report_payload
 
 
@@ -73,9 +73,11 @@ def test_public_wellbeing_survey_can_complete_and_admin_can_open_dashboard():
 
     questions_payload = client.get("/bienestar/api/preguntas").get_json()
     questions = questions_payload["preguntas"]
-    assert len(questions) >= 35
+    assert len(questions) == 45
     assert all(question["txt"].startswith("¿") and question["txt"].endswith("?") for question in questions)
     assert questions[0]["dim"] == "Bienestar Psicológico"
+    assert len([question for question in questions if question["tipo_reactivo"] == "perfil"]) == 10
+    assert all(question["dim"] == "Situación Socioeconómica" for question in questions[-10:])
 
     start_payload = client.post("/bienestar/api/encuesta/iniciar", json={"estrato": "E3"}).get_json()
     folio = start_payload["hash"]
@@ -136,6 +138,8 @@ def test_public_wellbeing_survey_can_complete_and_admin_can_open_dashboard():
     assert "Resumen" in workbook.sheetnames
     assert "Estratos" in workbook.sheetnames
     assert "Reactivos" in workbook.sheetnames
+    assert "Perfil socioeconómico" in workbook.sheetnames
+    assert "Perfil por estrato" in workbook.sheetnames
     summary_values = [
         value
         for row in workbook["Resumen"].iter_rows(values_only=True)
@@ -168,6 +172,9 @@ def test_public_wellbeing_survey_can_complete_and_admin_can_open_dashboard():
         assert report["question_rows"][0]["response_options"][0]["label"] == questions[0]["t_opc"][0]
         assert report["question_rows"][0]["response_options"][0]["count"] == 1
         assert report["question_rows"][0]["response_options"][0]["percent"] == 100.0
+        assert len(report["profile_socioeconomico"]["questions"]) == 10
+        assert report["profile_socioeconomico"]["questions"][0]["tipo_reactivo"] == "perfil"
+        assert report["profile_socioeconomico"]["questions"][0]["response_options"][0]["count"] == 1
 
 
 def test_admin_can_manage_wellbeing_questions_and_consulta_is_read_only():
@@ -182,6 +189,7 @@ def test_admin_can_manage_wellbeing_questions_and_consulta_is_read_only():
             "orden": 99,
             "dimension": "Clima Laboral",
             "texto": "Existe un ambiente colaborativo en su unidad?",
+            "tipo_reactivo": "indicador",
             "opcion_1": "Siempre",
             "opcion_2": "Casi siempre",
             "opcion_3": "A veces",
@@ -243,3 +251,70 @@ def test_partial_progress_can_be_recovered_by_folio():
     assert recovery["estado"] == "en_progreso"
     assert recovery["ultima_pregunta"] == 3
     assert len(recovery["respuestas"]) == 3
+
+
+def test_profile_questions_do_not_change_iibp_and_legacy_completed_surveys_stay_valid():
+    app = build_app()
+    client = app.test_client()
+
+    questions = client.get("/bienestar/api/preguntas").get_json()["preguntas"]
+    indicator_questions = [question for question in questions if question["tipo_reactivo"] == "indicador"]
+    profile_questions = [question for question in questions if question["tipo_reactivo"] == "perfil"]
+
+    folio_a = client.post("/bienestar/api/encuesta/iniciar", json={"estrato": "E1"}).get_json()["hash"]
+    folio_b = client.post("/bienestar/api/encuesta/iniciar", json={"estrato": "E2"}).get_json()["hash"]
+
+    client.post(
+        "/bienestar/api/encuesta/guardar",
+        json={
+            "hash": folio_a,
+            "estado": "completada",
+            "ultima_pregunta": len(questions),
+            "respuestas": (
+                [{"id": question["id"], "dim": question["dim"], "val": 4} for question in indicator_questions]
+                + [{"id": question["id"], "dim": question["dim"], "val": 4} for question in profile_questions]
+            ),
+        },
+    )
+    second_payload = client.post(
+        "/bienestar/api/encuesta/guardar",
+        json={
+            "hash": folio_b,
+            "estado": "completada",
+            "ultima_pregunta": len(questions),
+            "respuestas": (
+                [{"id": question["id"], "dim": question["dim"], "val": 4} for question in indicator_questions]
+                + [{"id": question["id"], "dim": question["dim"], "val": 1} for question in profile_questions]
+            ),
+        },
+    ).get_json()
+    assert second_payload["iibp"] == 100.0
+    assert second_payload["ivsp"] == 5.0
+
+    with app.app_context():
+        legacy = BienestarEncuesta(
+            hash_id="LEGACY35",
+            estrato="E4",
+            estado="completada",
+            iibp=82.5,
+            ivsp=22.5,
+            ultima_pregunta=35,
+        )
+        db.session.add(legacy)
+        db.session.flush()
+        for question in indicator_questions:
+            db.session.add(
+                BienestarRespuesta(
+                    encuesta_id=legacy.id,
+                    pregunta_id=question["id"],
+                    dimension=question["dim"],
+                    valor=3,
+                )
+            )
+        db.session.commit()
+
+        report = build_wellbeing_report_payload()
+        legacy_row = next(row for row in report["survey_rows"] if row["hash"] == "LEGACY35")
+        assert legacy_row["completion_percent"] == 100.0
+        assert len(report["profile_socioeconomico"]["questions"]) == 10
+        assert report["profile_socioeconomico"]["questions"][0]["response_options"][0]["count"] >= 1
