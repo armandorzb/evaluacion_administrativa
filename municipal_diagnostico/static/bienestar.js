@@ -119,7 +119,55 @@
     select.value = nextValue;
   }
 
+  const homeDialog = document.querySelector("[data-wellbeing-start-dialog]");
+  const homeOpeners = document.querySelectorAll("[data-wellbeing-start-open]");
+  const homeClosers = document.querySelectorAll("[data-wellbeing-start-close]");
   const homeForm = document.querySelector("[data-wellbeing-home]");
+
+  function closeHomeDialog() {
+    if (!homeDialog) return;
+    if (typeof homeDialog.close === "function") {
+      homeDialog.close();
+    } else {
+      homeDialog.removeAttribute("open");
+    }
+  }
+
+  function openHomeDialog() {
+    if (!homeDialog) return;
+    if (typeof homeDialog.showModal === "function") {
+      homeDialog.showModal();
+    } else {
+      homeDialog.setAttribute("open", "open");
+    }
+    const select = homeDialog.querySelector("select[name='estrato']");
+    if (select && typeof select.focus === "function") {
+      window.setTimeout(() => select.focus(), 30);
+    }
+  }
+
+  homeOpeners.forEach((trigger) => {
+    trigger.addEventListener("click", openHomeDialog);
+  });
+
+  homeClosers.forEach((trigger) => {
+    trigger.addEventListener("click", closeHomeDialog);
+  });
+
+  if (homeDialog) {
+    homeDialog.addEventListener("click", (event) => {
+      const bounds = homeDialog.getBoundingClientRect();
+      const clickedInside =
+        bounds.top <= event.clientY &&
+        event.clientY <= bounds.top + bounds.height &&
+        bounds.left <= event.clientX &&
+        event.clientX <= bounds.left + bounds.width;
+      if (!clickedInside) {
+        closeHomeDialog();
+      }
+    });
+  }
+
   if (homeForm) {
     homeForm.addEventListener("submit", async (event) => {
       event.preventDefault();
@@ -132,6 +180,7 @@
 
       try {
         const payload = await postJson(startUrl, { estrato });
+        closeHomeDialog();
         window.location.href = `${surveyUrl}?folio=${encodeURIComponent(payload.hash)}`;
       } catch (error) {
         window.alert(error.message);

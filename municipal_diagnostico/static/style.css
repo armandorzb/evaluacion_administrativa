@@ -2557,6 +2557,72 @@ body.wellbeing-body {
     align-self: center;
 }
 
+.wellbeing-start-card .stack {
+    gap: 1rem;
+}
+
+.wellbeing-start-trigger {
+    width: 100%;
+    min-height: 3.4rem;
+    font-size: 1.05rem;
+}
+
+.wellbeing-start-dialog .catalog-form {
+    gap: 1rem;
+}
+
+.wellbeing-start-shell {
+    border-radius: var(--radius-xl) var(--radius-xl) 0 0;
+    background:
+        linear-gradient(135deg, rgba(22, 48, 66, 0.98), rgba(56, 81, 99, 0.94)),
+        radial-gradient(circle at top right, rgba(114, 139, 80, 0.2), transparent 16rem);
+    color: rgba(255, 255, 255, 0.94);
+}
+
+.wellbeing-start-shell .eyebrow,
+.wellbeing-start-shell h2 {
+    color: rgba(255, 255, 255, 0.96);
+}
+
+.wellbeing-start-shell .eyebrow {
+    letter-spacing: 0.14em;
+}
+
+.wellbeing-start-shell .dialog-head {
+    align-items: flex-start;
+}
+
+.wellbeing-start-shell .button {
+    align-self: flex-start;
+    min-height: 2.75rem;
+    padding-inline: 1.1rem;
+    border-color: rgba(255, 255, 255, 0.16);
+    background: rgba(255, 255, 255, 0.08);
+    color: rgba(255, 255, 255, 0.96);
+}
+
+.wellbeing-start-shell .button:hover {
+    background: rgba(255, 255, 255, 0.16);
+    color: rgba(255, 255, 255, 0.96);
+}
+
+.wellbeing-start-form label {
+    display: grid;
+    gap: 0.45rem;
+}
+
+.wellbeing-start-actions {
+    display: grid;
+    grid-template-columns: repeat(2, minmax(0, 1fr));
+    gap: 0.75rem;
+}
+
+.wellbeing-start-actions .button {
+    width: 100%;
+    flex: none;
+    min-height: 3.1rem;
+}
+
 .wellbeing-public-mode .header-frame {
     justify-content: center;
 }
@@ -3110,6 +3176,18 @@ body.wellbeing-body {
     .wellbeing-public-hero .hero-copy,
     .wellbeing-public-hero .hero-card {
         padding: 1.1rem;
+    }
+
+    .wellbeing-start-shell .button {
+        width: auto;
+    }
+
+    .wellbeing-start-actions {
+        grid-template-columns: 1fr;
+    }
+
+    .wellbeing-start-actions .button {
+        width: 100%;
     }
 
     .wellbeing-live-status {

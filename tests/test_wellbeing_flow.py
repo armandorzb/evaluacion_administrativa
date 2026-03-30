@@ -66,6 +66,8 @@ def test_public_wellbeing_survey_can_complete_and_admin_can_open_dashboard():
     public_html = public_link.get_data(as_text=True)
     assert public_link.status_code == 200
     assert "Selecciona tu estrato y comienza la encuesta" in public_html
+    assert "Iniciar encuesta" in public_html
+    assert 'data-wellbeing-start-dialog' in public_html
     assert "URL lista para compartir" not in public_html
     assert "Abrir panel interno" not in public_html
 

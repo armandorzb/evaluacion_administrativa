@@ -22,28 +22,54 @@
         </div>
     </div>
 
-    <article class="hero-card compact {% if public_mode %}wellbeing-public-card{% endif %}">
+    <article class="hero-card compact wellbeing-start-card {% if public_mode %}wellbeing-public-card{% endif %}">
         <div class="card-kicker">Inicio rápido</div>
-        <form class="stack" data-wellbeing-home data-start-url="{{ url_for('wellbeing.api_start_survey') }}" data-survey-url="{{ url_for('wellbeing.survey') }}">
-            <label>Estrato
-                <select name="estrato">
-                    {% for estrato in estratos %}
-                    <option value="{{ estrato }}">{{ estrato }}</option>
-                    {% endfor %}
-                </select>
-            </label>
-            <button class="button button-primary" type="submit">Comenzar encuesta</button>
+        <div class="stack">
+            <button class="button button-primary wellbeing-start-trigger" type="button" data-wellbeing-start-open="dialog-wellbeing-start">
+                Iniciar encuesta
+            </button>
             {% if public_mode %}
-            <p class="muted">El sistema generará un folio anónimo para continuar con la captura.</p>
+            <p class="muted">Selecciona tu estrato en la ventana emergente y el sistema generará un folio anónimo para continuar con la captura.</p>
             {% endif %}
             {% if not public_mode %}
             {% if current_user.is_authenticated and current_user.puede_acceder_bienestar %}
             <a class="button" href="{{ url_for('wellbeing.dashboard') }}">Abrir panel interno</a>
             {% endif %}
             {% endif %}
-        </form>
+        </div>
     </article>
 </section>
+
+<dialog class="catalog-dialog wellbeing-start-dialog" id="dialog-wellbeing-start" data-wellbeing-start-dialog>
+    <form method="dialog" class="dialog-shell wellbeing-start-shell">
+        <div class="dialog-head">
+            <div>
+                <p class="eyebrow">Inicio de encuesta</p>
+                <h2>Selecciona tu estrato y comienza la encuesta</h2>
+            </div>
+            <button class="button" type="submit">Cerrar</button>
+        </div>
+    </form>
+    <form
+        class="stack catalog-form wellbeing-start-form"
+        data-wellbeing-home
+        data-start-url="{{ url_for('wellbeing.api_start_survey') }}"
+        data-survey-url="{{ url_for('wellbeing.survey') }}"
+    >
+        <p class="muted">Esta selección solo se utiliza para el análisis agregado del módulo y no identifica a la persona respondente.</p>
+        <label>Estrato
+            <select name="estrato">
+                {% for estrato in estratos %}
+                <option value="{{ estrato }}">{{ estrato }}</option>
+                {% endfor %}
+            </select>
+        </label>
+        <div class="actions wellbeing-start-actions">
+            <button class="button button-primary" type="submit">Comenzar encuesta</button>
+            <button class="button" type="button" data-wellbeing-start-close>Cancelar</button>
+        </div>
+    </form>
+</dialog>
 
 {% if not public_mode %}
 <article class="panel">
