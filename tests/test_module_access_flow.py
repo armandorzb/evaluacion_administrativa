@@ -163,6 +163,27 @@ def test_admin_catalogs_validate_module_assignment_rules():
     with app.app_context():
         assert Usuario.query.filter_by(correo="nuevosinmodulos@test.local").first() is None
 
+    valid_default_consulta = client.post(
+        "/admin/catalogos",
+        data={
+            "action": "add_usuario",
+            "redirect_anchor": "catalogo-usuarios",
+            "nombre": "Consulta Diagnostico",
+            "correo": "consultadiagnostico@test.local",
+            "password": "secret123",
+            "rol": "consulta",
+            "acceso_diagnostico": "on",
+        },
+        follow_redirects=True,
+    )
+    assert valid_default_consulta.status_code == 200
+
+    with app.app_context():
+        created_default_user = Usuario.query.filter_by(correo="consultadiagnostico@test.local").first()
+        assert created_default_user is not None
+        assert created_default_user.acceso_diagnostico is True
+        assert created_default_user.acceso_bienestar is False
+
     valid_wellbeing_only = client.post(
         "/admin/catalogos",
         data={

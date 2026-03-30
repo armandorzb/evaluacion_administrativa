@@ -231,6 +231,177 @@ def build_wellbeing_dashboard_summary() -> dict:
     }
 
 
+def _empty_metric_bucket() -> dict[str, float]:
+    return {"sum": 0.0, "count": 0}
+
+
+def _metric_from_bucket(bucket: dict[str, float]) -> dict[str, float | int | None]:
+    count = int(bucket["count"])
+    if not count:
+        return {"average": None, "percent": None, "count": 0}
+
+    average = round(bucket["sum"] / count, 2)
+    return {
+        "average": average,
+        "percent": round((average / 4) * 100, 1),
+        "count": count,
+    }
+
+
+def build_wellbeing_report_payload() -> dict:
+    summary = build_wellbeing_dashboard_summary()
+    questions = BienestarPregunta.query.order_by(BienestarPregunta.orden.asc()).all()
+    surveys = BienestarEncuesta.query.order_by(BienestarEncuesta.created_at.desc()).all()
+    completed = [survey for survey in surveys if survey.estado == "completada"]
+
+    dimension_order = list(dict.fromkeys(question.dimension for question in questions))
+    strata_order = list(dict.fromkeys([*DEFAULT_WELLBEING_STRATA, *(survey.estrato for survey in completed)]))
+
+    question_buckets = {
+        question.id: {
+            "overall": _empty_metric_bucket(),
+            "by_stratum": {stratum: _empty_metric_bucket() for stratum in strata_order},
+        }
+        for question in questions
+    }
+    strata_buckets = {
+        stratum: {
+            "completed": 0,
+            "iibp_sum": 0.0,
+            "ivsp_sum": 0.0,
+            "dimensions": defaultdict(_empty_metric_bucket),
+        }
+        for stratum in strata_order
+    }
+
+    for survey in completed:
+        stratum = survey.estrato
+        strata_bucket = strata_buckets.setdefault(
+            stratum,
+            {
+                "completed": 0,
+                "iibp_sum": 0.0,
+                "ivsp_sum": 0.0,
+                "dimensions": defaultdict(_empty_metric_bucket),
+            },
+        )
+        strata_bucket["completed"] += 1
+        strata_bucket["iibp_sum"] += survey.iibp or 0.0
+        strata_bucket["ivsp_sum"] += survey.ivsp or 0.0
+
+        for response in survey.respuestas:
+            question_bucket = question_buckets.get(response.pregunta_id)
+            if question_bucket is None:
+                continue
+            question_bucket["overall"]["sum"] += response.valor
+            question_bucket["overall"]["count"] += 1
+            stratum_bucket = question_bucket["by_stratum"].setdefault(stratum, _empty_metric_bucket())
+            stratum_bucket["sum"] += response.valor
+            stratum_bucket["count"] += 1
+
+            dimension_bucket = strata_bucket["dimensions"][response.dimension]
+            dimension_bucket["sum"] += response.valor
+            dimension_bucket["count"] += 1
+
+    strata_sections = []
+    total_completed = len(completed)
+    for stratum in strata_order:
+        bucket = strata_buckets.get(stratum) or {
+            "completed": 0,
+            "iibp_sum": 0.0,
+            "ivsp_sum": 0.0,
+            "dimensions": defaultdict(_empty_metric_bucket),
+        }
+        dimensions = []
+        for dimension in dimension_order:
+            metric = _metric_from_bucket(bucket["dimensions"].get(dimension, _empty_metric_bucket()))
+            dimensions.append(
+                {
+                    "name": dimension,
+                    "average": metric["average"],
+                    "percent": metric["percent"],
+                    "count": metric["count"],
+                }
+            )
+
+        dimensions_with_data = [row for row in dimensions if row["count"]]
+        strongest_dimension = max(dimensions_with_data, key=lambda row: row["percent"])["name"] if dimensions_with_data else None
+        attention_dimension = min(dimensions_with_data, key=lambda row: row["percent"])["name"] if dimensions_with_data else None
+        completed_count = bucket["completed"]
+        strata_sections.append(
+            {
+                "stratum": stratum,
+                "completed": completed_count,
+                "avg_iibp": round(bucket["iibp_sum"] / completed_count, 1) if completed_count else None,
+                "avg_ivsp": round(bucket["ivsp_sum"] / completed_count, 1) if completed_count else None,
+                "share_of_completed": round((completed_count / total_completed) * 100, 1) if total_completed else 0.0,
+                "dimensions": dimensions,
+                "strongest_dimension": strongest_dimension,
+                "attention_dimension": attention_dimension,
+            }
+        )
+
+    question_rows = []
+    for question in questions:
+        bucket = question_buckets.get(question.id) or {
+            "overall": _empty_metric_bucket(),
+            "by_stratum": {stratum: _empty_metric_bucket() for stratum in strata_order},
+        }
+        question_rows.append(
+            {
+                "id": question.id,
+                "orden": question.orden,
+                "dimension": question.dimension,
+                "texto": normalize_wellbeing_question_text(question.texto),
+                "activa": question.activa,
+                "state_label": "Activa" if question.activa else "Inactiva",
+                "overall": _metric_from_bucket(bucket["overall"]),
+                "by_stratum": {
+                    stratum: _metric_from_bucket(bucket["by_stratum"].get(stratum, _empty_metric_bucket()))
+                    for stratum in strata_order
+                },
+            }
+        )
+
+    question_groups = []
+    for dimension in dimension_order:
+        dimension_rows = [row for row in question_rows if row["dimension"] == dimension]
+        question_groups.append({"dimension": dimension, "rows": dimension_rows})
+
+    dimensions_with_data = [row for row in summary["dimensions"] if row["count"]]
+    most_represented_stratum = max(strata_sections, key=lambda row: (row["completed"], row["stratum"])) if strata_sections else None
+    executive_notes = []
+    if total_completed:
+        if most_represented_stratum and most_represented_stratum["completed"]:
+            executive_notes.append(
+                f"El estrato {most_represented_stratum['stratum']} concentra {most_represented_stratum['completed']} encuestas completadas ({most_represented_stratum['share_of_completed']}% del total)."
+            )
+        if dimensions_with_data:
+            strongest = max(dimensions_with_data, key=lambda row: row["percent"])
+            weakest = min(dimensions_with_data, key=lambda row: row["percent"])
+            executive_notes.append(
+                f"La dimensión mejor posicionada es {strongest['name']} con {strongest['percent']} puntos porcentuales, mientras que {weakest['name']} representa la principal oportunidad de intervención."
+            )
+        executive_notes.append(
+            f"El módulo acumula una tasa de finalización de {summary['completion_rate']}% con {summary['en_progreso']} encuestas aún en progreso."
+        )
+    else:
+        executive_notes.append(
+            "Aún no hay encuestas completadas; el reporte presenta la estructura ejecutiva y el anexo técnico listos para consolidar resultados en cuanto se cierre la primera muestra."
+        )
+
+    return {
+        "summary": summary,
+        "questions": questions,
+        "question_rows": question_rows,
+        "question_groups": question_groups,
+        "strata": strata_sections,
+        "strata_order": strata_order,
+        "dimension_order": dimension_order,
+        "executive_notes": executive_notes,
+    }
+
+
 def persist_wellbeing_progress(
     survey: BienestarEncuesta,
     responses_payload: list[dict],

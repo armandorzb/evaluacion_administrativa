@@ -114,9 +114,14 @@
     const wellbeingCheckbox = form.querySelector('input[name="acceso_bienestar"]');
     if (!wellbeingCheckbox) return;
     const allowsWellbeing = ["administrador", "consulta"].includes(select.value);
+    const roleBasedDefault = wellbeingCheckbox.dataset.defaultMode === "admin-only";
     wellbeingCheckbox.disabled = !allowsWellbeing;
     if (!allowsWellbeing) {
       wellbeingCheckbox.checked = false;
+      return;
+    }
+    if (roleBasedDefault && wellbeingCheckbox.dataset.userTouched !== "true") {
+      wellbeingCheckbox.checked = select.value === "administrador";
     }
   }
 
@@ -203,6 +208,13 @@
       areaSelect.value = "";
     }
   }
+
+  document.querySelectorAll('input[name="acceso_bienestar"][data-default-mode]').forEach((checkbox) => {
+    checkbox.dataset.userTouched = "false";
+    checkbox.addEventListener("change", () => {
+      checkbox.dataset.userTouched = "true";
+    });
+  });
 
   document.querySelectorAll("[data-role-help-target]").forEach((select) => {
     syncRoleHelp(select);

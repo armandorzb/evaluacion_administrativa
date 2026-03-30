@@ -118,7 +118,7 @@ def ensure_schema_compatibility(app: Flask) -> None:
                         UPDATE usuario
                         SET acceso_diagnostico = 1,
                             acceso_bienestar = CASE
-                                WHEN rol IN ('administrador', 'consulta') THEN 1
+                                WHEN rol = 'administrador' THEN 1
                                 ELSE 0
                             END
                         """

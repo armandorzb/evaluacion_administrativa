@@ -19,7 +19,7 @@ def default_module_flags(role: str | None) -> dict[str, bool]:
     normalized_role = (role or "").strip().lower()
     return {
         "acceso_diagnostico": True,
-        "acceso_bienestar": normalized_role in WELLBEING_ALLOWED_ROLES,
+        "acceso_bienestar": normalized_role == "administrador",
     }
 
 

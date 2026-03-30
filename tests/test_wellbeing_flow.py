@@ -6,6 +6,7 @@ from openpyxl import load_workbook
 from municipal_diagnostico import create_app
 from municipal_diagnostico.extensions import db
 from municipal_diagnostico.models import BienestarEncuesta, BienestarPregunta, Usuario
+from municipal_diagnostico.services.wellbeing import build_wellbeing_report_payload
 
 
 class TestConfig:
@@ -120,20 +121,22 @@ def test_public_wellbeing_survey_can_complete_and_admin_can_open_dashboard():
     assert xlsx_export.mimetype == "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet"
     workbook = load_workbook(BytesIO(xlsx_export.data))
     assert "Resumen" in workbook.sheetnames
+    assert "Estratos" in workbook.sheetnames
+    assert "Reactivos" in workbook.sheetnames
     summary_values = [
         value
         for row in workbook["Resumen"].iter_rows(values_only=True)
         for value in row
         if isinstance(value, str)
     ]
-    assert any("Reporte ejecutivo de bienestar institucional" in value for value in summary_values)
+    assert any("Reporte ejecutivo de Bienestar Policial" in value for value in summary_values)
 
     word_export = client.get("/bienestar/exportar/word")
     assert word_export.status_code == 200
     assert word_export.mimetype == "application/vnd.openxmlformats-officedocument.wordprocessingml.document"
     with zipfile.ZipFile(BytesIO(word_export.data)) as archive:
         document_xml = archive.read("word/document.xml").decode("utf-8")
-    assert "Reporte ejecutivo de bienestar institucional" in document_xml
+    assert "Reporte ejecutivo de Bienestar Policial" in document_xml
 
     csv_export = client.get("/bienestar/exportar/csv")
     assert csv_export.status_code == 200
@@ -144,6 +147,10 @@ def test_public_wellbeing_survey_can_complete_and_admin_can_open_dashboard():
         survey_record = BienestarEncuesta.query.filter_by(hash_id=folio).first()
         assert survey_record is not None
         assert survey_record.estado == "completada"
+        report = build_wellbeing_report_payload()
+        assert len(report["question_rows"]) == BienestarPregunta.query.count()
+        assert any(item["stratum"] == "E3" and item["completed"] == 1 for item in report["strata"])
+        assert report["question_rows"][0]["by_stratum"]["E3"]["count"] == 1
 
 
 def test_admin_can_manage_wellbeing_questions_and_consulta_is_read_only():

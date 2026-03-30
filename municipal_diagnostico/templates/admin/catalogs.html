@@ -331,7 +331,8 @@
             <strong>Accesos por módulo</strong>
             <p>
                 El rol define qué puede hacer la cuenta. Los accesos definen en qué arquitectura puede iniciar.
-                Bienestar Policial solo está disponible para {{ wellbeing_allowed_roles|join(" y ") }}.
+                Bienestar Policial solo está disponible para {{ wellbeing_allowed_roles|join(" y ") }} y por default
+                queda activo únicamente para administradores.
             </p>
         </div>
         <div class="module-access-grid">
@@ -343,10 +344,15 @@
                 </span>
             </label>
             <label class="checkbox-card">
-                <input type="checkbox" name="acceso_bienestar" {% if "administrador" in wellbeing_allowed_roles %}checked{% endif %}>
+                <input
+                    type="checkbox"
+                    name="acceso_bienestar"
+                    checked
+                    data-default-mode="admin-only"
+                >
                 <span>
                     <strong>Acceso a Bienestar Policial</strong>
-                    <small>Permite entrar al módulo independiente de bienestar.</small>
+                    <small>Activo por default para administrador; en consulta se asigna manualmente.</small>
                 </span>
             </label>
         </div>
@@ -523,7 +529,8 @@
         <div class="callout callout-warning">
             <strong>Accesos por módulo</strong>
             <p>
-                Mantén al menos un módulo activo. Bienestar Policial solo puede quedar habilitado para administrador o consulta.
+                Mantén al menos un módulo activo. Bienestar Policial solo puede quedar habilitado para administrador o
+                consulta y por default debe reservarse para administradores.
             </p>
         </div>
         <div class="module-access-grid">
@@ -649,7 +656,7 @@
         "optional": ["password", "dependencia", "area", "acceso_diagnostico", "acceso_bienestar"],
         "example": "nombre,correo,rol,password,dependencia,area,acceso_diagnostico,acceso_bienestar",
         "note_title": "Consideraciones importantes",
-        "note": "Los roles válidos son administrador, revisor, evaluador, respondente y consulta. Si incluyes dependencia o area, deben existir previamente en catálogos."
+        "note": "Los roles válidos son administrador, revisor, evaluador, respondente y consulta. Si omites acceso_bienestar, solo administrador lo conserva por default. Si incluyes dependencia o area, deben existir previamente en catálogos."
     }
 } %}
 <script id="role-definitions-data" type="application/json">{{ role_definitions|tojson }}</script>
