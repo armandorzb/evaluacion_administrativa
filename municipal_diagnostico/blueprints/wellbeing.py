@@ -16,8 +16,10 @@ from municipal_diagnostico.services.wellbeing import (
     ensure_wellbeing_questions,
     list_active_questions,
     persist_wellbeing_progress,
+    purge_wellbeing_surveys,
     question_order_exists,
     serialize_question,
+    humanize_wellbeing_state,
     validate_question_payload,
 )
 from municipal_diagnostico.services.wellbeing_exports import (
@@ -295,6 +297,65 @@ def api_get_survey(folio: str):
             ],
             "iibp": round(survey_record.iibp, 2) if survey_record.iibp is not None else None,
             "ivsp": round(survey_record.ivsp, 2) if survey_record.ivsp is not None else None,
+        }
+    )
+
+
+@bp.route("/api/encuestas/depurar", methods=["POST"])
+@wellbeing_role_required("administrador")
+def api_prune_surveys():
+    payload = request.get_json(silent=True) or {}
+    folios = payload.get("folios", [])
+    result = purge_wellbeing_surveys(folios, allowed_states={"abandonada"})
+
+    if not result["requested"]:
+        return jsonify({"ok": False, "mensaje": "Indica al menos un folio para depurar."}), 400
+
+    deleted_surveys = result["deleted"]
+    protected_surveys = result["protected"]
+    missing_folios = result["missing"]
+
+    if not deleted_surveys:
+        if protected_surveys:
+            protected_labels = ", ".join(
+                f"{survey.hash_id} ({humanize_wellbeing_state(survey.estado)})"
+                for survey in protected_surveys
+            )
+            return jsonify(
+                {
+                    "ok": False,
+                    "mensaje": f"Solo puedes depurar sesiones abandonadas. Se omitieron: {protected_labels}.",
+                }
+            ), 400
+        return jsonify({"ok": False, "mensaje": "No se encontraron sesiones abandonadas para depurar."}), 404
+
+    deleted_folios = [survey.hash_id for survey in deleted_surveys]
+    db.session.commit()
+    log_activity(
+        "prune_wellbeing_surveys",
+        entity_type="bienestar_encuesta",
+        metadata={
+            "deleted_folios": deleted_folios,
+            "deleted_count": len(deleted_folios),
+            "missing_folios": missing_folios,
+            "protected_folios": [survey.hash_id for survey in protected_surveys],
+        },
+    )
+
+    return jsonify(
+        {
+            "ok": True,
+            "deleted_count": len(deleted_folios),
+            "deleted_folios": deleted_folios,
+            "missing_folios": missing_folios,
+            "protected_folios": [
+                {
+                    "hash": survey.hash_id,
+                    "estado": survey.estado,
+                    "estado_label": humanize_wellbeing_state(survey.estado),
+                }
+                for survey in protected_surveys
+            ],
         }
     )
 

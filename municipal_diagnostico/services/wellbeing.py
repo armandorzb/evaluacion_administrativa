@@ -693,6 +693,55 @@ def persist_wellbeing_progress(
     return True, None
 
 
+def purge_wellbeing_surveys(
+    folios: list[str],
+    *,
+    allowed_states: set[str] | None = None,
+) -> dict:
+    cleaned_folios: list[str] = []
+    seen: set[str] = set()
+    for folio in folios:
+        cleaned = str(folio or "").strip().upper()
+        if not cleaned or cleaned in seen:
+            continue
+        seen.add(cleaned)
+        cleaned_folios.append(cleaned)
+
+    if not cleaned_folios:
+        return {
+            "requested": [],
+            "deleted": [],
+            "protected": [],
+            "missing": [],
+        }
+
+    surveys = BienestarEncuesta.query.filter(BienestarEncuesta.hash_id.in_(cleaned_folios)).all()
+    surveys_by_hash = {survey.hash_id: survey for survey in surveys}
+    deleted: list[BienestarEncuesta] = []
+    protected: list[BienestarEncuesta] = []
+    missing: list[str] = []
+
+    for folio in cleaned_folios:
+        survey = surveys_by_hash.get(folio)
+        if survey is None:
+            missing.append(folio)
+            continue
+        if allowed_states and survey.estado not in allowed_states:
+            protected.append(survey)
+            continue
+        deleted.append(survey)
+
+    for survey in deleted:
+        db.session.delete(survey)
+
+    return {
+        "requested": cleaned_folios,
+        "deleted": deleted,
+        "protected": protected,
+        "missing": missing,
+    }
+
+
 def build_wellbeing_csv() -> str:
     summary = build_wellbeing_dashboard_summary()
     questions = BienestarPregunta.query.order_by(BienestarPregunta.orden.asc()).all()

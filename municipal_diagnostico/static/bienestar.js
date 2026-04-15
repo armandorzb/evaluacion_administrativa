@@ -218,6 +218,8 @@
   function initWellbeingDashboard(root) {
     const apiUrl = root.dataset.apiUrl;
     const refreshMs = Number.parseInt(root.dataset.refreshMs || "30000", 10);
+    const canPruneAbandoned = root.dataset.canPruneAbandoned === "true";
+    const pruneUrl = root.dataset.pruneUrl || "";
     const stratumFilter = document.getElementById("wellbeing-filter-stratum");
     const stateFilter = document.getElementById("wellbeing-filter-state");
     const dimensionFilter = document.getElementById("wellbeing-filter-dimension");
@@ -232,6 +234,8 @@
     const insights = document.getElementById("wellbeing-insights");
     const cubeBody = document.getElementById("wellbeing-cube-body");
     const historyBody = document.getElementById("wellbeing-history-body");
+    const pruneButton = document.getElementById("wellbeing-prune-abandoned");
+    const pruneCaption = document.getElementById("wellbeing-history-prune-caption");
     const publicUrlField = document.getElementById("wellbeing-public-url");
     const publicUrlLink = document.getElementById("wellbeing-public-link-action");
     const kpis = {
@@ -272,6 +276,10 @@
       selectedProfileQuestion: null,
     };
 
+    function historyTableColspan() {
+      return canPruneAbandoned ? 8 : 7;
+    }
+
     [stratumFilter, stateFilter, dimensionFilter, cubeGroup, cubeSort].forEach((control) => {
       control?.addEventListener("change", () => {
         state.filters = {
@@ -288,6 +296,26 @@
     profileQuestionSelect?.addEventListener("change", () => {
       state.selectedProfileQuestion = profileQuestionSelect.value;
       renderDashboard();
+    });
+
+    pruneButton?.addEventListener("click", async () => {
+      if (!state.payload) return;
+      const filteredSurveys = getFilteredSurveys(state.payload.survey_rows || [], state.filters);
+      const folios = Array.from(
+        new Set(
+          filteredSurveys
+            .filter((survey) => survey.estado === "abandonada")
+            .map((survey) => survey.hash),
+        ),
+      );
+      await pruneAbandonedFolios(folios, "del corte actual");
+    });
+
+    historyBody?.addEventListener("click", async (event) => {
+      const button = event.target.closest("[data-wellbeing-prune-folio]");
+      if (!button) return;
+      event.preventDefault();
+      await pruneAbandonedFolios([button.dataset.wellbeingPruneFolio], `del folio ${button.dataset.wellbeingPruneFolio}`);
     });
 
     document.addEventListener("visibilitychange", () => {
@@ -390,6 +418,72 @@
         }
       } finally {
         state.refreshing = false;
+      }
+    }
+
+    async function pruneAbandonedFolios(folios, scopeLabel) {
+      if (!canPruneAbandoned || !pruneUrl) return;
+      const cleanedFolios = Array.from(
+        new Set(
+          (folios || [])
+            .map((folio) => String(folio || "").trim().toUpperCase())
+            .filter((folio) => folio),
+        ),
+      );
+      if (!cleanedFolios.length) {
+        if (pruneCaption) {
+          pruneCaption.textContent = "No hay sesiones abandonadas disponibles para depurar con este corte.";
+        }
+        return;
+      }
+
+      const confirmMessage =
+        cleanedFolios.length === 1
+          ? `Se eliminará la sesión abandonada ${cleanedFolios[0]} ${scopeLabel}. Esta acción no se puede deshacer.`
+          : `Se eliminarán ${cleanedFolios.length} sesiones abandonadas ${scopeLabel}. Esta acción no se puede deshacer.`;
+      if (!window.confirm(confirmMessage)) {
+        return;
+      }
+
+      if (syncLabel) {
+        syncLabel.textContent = "Depurando sesiones...";
+        syncLabel.className = "status status-medium";
+      }
+      if (updatedLabel) {
+        updatedLabel.textContent = "Eliminando sesiones abandonadas y refrescando el corte...";
+      }
+      if (pruneButton) {
+        pruneButton.disabled = true;
+      }
+
+      try {
+        const result = await postJson(pruneUrl, { folios: cleanedFolios });
+        if (syncLabel) {
+          syncLabel.textContent = "Depuración aplicada";
+          syncLabel.className = "status status-opportune";
+        }
+        if (updatedLabel) {
+          const omittedCount =
+            (result.missing_folios || []).length + (result.protected_folios || []).length;
+          updatedLabel.textContent =
+            omittedCount > 0
+              ? `Se eliminaron ${result.deleted_count} sesiones. ${omittedCount} folio(s) ya no estaban disponibles para depuración.`
+              : `Se eliminaron ${result.deleted_count} sesiones abandonadas.`;
+        }
+        await refreshDashboard(false);
+      } catch (error) {
+        if (syncLabel) {
+          syncLabel.textContent = "Depuración pendiente";
+          syncLabel.className = "status status-low";
+        }
+        if (updatedLabel) {
+          updatedLabel.textContent = error.message;
+        }
+        window.alert(error.message);
+      } finally {
+        if (pruneButton) {
+          pruneButton.disabled = false;
+        }
       }
     }
 
@@ -701,11 +795,31 @@
 
     function renderHistory(surveys) {
       if (!historyBody) return;
+      const abandonedFolios = Array.from(
+        new Set(
+          surveys
+            .filter((survey) => survey.estado === "abandonada")
+            .map((survey) => survey.hash),
+        ),
+      );
+      if (pruneButton) {
+        pruneButton.hidden = !abandonedFolios.length;
+        pruneButton.disabled = !abandonedFolios.length;
+        pruneButton.textContent =
+          abandonedFolios.length === 1
+            ? "Eliminar 1 abandonada"
+            : `Eliminar ${abandonedFolios.length} abandonadas`;
+      }
+      if (pruneCaption) {
+        pruneCaption.textContent = abandonedFolios.length
+          ? `${abandonedFolios.length} sesiones abandonadas en el corte actual.`
+          : "No hay sesiones abandonadas en el corte actual.";
+      }
       const rows = [...surveys]
         .sort((left, right) => new Date(right.created_at || 0) - new Date(left.created_at || 0))
         .slice(0, 12);
       if (!rows.length) {
-        historyBody.innerHTML = `<tr><td colspan="7" class="muted">No hay sesiones para el corte seleccionado.</td></tr>`;
+        historyBody.innerHTML = `<tr><td colspan="${historyTableColspan()}" class="muted">No hay sesiones para el corte seleccionado.</td></tr>`;
         return;
       }
       historyBody.innerHTML = rows
@@ -719,6 +833,15 @@
               <td>${formatPercent(survey.completion_percent)}</td>
               <td>${formatValue(survey.iibp)}</td>
               <td>${formatValue(survey.ivsp)}</td>
+              ${
+                canPruneAbandoned
+                  ? `<td>${
+                      survey.estado === "abandonada"
+                        ? `<button class="button button-compact danger" type="button" data-wellbeing-prune-folio="${escapeHtml(survey.hash)}">Eliminar</button>`
+                        : `<span class="muted">Resguardada</span>`
+                    }</td>`
+                  : ""
+              }
             </tr>
           `,
         )

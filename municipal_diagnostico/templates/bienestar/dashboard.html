@@ -36,6 +36,8 @@
     data-wellbeing-dashboard
     data-api-url="{{ dashboard_api_url }}"
     data-refresh-ms="30000"
+    data-can-prune-abandoned="{{ 'true' if current_user.rol == 'administrador' else 'false' }}"
+    data-prune-url="{{ url_for('wellbeing.api_prune_surveys') if current_user.rol == 'administrador' else '' }}"
 >
     <section class="panel wellbeing-cube-control-panel">
         <div class="section-heading">
@@ -274,6 +276,16 @@
                 <p class="eyebrow">Trazabilidad</p>
                 <h2>Sesiones recientes del módulo</h2>
             </div>
+            {% if current_user.rol == 'administrador' %}
+            <div class="wellbeing-history-tools">
+                <span class="muted wellbeing-history-caption" id="wellbeing-history-prune-caption">
+                    Las sesiones abandonadas del corte actual pueden depurarse.
+                </span>
+                <button class="button button-compact danger" id="wellbeing-prune-abandoned" type="button" hidden>
+                    Eliminar abandonadas
+                </button>
+            </div>
+            {% endif %}
         </div>
         <div class="table-wrap">
             <table class="executive-table">
@@ -286,10 +298,13 @@
                         <th>Avance</th>
                         <th>IIBP</th>
                         <th>IVSP</th>
+                        {% if current_user.rol == 'administrador' %}
+                        <th>Acciones</th>
+                        {% endif %}
                     </tr>
                 </thead>
                 <tbody id="wellbeing-history-body">
-                    <tr><td colspan="7" class="muted">Cargando historial del módulo…</td></tr>
+                    <tr><td colspan="{{ 8 if current_user.rol == 'administrador' else 7 }}" class="muted">Cargando historial del módulo…</td></tr>
                 </tbody>
             </table>
         </div>

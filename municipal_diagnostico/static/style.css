@@ -707,6 +707,12 @@ form {
     box-shadow: 0 18px 28px rgba(97, 118, 67, 0.28);
 }
 
+.button-compact {
+    min-height: 2.3rem;
+    padding: 0.5rem 0.85rem;
+    font-size: 0.9rem;
+}
+
 .danger {
     background: rgba(247, 216, 216, 0.98);
     color: var(--critical-text);
@@ -762,6 +768,19 @@ table,
 .wellbeing-cube-table {
     table-layout: auto;
     min-width: 52rem;
+}
+
+.wellbeing-history-tools {
+    display: flex;
+    flex-wrap: wrap;
+    align-items: center;
+    justify-content: flex-end;
+    gap: 0.75rem;
+}
+
+.wellbeing-history-caption {
+    max-width: 28rem;
+    text-align: right;
 }
 
 th,

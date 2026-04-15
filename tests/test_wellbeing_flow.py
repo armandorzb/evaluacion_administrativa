@@ -253,6 +253,83 @@ def test_partial_progress_can_be_recovered_by_folio():
     assert len(recovery["respuestas"]) == 3
 
 
+def test_admin_can_prune_abandoned_surveys_without_touching_active_or_completed_ones():
+    app = build_app()
+    client = app.test_client()
+
+    questions = client.get("/bienestar/api/preguntas").get_json()["preguntas"]
+    all_answers = [{"id": question["id"], "dim": question["dim"], "val": 4} for question in questions]
+
+    completed_folio = client.post("/bienestar/api/encuesta/iniciar", json={"estrato": "E1"}).get_json()["hash"]
+    abandoned_folio_one = client.post("/bienestar/api/encuesta/iniciar", json={"estrato": "E2"}).get_json()["hash"]
+    abandoned_folio_two = client.post("/bienestar/api/encuesta/iniciar", json={"estrato": "E3"}).get_json()["hash"]
+    progress_folio = client.post("/bienestar/api/encuesta/iniciar", json={"estrato": "E4"}).get_json()["hash"]
+
+    completed_response = client.post(
+        "/bienestar/api/encuesta/guardar",
+        json={
+            "hash": completed_folio,
+            "estado": "completada",
+            "ultima_pregunta": len(questions),
+            "respuestas": all_answers,
+        },
+    )
+    assert completed_response.status_code == 200
+
+    progress_response = client.post(
+        "/bienestar/api/encuesta/guardar",
+        json={
+            "hash": progress_folio,
+            "estado": "en_progreso",
+            "ultima_pregunta": 4,
+            "respuestas": all_answers[:4],
+        },
+    )
+    assert progress_response.status_code == 200
+
+    login(client, "admin@local.test")
+    dashboard = client.get("/bienestar/panel")
+    dashboard_html = dashboard.get_data(as_text=True)
+    assert dashboard.status_code == 200
+    assert "wellbeing-prune-abandoned" in dashboard_html
+    assert "Acciones" in dashboard_html
+
+    prune_response = client.post(
+        "/bienestar/api/encuestas/depurar",
+        json={"folios": [abandoned_folio_one, abandoned_folio_two]},
+    )
+    assert prune_response.status_code == 200
+    prune_payload = prune_response.get_json()
+    assert prune_payload["ok"] is True
+    assert prune_payload["deleted_count"] == 2
+    assert set(prune_payload["deleted_folios"]) == {abandoned_folio_one, abandoned_folio_two}
+
+    dashboard_payload = client.get("/bienestar/api/dashboard").get_json()
+    assert dashboard_payload["summary"]["total"] == 2
+    assert dashboard_payload["summary"]["abandonadas"] == 0
+    remaining_folios = {row["hash"] for row in dashboard_payload["survey_rows"]}
+    assert remaining_folios == {completed_folio, progress_folio}
+
+    protected_response = client.post(
+        "/bienestar/api/encuestas/depurar",
+        json={"folios": [completed_folio, progress_folio]},
+    )
+    assert protected_response.status_code == 400
+    protected_payload = protected_response.get_json()
+    assert "Solo puedes depurar sesiones abandonadas" in protected_payload["mensaje"]
+
+    with app.app_context():
+        saved_surveys = {survey.hash_id: survey.estado for survey in BienestarEncuesta.query.all()}
+        assert saved_surveys == {
+            completed_folio: "completada",
+            progress_folio: "en_progreso",
+        }
+
+    client.get("/auth/logout", follow_redirects=True)
+    login(client, "consulta@local.test")
+    assert client.post("/bienestar/api/encuestas/depurar", json={"folios": [completed_folio]}).status_code == 403
+
+
 def test_profile_questions_do_not_change_iibp_and_legacy_completed_surveys_stay_valid():
     app = build_app()
     client = app.test_client()
