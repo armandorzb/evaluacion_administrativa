@@ -13,6 +13,7 @@ from municipal_diagnostico.services.wellbeing import (
     build_wellbeing_csv,
     build_wellbeing_dashboard_summary,
     build_wellbeing_report_payload,
+    effective_wellbeing_state,
     ensure_wellbeing_questions,
     list_active_questions,
     persist_wellbeing_progress,
@@ -285,10 +286,11 @@ def api_questions():
 @bp.route("/api/encuesta/<string:folio>")
 def api_get_survey(folio: str):
     survey_record = BienestarEncuesta.query.filter_by(hash_id=folio.strip().upper()).first_or_404()
+    survey_state = effective_wellbeing_state(survey_record)
     return jsonify(
         {
             "hash": survey_record.hash_id,
-            "estado": survey_record.estado,
+            "estado": survey_state,
             "ultima_pregunta": survey_record.ultima_pregunta,
             "estrato": survey_record.estrato,
             "respuestas": [

@@ -3,6 +3,7 @@ from __future__ import annotations
 import csv
 import unicodedata
 from collections import Counter, defaultdict
+from datetime import timedelta
 from io import StringIO
 
 from municipal_diagnostico.extensions import db
@@ -35,6 +36,8 @@ WELLBEING_REACTIVE_LABELS = {
     WELLBEING_REACTIVE_INDICATOR: "Indicador",
     WELLBEING_REACTIVE_PROFILE: "Perfil",
 }
+
+WELLBEING_ABANDONMENT_WINDOW = timedelta(hours=8)
 
 
 def format_wellbeing_datetime(value) -> str:
@@ -199,6 +202,24 @@ def humanize_wellbeing_state(state: str) -> str:
     return WELLBEING_STATE_LABELS.get(state, state.replace("_", " ").capitalize())
 
 
+def effective_wellbeing_state(
+    survey: BienestarEncuesta,
+    *,
+    reference_time=None,
+) -> str:
+    if survey.estado == "completada":
+        return "completada"
+    if survey.estado == "abandonada":
+        return "abandonada"
+
+    reference = reference_time or utcnow()
+    last_activity = survey.updated_at or survey.created_at
+    if last_activity and last_activity <= reference - WELLBEING_ABANDONMENT_WINDOW:
+        return "abandonada"
+
+    return survey.estado
+
+
 def validate_question_payload(form_data) -> tuple[dict | None, str | None]:
     dimension = normalize_wellbeing_dimension(form_data.get("dimension") or "")
     texto = normalize_wellbeing_question_text(form_data.get("texto") or "")
@@ -303,8 +324,13 @@ def _build_question_option_distribution(
 
 def build_wellbeing_dashboard_summary() -> dict:
     surveys = BienestarEncuesta.query.order_by(BienestarEncuesta.created_at.desc()).all()
-    completed = [survey for survey in surveys if survey.estado == "completada"]
-    abandoned = [survey for survey in surveys if survey.estado == "abandonada"]
+    reference_time = utcnow()
+    states_by_id = {
+        survey.id: effective_wellbeing_state(survey, reference_time=reference_time)
+        for survey in surveys
+    }
+    completed = [survey for survey in surveys if states_by_id[survey.id] == "completada"]
+    abandoned = [survey for survey in surveys if states_by_id[survey.id] == "abandonada"]
     questions = BienestarPregunta.query.order_by(BienestarPregunta.orden.asc()).all()
     question_types = _question_type_lookup(questions)
 
@@ -339,8 +365,9 @@ def build_wellbeing_dashboard_summary() -> dict:
     total_questions = len(questions)
     history = []
     for survey in surveys:
+        effective_state = states_by_id[survey.id]
         response_map = {response.pregunta_id: response.valor for response in survey.respuestas}
-        completion_percent = 100.0 if survey.estado == "completada" else (
+        completion_percent = 100.0 if effective_state == "completada" else (
             round((len(response_map) / total_questions) * 100, 1) if total_questions else 0.0
         )
         history.append(
@@ -348,8 +375,8 @@ def build_wellbeing_dashboard_summary() -> dict:
                 "hash": survey.hash_id,
                 "fecha": format_wellbeing_datetime(survey.created_at),
                 "estrato": survey.estrato,
-                "estado": survey.estado,
-                "estado_label": humanize_wellbeing_state(survey.estado),
+                "estado": effective_state,
+                "estado_label": humanize_wellbeing_state(effective_state),
                 "ultima_pregunta": survey.ultima_pregunta,
                 "iibp": round(survey.iibp, 1) if survey.iibp is not None else None,
                 "ivsp": round(survey.ivsp, 1) if survey.ivsp is not None else None,
@@ -363,7 +390,7 @@ def build_wellbeing_dashboard_summary() -> dict:
         "total": len(surveys),
         "completadas": len(completed),
         "abandonadas": len(abandoned),
-        "en_progreso": len([survey for survey in surveys if survey.estado == "en_progreso"]),
+        "en_progreso": len([survey for survey in surveys if states_by_id[survey.id] == "en_progreso"]),
         "avg_iibp": avg_iibp,
         "avg_ivsp": avg_ivsp,
         "completion_rate": completion_rate,
@@ -371,7 +398,7 @@ def build_wellbeing_dashboard_summary() -> dict:
         "dimensions": dimensions,
         "history": history,
         "recent_completed": completed[:5],
-        "state_counts": Counter(survey.estado for survey in surveys),
+        "state_counts": Counter(states_by_id[survey.id] for survey in surveys),
     }
 
 
@@ -526,6 +553,7 @@ def build_wellbeing_report_payload() -> dict:
     total_questions = len(questions)
     survey_rows = []
     for survey in surveys:
+        effective_state = effective_wellbeing_state(survey)
         local_created = to_localtime(survey.created_at)
         response_items = []
         dimension_buckets: dict[str, dict[str, float]] = defaultdict(_empty_metric_bucket)
@@ -547,7 +575,7 @@ def build_wellbeing_report_payload() -> dict:
             dimension_bucket["sum"] += response.valor
             dimension_bucket["count"] += 1
 
-        completion_percent = 100.0 if survey.estado == "completada" else (
+        completion_percent = 100.0 if effective_state == "completada" else (
             round((len(response_items) / total_questions) * 100, 1) if total_questions else 0.0
         )
         survey_rows.append(
@@ -556,8 +584,8 @@ def build_wellbeing_report_payload() -> dict:
                 "fecha": format_wellbeing_datetime(survey.created_at),
                 "created_at": local_created.isoformat() if local_created else None,
                 "estrato": survey.estrato,
-                "estado": survey.estado,
-                "estado_label": humanize_wellbeing_state(survey.estado),
+                "estado": effective_state,
+                "estado_label": humanize_wellbeing_state(effective_state),
                 "ultima_pregunta": survey.ultima_pregunta,
                 "iibp": round(survey.iibp, 1) if survey.iibp is not None else None,
                 "ivsp": round(survey.ivsp, 1) if survey.ivsp is not None else None,
@@ -726,7 +754,8 @@ def purge_wellbeing_surveys(
         if survey is None:
             missing.append(folio)
             continue
-        if allowed_states and survey.estado not in allowed_states:
+        effective_state = effective_wellbeing_state(survey)
+        if allowed_states and effective_state not in allowed_states:
             protected.append(survey)
             continue
         deleted.append(survey)

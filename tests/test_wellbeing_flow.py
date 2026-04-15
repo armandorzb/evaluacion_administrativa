@@ -1,4 +1,5 @@
 import zipfile
+from datetime import timedelta
 from io import BytesIO
 
 from openpyxl import load_workbook
@@ -7,6 +8,7 @@ from municipal_diagnostico import create_app
 from municipal_diagnostico.extensions import db
 from municipal_diagnostico.models import BienestarEncuesta, BienestarPregunta, BienestarRespuesta, Usuario
 from municipal_diagnostico.services.wellbeing import build_wellbeing_report_payload
+from municipal_diagnostico.timeutils import utcnow
 
 
 class TestConfig:
@@ -328,6 +330,49 @@ def test_admin_can_prune_abandoned_surveys_without_touching_active_or_completed_
     client.get("/auth/logout", follow_redirects=True)
     login(client, "consulta@local.test")
     assert client.post("/bienestar/api/encuestas/depurar", json={"folios": [completed_folio]}).status_code == 403
+
+
+def test_stale_progress_is_reclassified_as_abandoned_after_8_hours():
+    app = build_app()
+    client = app.test_client()
+
+    questions = client.get("/bienestar/api/preguntas").get_json()["preguntas"]
+    stale_folio = client.post("/bienestar/api/encuesta/iniciar", json={"estrato": "E1"}).get_json()["hash"]
+
+    save_response = client.post(
+        "/bienestar/api/encuesta/guardar",
+        json={
+            "hash": stale_folio,
+            "estado": "en_progreso",
+            "ultima_pregunta": 1,
+            "respuestas": [{"id": questions[0]["id"], "dim": questions[0]["dim"], "val": 3}],
+        },
+    )
+    assert save_response.status_code == 200
+    assert save_response.get_json()["estado"] == "en_progreso"
+
+    with app.app_context():
+        survey = BienestarEncuesta.query.filter_by(hash_id=stale_folio).first()
+        survey.updated_at = utcnow() - timedelta(hours=9)
+        db.session.commit()
+
+    recovery = client.get(f"/bienestar/api/encuesta/{stale_folio}").get_json()
+    assert recovery["estado"] == "abandonada"
+
+    login(client, "admin@local.test")
+    dashboard_payload = client.get("/bienestar/api/dashboard").get_json()
+    stale_row = next(row for row in dashboard_payload["survey_rows"] if row["hash"] == stale_folio)
+    assert stale_row["estado"] == "abandonada"
+    assert stale_row["estado_label"] == "Abandonada"
+    assert dashboard_payload["summary"]["abandonadas"] == 1
+    assert dashboard_payload["summary"]["en_progreso"] == 0
+
+    prune_response = client.post("/bienestar/api/encuestas/depurar", json={"folios": [stale_folio]})
+    assert prune_response.status_code == 200
+    assert prune_response.get_json()["deleted_folios"] == [stale_folio]
+
+    with app.app_context():
+        assert BienestarEncuesta.query.filter_by(hash_id=stale_folio).first() is None
 
 
 def test_profile_questions_do_not_change_iibp_and_legacy_completed_surveys_stay_valid():
