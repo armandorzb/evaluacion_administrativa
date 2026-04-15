@@ -119,6 +119,13 @@ def test_public_wellbeing_survey_can_complete_and_admin_can_open_dashboard():
     assert "Panel interno de Bienestar Policial" in html
     assert "Cubo de datos" in html
     assert "/bienestar/publico" in html
+    assert "Detalle de sesiones" in html
+
+    sessions_detail = client.get("/bienestar/sesiones")
+    sessions_html = sessions_detail.get_data(as_text=True)
+    assert sessions_detail.status_code == 200
+    assert "Detalle de sesiones del módulo" in sessions_html
+    assert "Bitácora completa de sesiones" in sessions_html
 
     dashboard_api = client.get("/bienestar/api/dashboard")
     assert dashboard_api.status_code == 200

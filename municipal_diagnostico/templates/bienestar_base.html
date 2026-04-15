@@ -43,8 +43,9 @@
                         <a href="{{ url_for('wellbeing.public_entry') }}" style="--menu-order: 1;">Liga pública</a>
                         {% if current_user.is_authenticated and current_user.puede_acceder_bienestar %}
                         <a href="{{ url_for('wellbeing.dashboard') }}" style="--menu-order: 2;">Panel interno</a>
+                        <a href="{{ url_for('wellbeing.sessions_detail') }}" style="--menu-order: 3;">Detalle de sesiones</a>
                         {% if current_user.rol == 'administrador' %}
-                        <a href="{{ url_for('wellbeing.questions') }}" style="--menu-order: 3;">Preguntas</a>
+                        <a href="{{ url_for('wellbeing.questions') }}" style="--menu-order: 4;">Preguntas</a>
                         {% endif %}
                         {% endif %}
                         {% if current_user.is_authenticated and current_user.tiene_selector_modulos %}

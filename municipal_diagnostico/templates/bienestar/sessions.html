@@ -1,0 +1,140 @@
+{% extends "bienestar_base.html" %}
+{% block title %}Detalle de sesiones | Bienestar Policial{% endblock %}
+{% block content %}
+<section class="executive-hero wellbeing-hero wellbeing-dashboard-hero">
+    <div class="hero-copy">
+        <p class="eyebrow">Trazabilidad operativa</p>
+        <h1>Detalle de sesiones del módulo</h1>
+        <p class="lede">
+            Consulta el corte completo de folios, avance, última actividad y estado efectivo de cada sesión del módulo.
+        </p>
+        <div class="tag-row">
+            <span class="tag">Sesiones registradas: {{ summary.total }}</span>
+            <span class="tag">Completadas: {{ summary.completadas }}</span>
+            <span class="tag">Abandonadas: {{ summary.abandonadas }}</span>
+        </div>
+    </div>
+
+    <article class="hero-card compact wellbeing-dashboard-actions">
+        <div class="card-kicker">Criterio</div>
+        <div class="stack">
+            <p class="muted">
+                Una sesión en progreso se reclasifica como abandonada cuando acumula {{ abandonment_hours }} horas sin actividad.
+            </p>
+            <div class="actions vertical">
+                <a class="button button-primary" href="{{ url_for('wellbeing.dashboard') }}">Volver al panel</a>
+            </div>
+        </div>
+    </article>
+</section>
+
+<section class="panel wellbeing-cube-control-panel">
+    <div class="section-heading">
+        <div>
+            <p class="eyebrow">Filtros</p>
+            <h2>Explora el detalle por estado y estrato</h2>
+        </div>
+    </div>
+    <form method="get" class="wellbeing-filter-grid">
+        <label>Estado
+            <select name="estado">
+                {% for value, label in state_options %}
+                <option value="{{ value }}" {% if selected_state == value %}selected{% endif %}>{{ label }}</option>
+                {% endfor %}
+            </select>
+        </label>
+        <label>Estrato
+            <select name="estrato">
+                <option value="all" {% if selected_stratum == 'ALL' %}selected{% endif %}>Todos los estratos</option>
+                {% for stratum in strata_options %}
+                <option value="{{ stratum }}" {% if selected_stratum == stratum %}selected{% endif %}>{{ stratum }}</option>
+                {% endfor %}
+            </select>
+        </label>
+        <div class="actions">
+            <button class="button button-primary" type="submit">Aplicar filtros</button>
+            <a class="button" href="{{ url_for('wellbeing.sessions_detail') }}">Limpiar</a>
+        </div>
+    </form>
+</section>
+
+<section class="wellbeing-live-metrics">
+    <article class="wellbeing-live-card">
+        <span>Sesiones filtradas</span>
+        <strong>{{ filtered_summary.total }}</strong>
+        <small>Universo visible en este detalle</small>
+    </article>
+    <article class="wellbeing-live-card">
+        <span>Completadas</span>
+        <strong>{{ filtered_summary.completadas }}</strong>
+        <small>Folios cerrados para análisis</small>
+    </article>
+    <article class="wellbeing-live-card">
+        <span>En progreso</span>
+        <strong>{{ filtered_summary.en_progreso }}</strong>
+        <small>Sesiones todavía activas</small>
+    </article>
+    <article class="wellbeing-live-card">
+        <span>Abandonadas</span>
+        <strong>{{ filtered_summary.abandonadas }}</strong>
+        <small>Folios detenidos o reclasificados</small>
+    </article>
+</section>
+
+<article class="panel">
+    <div class="section-heading">
+        <div>
+            <p class="eyebrow">Detalle</p>
+            <h2>Bitácora completa de sesiones</h2>
+        </div>
+    </div>
+    <div class="table-wrap">
+        <table class="executive-table">
+            <thead>
+                <tr>
+                    <th>Folio</th>
+                    <th>Inicio</th>
+                    <th>Última actividad</th>
+                    <th>Estrato</th>
+                    <th>Estado</th>
+                    <th>Avance</th>
+                    <th>Respondidas</th>
+                    <th>Última pregunta</th>
+                    <th>IIBP</th>
+                    <th>IVSP</th>
+                    <th>Observación</th>
+                </tr>
+            </thead>
+            <tbody>
+                {% for row in session_rows %}
+                <tr>
+                    <td><strong>{{ row.hash }}</strong></td>
+                    <td>{{ row.fecha }}</td>
+                    <td>{{ row.ultima_actividad }}</td>
+                    <td>{{ row.estrato }}</td>
+                    <td><span class="status status-{{ 'opportune' if row.estado == 'completada' else 'medium' if row.estado == 'en_progreso' else 'low' }}">{{ row.estado_label }}</span></td>
+                    <td>{{ row.completion_percent }}%</td>
+                    <td>{{ row.answered_count }}</td>
+                    <td>{{ row.ultima_pregunta }}</td>
+                    <td>{{ row.iibp if row.iibp is not none else '—' }}</td>
+                    <td>{{ row.ivsp if row.ivsp is not none else '—' }}</td>
+                    <td>
+                        {% if row.reclasificada_por_inactividad %}
+                        Reclasificada tras {{ row.inactivity_hours }} h sin actividad
+                        {% elif row.estado == 'en_progreso' %}
+                        Último movimiento hace {{ row.inactivity_hours }} h
+                        {% else %}
+                        {{ row.estado_registrado_label }}
+                        {% endif %}
+                    </td>
+                </tr>
+                {% else %}
+                <tr>
+                    <td colspan="11" class="muted">No hay sesiones para los filtros seleccionados.</td>
+                </tr>
+                {% endfor %}
+            </tbody>
+        </table>
+    </div>
+</article>
+{% endblock %}

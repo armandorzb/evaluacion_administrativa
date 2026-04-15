@@ -406,6 +406,7 @@ def build_wellbeing_report_payload() -> dict:
     summary = build_wellbeing_dashboard_summary()
     questions = BienestarPregunta.query.order_by(BienestarPregunta.orden.asc()).all()
     surveys = BienestarEncuesta.query.order_by(BienestarEncuesta.created_at.desc()).all()
+    reference_time = utcnow()
     completed = [survey for survey in surveys if survey.estado == "completada"]
     question_lookup = {question.id: question for question in questions}
 
@@ -553,8 +554,14 @@ def build_wellbeing_report_payload() -> dict:
     total_questions = len(questions)
     survey_rows = []
     for survey in surveys:
-        effective_state = effective_wellbeing_state(survey)
+        effective_state = effective_wellbeing_state(survey, reference_time=reference_time)
         local_created = to_localtime(survey.created_at)
+        local_updated = to_localtime(survey.updated_at)
+        last_activity = survey.updated_at or survey.created_at
+        inactivity_hours = round(
+            max((reference_time - last_activity).total_seconds(), 0) / 3600,
+            1,
+        ) if last_activity else 0.0
         response_items = []
         dimension_buckets: dict[str, dict[str, float]] = defaultdict(_empty_metric_bucket)
         for response in survey.respuestas:
@@ -583,9 +590,15 @@ def build_wellbeing_report_payload() -> dict:
                 "hash": survey.hash_id,
                 "fecha": format_wellbeing_datetime(survey.created_at),
                 "created_at": local_created.isoformat() if local_created else None,
+                "ultima_actividad": format_wellbeing_datetime(survey.updated_at),
+                "updated_at": local_updated.isoformat() if local_updated else None,
+                "inactivity_hours": inactivity_hours,
                 "estrato": survey.estrato,
                 "estado": effective_state,
                 "estado_label": humanize_wellbeing_state(effective_state),
+                "estado_registrado": survey.estado,
+                "estado_registrado_label": humanize_wellbeing_state(survey.estado),
+                "reclasificada_por_inactividad": survey.estado != effective_state,
                 "ultima_pregunta": survey.ultima_pregunta,
                 "iibp": round(survey.iibp, 1) if survey.iibp is not None else None,
                 "ivsp": round(survey.ivsp, 1) if survey.ivsp is not None else None,

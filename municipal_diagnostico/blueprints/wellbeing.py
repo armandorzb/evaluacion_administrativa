@@ -10,6 +10,7 @@ from municipal_diagnostico.extensions import db
 from municipal_diagnostico.models import BienestarEncuesta, BienestarPregunta
 from municipal_diagnostico.services.activity_logger import log_activity
 from municipal_diagnostico.services.wellbeing import (
+    WELLBEING_ABANDONMENT_WINDOW,
     build_wellbeing_csv,
     build_wellbeing_dashboard_summary,
     build_wellbeing_report_payload,
@@ -95,6 +96,54 @@ def dashboard():
         summary=summary,
         public_url=public_url,
         dashboard_api_url=url_for("wellbeing.api_dashboard"),
+    )
+
+
+@bp.route("/sesiones")
+@wellbeing_role_required("administrador", "consulta")
+def sessions_detail():
+    report = build_wellbeing_report_payload()
+    survey_rows = report["survey_rows"]
+    selected_state = (request.args.get("estado") or "all").strip().lower()
+    selected_stratum = (request.args.get("estrato") or "all").strip().upper()
+
+    state_options = [
+        ("all", "Todos los estados"),
+        ("completada", "Completadas"),
+        ("en_progreso", "En progreso"),
+        ("abandonada", "Abandonadas"),
+    ]
+    allowed_states = {value for value, _label in state_options}
+    if selected_state not in allowed_states:
+        selected_state = "all"
+
+    strata_options = sorted({row["estrato"] for row in survey_rows if row.get("estrato")})
+    if selected_stratum != "ALL" and selected_stratum not in strata_options:
+        selected_stratum = "ALL"
+
+    filtered_rows = [
+        row for row in survey_rows
+        if (selected_state == "all" or row["estado"] == selected_state)
+        and (selected_stratum == "ALL" or row["estrato"] == selected_stratum)
+    ]
+    filtered_summary = {
+        "total": len(filtered_rows),
+        "completadas": len([row for row in filtered_rows if row["estado"] == "completada"]),
+        "en_progreso": len([row for row in filtered_rows if row["estado"] == "en_progreso"]),
+        "abandonadas": len([row for row in filtered_rows if row["estado"] == "abandonada"]),
+    }
+
+    log_activity("view_wellbeing_sessions", metadata={"modulo": "bienestar"})
+    return render_template(
+        "bienestar/sessions.html",
+        summary=report["summary"],
+        session_rows=filtered_rows,
+        filtered_summary=filtered_summary,
+        selected_state=selected_state,
+        selected_stratum=selected_stratum,
+        state_options=state_options,
+        strata_options=strata_options,
+        abandonment_hours=int(WELLBEING_ABANDONMENT_WINDOW.total_seconds() // 3600),
     )
 
 
