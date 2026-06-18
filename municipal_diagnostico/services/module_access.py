@@ -12,7 +12,7 @@ MODULE_LABELS = {
 }
 
 WELLBEING_ALLOWED_ROLES = {"administrador", "consulta"}
-ISO9001_ALLOWED_ROLES = {"administrador", "revisor", "evaluador", "consulta"}
+ISO9001_ALLOWED_ROLES = {"administrador", "revisor", "evaluador", "respondente", "consulta"}
 
 TRUTHY_VALUES = {"1", "true", "t", "si", "sí", "yes", "y", "on", "x"}
 FALSY_VALUES = {"0", "false", "f", "no", "n", "off"}

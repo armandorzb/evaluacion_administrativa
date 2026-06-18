@@ -265,6 +265,8 @@ def _can_include_cycle_evaluation(evaluation: Iso9001Evaluacion, role: str, user
         return role != "consulta" or evaluation.estado in ISO9001_FINAL_STATES
     if user.rol == "administrador":
         return True
+    if any(assignment.usuario_id == user.id and assignment.tipo == "captura" for assignment in evaluation.asignaciones):
+        return True
     if user.rol == "consulta":
         return evaluation.estado in ISO9001_FINAL_STATES
     if user.rol == "revisor":
@@ -278,9 +280,20 @@ def list_visible_iso9001_evaluations(user) -> list[Iso9001Evaluacion]:
     if user.rol == "administrador":
         return evaluations
     if user.rol == "revisor":
-        return [evaluation for evaluation in evaluations if evaluation.revisor_id == user.id]
+        return [
+            evaluation
+            for evaluation in evaluations
+            if evaluation.revisor_id == user.id
+            or evaluation.estado in ISO9001_FINAL_STATES
+            or any(assignment.usuario_id == user.id and assignment.tipo == "captura" for assignment in evaluation.asignaciones)
+        ]
     if user.rol == "consulta":
-        return [evaluation for evaluation in evaluations if evaluation.estado in ISO9001_FINAL_STATES]
+        return [
+            evaluation
+            for evaluation in evaluations
+            if evaluation.estado in ISO9001_FINAL_STATES
+            or any(assignment.usuario_id == user.id and assignment.tipo == "captura" for assignment in evaluation.asignaciones)
+        ]
     return [
         evaluation
         for evaluation in evaluations

@@ -679,7 +679,7 @@
         "optional": ["password", "dependencia", "area", "acceso_diagnostico", "acceso_bienestar", "acceso_iso9001"],
         "example": "nombre,correo,rol,password,dependencia,area,acceso_diagnostico,acceso_bienestar,acceso_iso9001",
         "note_title": "Consideraciones importantes",
-        "note": "Los roles válidos son administrador, revisor, evaluador, respondente y consulta. Si omites acceso_bienestar o acceso_iso9001, solo administrador los conserva por default. Si incluyes dependencia o area, deben existir previamente en catálogos."
+        "note": "Los roles válidos son administrador, revisor, evaluador, respondente y consulta. Si omites acceso_bienestar o acceso_iso9001, solo administrador los conserva por default. ISO 9001 puede asignarse a cualquier rol activo. Si incluyes dependencia o area, deben existir previamente en catálogos."
     }
 } %}
 <script id="role-definitions-data" type="application/json">{{ role_definitions|tojson }}</script>

@@ -50,7 +50,7 @@ bp = Blueprint("iso9001", __name__, url_prefix="/iso9001")
 
 
 @bp.route("/")
-@iso9001_role_required("administrador", "revisor", "evaluador", "consulta")
+@iso9001_role_required("administrador", "revisor", "evaluador", "respondente", "consulta")
 def dashboard():
     ensure_iso9001_catalog()
     evaluations = list_visible_iso9001_evaluations(current_user)
@@ -134,12 +134,11 @@ def cycles():
     selected_cycle_id = request.args.get("cycle_id", type=int)
     selected_cycle = select_cycle(cycles_list, selected_cycle_id)
     selected_summary = summarize_iso9001_cycle(selected_cycle) if selected_cycle else None
-    users = Usuario.query.filter(
+    capture_users = Usuario.query.filter(Usuario.activo.is_(True)).order_by(Usuario.nombre).all()
+    reviewers = Usuario.query.filter(
         Usuario.activo.is_(True),
-        Usuario.acceso_iso9001.is_(True),
-        Usuario.rol.in_(["administrador", "revisor", "evaluador"]),
+        Usuario.rol.in_(["administrador", "revisor"]),
     ).order_by(Usuario.nombre).all()
-    reviewers = [user for user in users if user.rol in {"administrador", "revisor"}]
     dependencies = Dependencia.query.filter_by(activa=True).order_by(Dependencia.nombre).all()
     log_activity("view_iso9001_cycles")
     return render_template(
@@ -147,7 +146,7 @@ def cycles():
         cycles=cycles_list,
         selected_cycle=selected_cycle,
         selected_summary=selected_summary,
-        users=users,
+        users=capture_users,
         reviewers=reviewers,
         dependencies=dependencies,
         cycle_states=ISO9001_CYCLE_STATES,
@@ -156,7 +155,7 @@ def cycles():
 
 
 @bp.route("/evaluaciones/<int:evaluation_id>", methods=["GET", "POST"])
-@iso9001_role_required("administrador", "revisor", "evaluador", "consulta")
+@iso9001_role_required("administrador", "revisor", "evaluador", "respondente", "consulta")
 def evaluation_detail(evaluation_id: int):
     evaluation = Iso9001Evaluacion.query.get_or_404(evaluation_id)
     if not user_can_view_evaluation(evaluation):
@@ -197,7 +196,7 @@ def evaluation_detail(evaluation_id: int):
 
 
 @bp.route("/evaluaciones/<int:evaluation_id>/enviar", methods=["POST"])
-@iso9001_role_required("administrador", "evaluador")
+@iso9001_role_required("administrador", "revisor", "evaluador", "respondente", "consulta")
 def submit_evaluation(evaluation_id: int):
     evaluation = Iso9001Evaluacion.query.get_or_404(evaluation_id)
     if not user_can_edit_evaluation(evaluation):
@@ -256,7 +255,7 @@ def review_evaluation(evaluation_id: int):
 
 
 @bp.route("/reportes")
-@iso9001_role_required("administrador", "revisor", "evaluador", "consulta")
+@iso9001_role_required("administrador", "revisor", "evaluador", "respondente", "consulta")
 def reports():
     cycles_list = Iso9001Ciclo.query.order_by(Iso9001Ciclo.created_at.desc()).all()
     selected_cycle = select_cycle(cycles_list, request.args.get("cycle_id", type=int))
@@ -271,10 +270,10 @@ def reports():
 
 
 @bp.route("/reportes/<int:evaluation_id>/pdf")
-@iso9001_role_required("administrador", "revisor", "evaluador", "consulta")
+@iso9001_role_required("administrador", "revisor", "evaluador", "respondente", "consulta")
 def report_pdf(evaluation_id: int):
     evaluation = Iso9001Evaluacion.query.get_or_404(evaluation_id)
-    if not user_can_view_evaluation(evaluation) or (current_user.rol == "consulta" and evaluation.estado not in ISO9001_FINAL_STATES):
+    if not user_can_view_evaluation(evaluation):
         abort(403)
     buffer = build_iso9001_pdf(evaluation)
     log_activity("export_iso9001_pdf", entity_type="iso9001_evaluacion", entity_id=evaluation.id)
@@ -282,10 +281,10 @@ def report_pdf(evaluation_id: int):
 
 
 @bp.route("/reportes/<int:evaluation_id>/xlsx")
-@iso9001_role_required("administrador", "revisor", "evaluador", "consulta")
+@iso9001_role_required("administrador", "revisor", "evaluador", "respondente", "consulta")
 def report_excel(evaluation_id: int):
     evaluation = Iso9001Evaluacion.query.get_or_404(evaluation_id)
-    if not user_can_view_evaluation(evaluation) or (current_user.rol == "consulta" and evaluation.estado not in ISO9001_FINAL_STATES):
+    if not user_can_view_evaluation(evaluation):
         abort(403)
     buffer = build_iso9001_excel(evaluation)
     log_activity("export_iso9001_xlsx", entity_type="iso9001_evaluacion", entity_id=evaluation.id)
@@ -298,7 +297,7 @@ def report_excel(evaluation_id: int):
 
 
 @bp.route("/evidencias/<int:evidence_id>/descargar")
-@iso9001_role_required("administrador", "revisor", "evaluador", "consulta")
+@iso9001_role_required("administrador", "revisor", "evaluador", "respondente", "consulta")
 def download_evidence(evidence_id: int):
     evidence = Iso9001Evidencia.query.get_or_404(evidence_id)
     evaluation = evidence.respuesta.evaluacion
@@ -341,8 +340,8 @@ def create_evaluations_from_form(cycle: Iso9001Ciclo) -> int:
     responsable_id = request.form.get("responsable_id", type=int)
     revisor_id = request.form.get("revisor_id", type=int)
     dependency_ids = [int(value) for value in request.form.getlist("dependencia_ids") if value]
-    responsable = db.session.get(Usuario, responsable_id) if responsable_id else None
-    revisor = db.session.get(Usuario, revisor_id) if revisor_id else None
+    responsable = active_user_or_none(responsable_id)
+    revisor = active_user_or_none(revisor_id)
     for dependency_id in dependency_ids:
         dependency = db.session.get(Dependencia, dependency_id)
         if dependency is None:
@@ -359,7 +358,10 @@ def create_evaluations_from_form(cycle: Iso9001Ciclo) -> int:
         db.session.add(evaluation)
         db.session.flush()
         if responsable:
+            grant_iso_access(responsable)
             db.session.add(Iso9001Asignacion(evaluacion=evaluation, usuario=responsable, tipo="captura"))
+        if revisor:
+            grant_iso_access(revisor)
         created += 1
     return created
 
@@ -367,13 +369,16 @@ def create_evaluations_from_form(cycle: Iso9001Ciclo) -> int:
 def sync_evaluation_assignment(evaluation: Iso9001Evaluacion) -> None:
     responsable_id = request.form.get("responsable_id", type=int)
     revisor_id = request.form.get("revisor_id", type=int)
-    evaluation.revisor = db.session.get(Usuario, revisor_id) if revisor_id else None
+    evaluation.revisor = active_user_or_none(revisor_id)
+    if evaluation.revisor:
+        grant_iso_access(evaluation.revisor)
     for assignment in list(evaluation.asignaciones):
         if assignment.tipo == "captura" and assignment.usuario_id != responsable_id:
             db.session.delete(assignment)
     if responsable_id and not any(assignment.usuario_id == responsable_id and assignment.tipo == "captura" for assignment in evaluation.asignaciones):
-        user = db.session.get(Usuario, responsable_id)
+        user = active_user_or_none(responsable_id)
         if user:
+            grant_iso_access(user)
             db.session.add(Iso9001Asignacion(evaluacion=evaluation, usuario=user, tipo="captura"))
 
 
@@ -421,6 +426,8 @@ def persist_section_from_form(evaluation: Iso9001Evaluacion, section) -> tuple[i
 def user_can_view_evaluation(evaluation: Iso9001Evaluacion) -> bool:
     if current_user.rol == "administrador":
         return True
+    if any(assignment.usuario_id == current_user.id and assignment.tipo == "captura" for assignment in evaluation.asignaciones):
+        return True
     if current_user.rol == "revisor":
         return evaluation.revisor_id == current_user.id or evaluation.estado in ISO9001_FINAL_STATES
     if current_user.rol == "consulta":
@@ -433,7 +440,7 @@ def user_can_edit_evaluation(evaluation: Iso9001Evaluacion) -> bool:
         return False
     if current_user.rol == "administrador":
         return True
-    return current_user.rol == "evaluador" and any(assignment.usuario_id == current_user.id for assignment in evaluation.asignaciones)
+    return any(assignment.usuario_id == current_user.id and assignment.tipo == "captura" for assignment in evaluation.asignaciones)
 
 
 def user_can_review_evaluation(evaluation: Iso9001Evaluacion) -> bool:
@@ -464,6 +471,20 @@ def clean_text(value) -> str | None:
         return None
     text = str(value).strip()
     return text or None
+
+
+def active_user_or_none(user_id: int | None) -> Usuario | None:
+    if not user_id:
+        return None
+    user = db.session.get(Usuario, user_id)
+    if user is None or not user.activo:
+        return None
+    return user
+
+
+def grant_iso_access(user: Usuario) -> None:
+    if not user.acceso_iso9001:
+        user.acceso_iso9001 = True
 
 
 def get_file_size(file_storage) -> int:

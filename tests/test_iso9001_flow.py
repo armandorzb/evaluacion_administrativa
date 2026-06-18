@@ -84,6 +84,15 @@ def build_app():
                 acceso_iso9001=True,
             ),
             Usuario(
+                nombre="Operativo Disponible",
+                correo="operativo.iso@test.local",
+                rol="respondente",
+                activo=True,
+                acceso_diagnostico=True,
+                acceso_bienestar=False,
+                acceso_iso9001=False,
+            ),
+            Usuario(
                 nombre="Sin ISO",
                 correo="sin.iso@test.local",
                 rol="consulta",
@@ -103,6 +112,7 @@ def build_app():
             "admin_id": users[0].id,
             "evaluator_id": users[1].id,
             "reviewer_id": users[2].id,
+            "respondent_id": users[4].id,
         }
 
 
@@ -198,6 +208,84 @@ def test_iso9001_scoring_excludes_na_from_denominator():
         assert summary["points"] == 3
         assert summary["percent"] == 75.0
         assert summary["completion"] == round((3 / 293) * 100, 2)
+
+
+def test_iso9001_capture_can_be_assigned_to_any_active_user():
+    app, ids = build_app()
+    client = app.test_client()
+
+    login(client, "admin.iso@test.local")
+    cycle_response = client.post(
+        "/iso9001/ciclos",
+        data={
+            "action": "create_cycle",
+            "nombre": "Ciclo ISO Captura Libre",
+            "descripcion": "Asignacion a usuario operativo",
+            "estado": "activo",
+            "fecha_inicio": "2026-01-01",
+            "fecha_cierre": "2026-12-31",
+        },
+        follow_redirects=True,
+    )
+    assert cycle_response.status_code == 200
+
+    with app.app_context():
+        cycle = Iso9001Ciclo.query.filter_by(nombre="Ciclo ISO Captura Libre").first()
+        cycle_id = cycle.id
+
+    cycles_page = client.get(f"/iso9001/ciclos?cycle_id={cycle_id}")
+    cycles_html = cycles_page.get_data(as_text=True)
+    assert cycles_page.status_code == 200
+    assert "Operativo Disponible" in cycles_html
+
+    assignment_response = client.post(
+        "/iso9001/ciclos",
+        data={
+            "action": "add_evaluations",
+            "cycle_id": str(cycle_id),
+            "dependencia_ids": [str(ids["dependency_one_id"])],
+            "responsable_id": str(ids["respondent_id"]),
+            "revisor_id": str(ids["reviewer_id"]),
+        },
+        follow_redirects=True,
+    )
+    assert assignment_response.status_code == 200
+    assert "Evaluaciones registradas: 1." in assignment_response.get_data(as_text=True)
+
+    with app.app_context():
+        operative = db.session.get(Usuario, ids["respondent_id"])
+        assert operative.acceso_iso9001 is True
+        evaluation = Iso9001Evaluacion.query.filter_by(ciclo_id=cycle_id, dependencia_id=ids["dependency_one_id"]).first()
+        evaluation_id = evaluation.id
+        first_section = evaluation.ciclo.version.clausulas[0].apartados[0]
+        section_id = first_section.id
+        reactive_ids = [reactive.id for reactive in first_section.reactivos]
+
+    client.get("/auth/logout", follow_redirects=True)
+    login(client, "operativo.iso@test.local")
+    detail = client.get(f"/iso9001/evaluaciones/{evaluation_id}")
+    assert detail.status_code == 200
+    assert "Captura formal" in detail.get_data(as_text=True)
+
+    section_payload = MultiDict([("apartado_id", str(section_id))])
+    for reactive_id in reactive_ids:
+        section_payload.add(f"calificacion_{reactive_id}", "si")
+        section_payload.add(f"observacion_{reactive_id}", f"Respuesta operativa {reactive_id}")
+    save_response = client.post(
+        f"/iso9001/evaluaciones/{evaluation_id}",
+        data=section_payload,
+        content_type="multipart/form-data",
+        follow_redirects=True,
+    )
+    assert save_response.status_code == 200
+    assert "Apartado guardado." in save_response.get_data(as_text=True)
+
+    with app.app_context():
+        fill_missing_responses(evaluation_id, ids["respondent_id"])
+
+    submit_response = client.post(f"/iso9001/evaluaciones/{evaluation_id}/enviar", follow_redirects=True)
+    assert submit_response.status_code == 200
+    assert "Evaluacion enviada a revision." in submit_response.get_data(as_text=True)
 
 
 def test_iso9001_capture_review_close_permissions_and_exports():

@@ -58,7 +58,7 @@
             <label>Responsable de captura
                 <select name="responsable_id">
                     <option value="">Sin responsable inicial</option>
-                    {% for user in users if user.rol in ['administrador', 'evaluador'] %}
+                    {% for user in users %}
                     <option value="{{ user.id }}">{{ user.nombre }} - {{ user.nombre_rol }}</option>
                     {% endfor %}
                 </select>

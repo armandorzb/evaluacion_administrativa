@@ -114,7 +114,7 @@
     const wellbeingCheckbox = form.querySelector('input[name="acceso_bienestar"]');
     const iso9001Checkbox = form.querySelector('input[name="acceso_iso9001"]');
     const allowsWellbeing = ["administrador", "consulta"].includes(select.value);
-    const allowsIso9001 = ["administrador", "revisor", "evaluador", "consulta"].includes(select.value);
+    const allowsIso9001 = ["administrador", "revisor", "evaluador", "respondente", "consulta"].includes(select.value);
 
     if (wellbeingCheckbox) {
       const roleBasedDefault = wellbeingCheckbox.dataset.defaultMode === "admin-only";
