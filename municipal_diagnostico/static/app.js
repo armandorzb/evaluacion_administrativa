@@ -112,16 +112,28 @@
     const form = select.closest("form");
     if (!form) return;
     const wellbeingCheckbox = form.querySelector('input[name="acceso_bienestar"]');
-    if (!wellbeingCheckbox) return;
+    const iso9001Checkbox = form.querySelector('input[name="acceso_iso9001"]');
     const allowsWellbeing = ["administrador", "consulta"].includes(select.value);
-    const roleBasedDefault = wellbeingCheckbox.dataset.defaultMode === "admin-only";
-    wellbeingCheckbox.disabled = !allowsWellbeing;
-    if (!allowsWellbeing) {
-      wellbeingCheckbox.checked = false;
-      return;
+    const allowsIso9001 = ["administrador", "revisor", "evaluador", "consulta"].includes(select.value);
+
+    if (wellbeingCheckbox) {
+      const roleBasedDefault = wellbeingCheckbox.dataset.defaultMode === "admin-only";
+      wellbeingCheckbox.disabled = !allowsWellbeing;
+      if (!allowsWellbeing) {
+        wellbeingCheckbox.checked = false;
+      } else if (roleBasedDefault && wellbeingCheckbox.dataset.userTouched !== "true") {
+        wellbeingCheckbox.checked = select.value === "administrador";
+      }
     }
-    if (roleBasedDefault && wellbeingCheckbox.dataset.userTouched !== "true") {
-      wellbeingCheckbox.checked = select.value === "administrador";
+
+    if (iso9001Checkbox) {
+      const roleBasedDefault = iso9001Checkbox.dataset.defaultMode === "admin-only";
+      iso9001Checkbox.disabled = !allowsIso9001;
+      if (!allowsIso9001) {
+        iso9001Checkbox.checked = false;
+      } else if (roleBasedDefault && iso9001Checkbox.dataset.userTouched !== "true") {
+        iso9001Checkbox.checked = select.value === "administrador";
+      }
     }
   }
 
@@ -209,7 +221,7 @@
     }
   }
 
-  document.querySelectorAll('input[name="acceso_bienestar"][data-default-mode]').forEach((checkbox) => {
+  document.querySelectorAll('input[name="acceso_bienestar"][data-default-mode], input[name="acceso_iso9001"][data-default-mode]').forEach((checkbox) => {
     checkbox.dataset.userTouched = "false";
     checkbox.addEventListener("change", () => {
       checkbox.dataset.userTouched = "true";

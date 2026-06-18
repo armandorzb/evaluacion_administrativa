@@ -2501,8 +2501,102 @@ body.menu-open .menu-scrim {
     margin-bottom: 0.6rem;
 }
 
+.iso-capture-layout {
+    display: grid;
+    grid-template-columns: minmax(240px, 300px) minmax(0, 1fr);
+    gap: 1.25rem;
+    align-items: start;
+}
+
+.iso-section-nav {
+    position: sticky;
+    top: 6.75rem;
+    max-height: calc(100vh - 8rem);
+    overflow: auto;
+}
+
+.iso-section-nav .list-row {
+    align-items: flex-start;
+    border-radius: var(--radius-md);
+    padding-inline: 0.75rem;
+}
+
+.iso-section-nav .list-row:hover {
+    background: rgba(237, 241, 243, 0.72);
+}
+
+.iso-section-panel {
+    display: grid;
+    gap: 1rem;
+    padding: 1rem;
+    border: 1px solid rgba(22, 48, 66, 0.08);
+    border-radius: var(--radius-lg);
+    background: rgba(246, 247, 244, 0.72);
+}
+
+.iso-section-panel + .iso-section-panel {
+    margin-top: 1rem;
+}
+
+.iso-section-head {
+    align-items: flex-start;
+    margin-bottom: 0.2rem;
+}
+
+.iso-section-head h3 {
+    margin: 0;
+    color: var(--navy-900);
+    font-size: clamp(1.25rem, 1.7vw, 1.55rem);
+}
+
+.iso-question-card {
+    display: grid;
+    gap: 1rem;
+}
+
+.iso-choice-grid {
+    grid-template-columns: repeat(4, minmax(0, 1fr));
+}
+
+.iso-details {
+    padding: 0.9rem 1rem;
+    border: 1px solid rgba(22, 48, 66, 0.08);
+    border-radius: var(--radius-md);
+    background: rgba(255, 255, 255, 0.72);
+}
+
+.iso-details summary {
+    color: var(--navy-900);
+    cursor: pointer;
+    font-weight: 800;
+}
+
+.iso-evidence-block {
+    display: grid;
+    gap: 0.85rem;
+}
+
+.module-card-iso9001 {
+    background:
+        linear-gradient(180deg, rgba(255, 255, 255, 0.94), rgba(238, 243, 229, 0.96)),
+        rgba(255, 255, 255, 0.88);
+}
+
 @media (max-width: 1100px) {
     .module-overview-grid {
+        grid-template-columns: repeat(2, minmax(0, 1fr));
+    }
+
+    .iso-capture-layout {
+        grid-template-columns: 1fr;
+    }
+
+    .iso-section-nav {
+        position: static;
+        max-height: none;
+    }
+
+    .iso-choice-grid {
         grid-template-columns: repeat(2, minmax(0, 1fr));
     }
 }
@@ -2527,6 +2621,10 @@ body.menu-open .menu-scrim {
     .module-kpi-card,
     .question-card {
         padding: 1rem;
+    }
+
+    .iso-section-panel {
+        padding: 0.75rem;
     }
 }
 

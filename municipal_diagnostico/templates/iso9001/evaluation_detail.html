@@ -1,0 +1,173 @@
+{% extends "iso9001_base.html" %}
+{% block title %}Captura ISO | Diagnostico ISO 9001:2015{% endblock %}
+{% block content %}
+<section class="executive-hero" id="top">
+    <div class="hero-copy">
+        <p class="eyebrow">Captura formal</p>
+        <h1>{{ evaluation.dependencia.nombre }}</h1>
+        <p class="lede">{{ evaluation.ciclo.nombre }}. Responde por apartado, registra hallazgos y adjunta evidencia documental por reactivo.</p>
+        <div class="tag-row">
+            <span class="tag">Estado: {{ summary.state_label }}</span>
+            <span class="tag">Responsable: {{ evaluation.responsable.nombre if evaluation.responsable else "Sin responsable" }}</span>
+            <span class="tag">Revisor: {{ evaluation.revisor.nombre if evaluation.revisor else "Sin revisor" }}</span>
+        </div>
+    </div>
+    <article class="hero-card compact">
+        <div class="metric-inline"><span>Avance</span><strong data-overall-completion>{{ summary.completion }}%</strong></div>
+        <div class="progress" role="progressbar" aria-valuemin="0" aria-valuemax="100" aria-valuenow="{{ summary.completion }}">
+            <span data-progress-bar data-progress-role="overall" data-progress-value="{{ summary.completion }}"></span>
+        </div>
+        <div class="metric-inline"><span>Cumplimiento</span><strong>{% if summary.percent is not none %}{{ summary.percent }}%{% else %}Sin aplicables{% endif %}</strong></div>
+        <div class="metric-inline"><span>Madurez</span><strong>{{ summary.maturity_label }}</strong></div>
+        <div class="actions vertical compact-top">
+            {% if can_edit %}
+            <form method="post" action="{{ url_for('iso9001.submit_evaluation', evaluation_id=evaluation.id) }}">
+                <button class="button button-primary" type="submit">Enviar a revision</button>
+            </form>
+            {% endif %}
+            {% if current_user.rol in ['administrador', 'revisor'] %}
+            <a class="button" href="{{ url_for('iso9001.review_evaluation', evaluation_id=evaluation.id) }}">Abrir revision</a>
+            {% endif %}
+            <a class="button" href="{{ url_for('iso9001.report_pdf', evaluation_id=evaluation.id) }}">PDF</a>
+            <a class="button" href="{{ url_for('iso9001.report_excel', evaluation_id=evaluation.id) }}">XLSX</a>
+        </div>
+    </article>
+</section>
+
+{% if not can_edit %}
+<div class="callout callout-warning compact">
+    <strong>Captura bloqueada</strong>
+    <p>La evaluacion esta en revision, cerrada o fuera de un ciclo activo. Puedes consultar respuestas y evidencias.</p>
+</div>
+{% endif %}
+
+<section class="iso-capture-layout">
+    <aside class="panel iso-section-nav">
+        <div class="section-heading">
+            <div>
+                <p class="eyebrow">Apartados</p>
+                <h2>Navegacion</h2>
+            </div>
+        </div>
+        <div class="stack">
+            {% for section in summary.sections %}
+            <a class="list-row" href="#apartado-{{ section.id }}">
+                <div>
+                    <strong>{{ section.codigo }}</strong>
+                    <p class="muted">{{ section.nombre }}</p>
+                </div>
+                <span class="pill">{{ section.answered }}/{{ section.total }}</span>
+            </a>
+            {% endfor %}
+        </div>
+    </aside>
+
+    <div class="stack">
+        {% for clause in summary.clauses %}
+        <article class="panel">
+            <div class="section-heading">
+                <div>
+                    <p class="eyebrow">Clausula {{ clause.numero }}</p>
+                    <h2>{{ clause.nombre }}</h2>
+                    <p class="muted">{{ clause.answered }}/{{ clause.total }} respondidos - {% if clause.percent is not none %}{{ clause.percent }}% cumplimiento{% else %}sin reactivos aplicables{% endif %}</p>
+                </div>
+                <span class="status status-{{ clause.maturity_slug }}">{{ clause.maturity_label }}</span>
+            </div>
+
+            <div class="stack">
+                {% for section in clause.sections %}
+                <section class="iso-section-panel" id="apartado-{{ section.id }}">
+                    <form method="post" enctype="multipart/form-data" class="stack">
+                        <input type="hidden" name="apartado_id" value="{{ section.id }}">
+                        <div class="section-heading iso-section-head">
+                            <div>
+                                <p class="eyebrow">{{ section.codigo }}</p>
+                                <h3>{{ section.nombre }}</h3>
+                                <p class="muted">{{ section.answered }}/{{ section.total }} respondidos - {{ section.na }} N/A</p>
+                            </div>
+                            <div class="actions">
+                                <span class="status status-{{ section.maturity_slug }}">{% if section.percent is not none %}{{ section.percent }}%{% else %}Sin aplicables{% endif %}</span>
+                                {% if can_edit %}
+                                <button class="button button-primary" type="submit">Guardar apartado</button>
+                                {% endif %}
+                            </div>
+                        </div>
+
+                        {% for item in section.questions %}
+                        {% set reactive = item.reactivo %}
+                        <article class="question-card iso-question-card {% if item.answered %}has-answer{% endif %}" data-iso-reactivo-id="{{ reactive.id }}">
+                            <div class="question-head">
+                                <div class="question-reference">
+                                    <span class="question-index">{{ section.codigo }}.{{ reactive.numero }}</span>
+                                    <strong>Reactivo {{ loop.index }}</strong>
+                                </div>
+                                <span class="question-score {% if not item.answered %}is-empty{% endif %}">{{ item.selected_label }}</span>
+                            </div>
+                            <p class="question-text">{{ reactive.texto }}</p>
+
+                            <div class="choice-grid iso-choice-grid">
+                                {% for value, label in option_labels.items() %}
+                                <label class="choice-chip {% if item.selected == value %}is-selected{% endif %}">
+                                    <input type="radio" name="calificacion_{{ reactive.id }}" value="{{ value }}" {% if item.selected == value %}checked{% endif %} {% if not can_edit %}disabled{% endif %}>
+                                    <span>{{ value|upper }}</span>
+                                    <strong>{{ label }}</strong>
+                                </label>
+                                {% endfor %}
+                            </div>
+
+                            <label>Observacion o hallazgo
+                                <textarea name="observacion_{{ reactive.id }}" rows="3" {% if not can_edit %}disabled{% endif %}>{{ item.observacion }}</textarea>
+                            </label>
+
+                            <details class="iso-details">
+                                <summary>Evidencia sugerida y criterio</summary>
+                                <div class="meta-grid single-column-mobile compact-top">
+                                    <div>
+                                        <span class="meta-label">Evidencia sugerida</span>
+                                        <p class="muted">{{ reactive.evidencia_sugerida or "Sin sugerencia especifica." }}</p>
+                                    </div>
+                                    <div>
+                                        <span class="meta-label">Criterio de idoneidad</span>
+                                        <p class="muted">{{ reactive.criterio_idoneidad or "Sin criterio especifico." }}</p>
+                                    </div>
+                                </div>
+                            </details>
+
+                            <div class="iso-evidence-block">
+                                {% if can_edit %}
+                                <label>Evidencias
+                                    <input type="file" name="evidencias_{{ reactive.id }}" multiple>
+                                </label>
+                                {% endif %}
+                                <div class="evidence-list">
+                                    {% for evidence in item.evidence %}
+                                    <div class="evidence-row">
+                                        <div>
+                                            <strong>{{ evidence.archivo_nombre_original }}</strong>
+                                            <p class="muted">{{ evidence.mime_type }} - {{ evidence.tamano_bytes }} bytes</p>
+                                        </div>
+                                        <a class="button button-compact" href="{{ url_for('iso9001.download_evidence', evidence_id=evidence.id) }}">Descargar</a>
+                                    </div>
+                                    {% else %}
+                                    <p class="muted">Sin evidencias cargadas.</p>
+                                    {% endfor %}
+                                </div>
+                            </div>
+                        </article>
+                        {% endfor %}
+
+                        {% if can_edit %}
+                        <div class="sticky-actions actions">
+                            <button class="button button-primary" type="submit">Guardar {{ section.codigo }}</button>
+                            <a class="button" href="#top">Subir</a>
+                        </div>
+                        {% endif %}
+                    </form>
+                </section>
+                {% endfor %}
+            </div>
+        </article>
+        {% endfor %}
+    </div>
+</section>
+{% endblock %}

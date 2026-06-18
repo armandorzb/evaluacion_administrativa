@@ -11,6 +11,7 @@ from municipal_diagnostico.services.campaign_analytics import FINAL_ASSIGNMENT_S
 from municipal_diagnostico.services.module_access import (
     MODULE_BIENESTAR,
     MODULE_DIAGNOSTICO,
+    MODULE_ISO9001,
     endpoint_for_module,
     landing_endpoint_for_user,
 )
@@ -60,6 +61,14 @@ def modules():
                 "description": "Opera como módulo independiente con identidad visual propia, captura anónima y panel interno especializado.",
                 "url": url_for("dashboard.open_module", module_slug=MODULE_BIENESTAR),
                 "is_available": current_user.puede_acceder_bienestar,
+            },
+            {
+                "slug": MODULE_ISO9001,
+                "title": "Diagnostico ISO 9001:2015",
+                "subtitle": "Implementacion, evidencias y madurez del Sistema de Gestion de la Calidad",
+                "description": "Evalua cumplimiento por dependencia con evidencia por reactivo, revision formal y reportes ejecutivos.",
+                "url": url_for("dashboard.open_module", module_slug=MODULE_ISO9001),
+                "is_available": current_user.puede_acceder_iso9001,
             },
         ],
     )

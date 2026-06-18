@@ -1,0 +1,144 @@
+{% extends "iso9001_base.html" %}
+{% block title %}Ciclos | Diagnostico ISO 9001:2015{% endblock %}
+{% block content %}
+<section class="executive-hero">
+    <div class="hero-copy">
+        <p class="eyebrow">Administracion ISO</p>
+        <h1>Ciclos y evaluaciones por dependencia</h1>
+        <p class="lede">Crea ventanas de diagnostico, asigna dependencias, responsables de captura y revisores.</p>
+    </div>
+    <article class="hero-card compact">
+        <div class="card-kicker">Filtro</div>
+        <form method="get" class="stack">
+            <label>Ciclo
+                <select name="cycle_id">
+                    {% for cycle in cycles %}
+                    <option value="{{ cycle.id }}" {% if selected_cycle and selected_cycle.id == cycle.id %}selected{% endif %}>{{ cycle.nombre }}</option>
+                    {% endfor %}
+                </select>
+            </label>
+            <button class="button button-primary" type="submit">Actualizar</button>
+        </form>
+    </article>
+</section>
+
+<section class="section-grid two">
+    <article class="panel">
+        <div class="section-heading"><div><p class="eyebrow">Nuevo ciclo</p><h2>Alta de ciclo ISO</h2></div></div>
+        <form method="post" class="stack catalog-form">
+            <input type="hidden" name="action" value="create_cycle">
+            <label>Nombre<input name="nombre" required></label>
+            <label>Descripcion<textarea name="descripcion" rows="3"></textarea></label>
+            <label>Estado
+                <select name="estado">
+                    {% for state, label in cycle_states.items() %}
+                    <option value="{{ state }}" {% if state == 'activo' %}selected{% endif %}>{{ label }}</option>
+                    {% endfor %}
+                </select>
+            </label>
+            <label>Fecha inicio<input type="date" name="fecha_inicio" required></label>
+            <label>Fecha cierre<input type="date" name="fecha_cierre" required></label>
+            <button class="button button-primary" type="submit">Crear ciclo</button>
+        </form>
+    </article>
+
+    <article class="panel">
+        <div class="section-heading"><div><p class="eyebrow">Asignar</p><h2>Dependencias del ciclo</h2></div></div>
+        {% if selected_cycle %}
+        <form method="post" class="stack catalog-form">
+            <input type="hidden" name="action" value="add_evaluations">
+            <input type="hidden" name="cycle_id" value="{{ selected_cycle.id }}">
+            <label>Dependencias
+                <select name="dependencia_ids" multiple size="7" required>
+                    {% for dependency in dependencies %}
+                    <option value="{{ dependency.id }}">{{ dependency.nombre }}</option>
+                    {% endfor %}
+                </select>
+            </label>
+            <label>Responsable de captura
+                <select name="responsable_id">
+                    <option value="">Sin responsable inicial</option>
+                    {% for user in users if user.rol in ['administrador', 'evaluador'] %}
+                    <option value="{{ user.id }}">{{ user.nombre }} - {{ user.nombre_rol }}</option>
+                    {% endfor %}
+                </select>
+            </label>
+            <label>Revisor
+                <select name="revisor_id">
+                    <option value="">Sin revisor inicial</option>
+                    {% for user in reviewers %}
+                    <option value="{{ user.id }}">{{ user.nombre }} - {{ user.nombre_rol }}</option>
+                    {% endfor %}
+                </select>
+            </label>
+            <button class="button button-primary" type="submit">Registrar evaluaciones</button>
+        </form>
+        {% else %}
+        <p class="muted">Crea un ciclo para poder asignar dependencias.</p>
+        {% endif %}
+    </article>
+</section>
+
+{% if selected_cycle and selected_summary %}
+<section class="metric-grid">
+    <article class="metric-card"><span>Evaluaciones</span><strong>{{ selected_summary.total }}</strong></article>
+    <article class="metric-card"><span>Cerradas</span><strong>{{ selected_summary.closed_count }}</strong></article>
+    <article class="metric-card"><span>En revision</span><strong>{{ selected_summary.review_count }}</strong></article>
+    <article class="metric-card"><span>Avance promedio</span><strong>{{ selected_summary.avg_completion }}%</strong></article>
+</section>
+
+<article class="panel">
+    <div class="section-heading">
+        <div>
+            <p class="eyebrow">Evaluaciones</p>
+            <h2>{{ selected_cycle.nombre }}</h2>
+        </div>
+        <form method="post" class="actions">
+            <input type="hidden" name="action" value="change_cycle_state">
+            <input type="hidden" name="cycle_id" value="{{ selected_cycle.id }}">
+            <select name="estado">
+                {% for state, label in cycle_states.items() %}
+                <option value="{{ state }}" {% if selected_cycle.estado == state %}selected{% endif %}>{{ label }}</option>
+                {% endfor %}
+            </select>
+            <button class="button" type="submit">Cambiar estado</button>
+        </form>
+    </div>
+    <div class="table-wrap">
+        <table class="executive-table">
+            <thead>
+                <tr>
+                    <th>Dependencia</th>
+                    <th>Responsable</th>
+                    <th>Revisor</th>
+                    <th>Estado</th>
+                    <th>Avance</th>
+                    <th>Cumplimiento</th>
+                    <th>Acciones</th>
+                </tr>
+            </thead>
+            <tbody>
+                {% for row in selected_summary.rows %}
+                <tr>
+                    <td>{{ row.dependencia }}</td>
+                    <td>{{ row.responsable }}</td>
+                    <td>{{ row.revisor }}</td>
+                    <td><span class="status status-{{ row.estado }}">{{ row.estado_label }}</span></td>
+                    <td>{{ row.avance }}%</td>
+                    <td>{% if row.cumplimiento is not none %}{{ row.cumplimiento }}%{% else %}-{% endif %}</td>
+                    <td>
+                        <div class="actions">
+                            <a class="button button-primary" href="{{ url_for('iso9001.evaluation_detail', evaluation_id=row.evaluacion.id) }}">Abrir</a>
+                            <a class="button" href="{{ url_for('iso9001.review_evaluation', evaluation_id=row.evaluacion.id) }}">Revision</a>
+                        </div>
+                    </td>
+                </tr>
+                {% else %}
+                <tr><td colspan="7" class="muted">Sin evaluaciones registradas.</td></tr>
+                {% endfor %}
+            </tbody>
+        </table>
+    </div>
+</article>
+{% endif %}
+{% endblock %}

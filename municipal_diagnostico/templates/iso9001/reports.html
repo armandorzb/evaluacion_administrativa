@@ -1,0 +1,137 @@
+{% extends "iso9001_base.html" %}
+{% block title %}Reportes ISO | Diagnostico ISO 9001:2015{% endblock %}
+{% block content %}
+<section class="executive-hero">
+    <div class="hero-copy">
+        <p class="eyebrow">Reporteria ISO</p>
+        <h1>Consolidado por dependencia</h1>
+        <p class="lede">
+            Consulta avance, cumplimiento y madurez por ciclo. Los usuarios de consulta solo ven resultados cerrados como oficiales.
+        </p>
+    </div>
+    <article class="hero-card compact">
+        <div class="card-kicker">Filtro</div>
+        <form method="get" class="stack">
+            <label>Ciclo
+                <select name="cycle_id">
+                    {% for cycle in cycles %}
+                    <option value="{{ cycle.id }}" {% if selected_cycle and selected_cycle.id == cycle.id %}selected{% endif %}>{{ cycle.nombre }}</option>
+                    {% endfor %}
+                </select>
+            </label>
+            <button class="button button-primary" type="submit">Actualizar</button>
+        </form>
+    </article>
+</section>
+
+{% if selected_cycle and selected_summary %}
+<section class="metric-grid">
+    <article class="metric-card"><span>Evaluaciones visibles</span><strong>{{ selected_summary.visible_total }}</strong></article>
+    <article class="metric-card"><span>Cerradas</span><strong>{{ selected_summary.closed_count }}</strong></article>
+    <article class="metric-card"><span>En revision</span><strong>{{ selected_summary.review_count }}</strong></article>
+    <article class="metric-card"><span>Cumplimiento promedio</span><strong>{% if selected_summary.avg_percent is not none %}{{ selected_summary.avg_percent }}%{% else %}-{% endif %}</strong></article>
+</section>
+
+<section class="section-grid two">
+    <article class="panel">
+        <div class="section-heading">
+            <div>
+                <p class="eyebrow">Ciclo</p>
+                <h2>{{ selected_cycle.nombre }}</h2>
+            </div>
+        </div>
+        <div class="meta-grid single-column-mobile">
+            <div>
+                <span class="meta-label">Estado</span>
+                <p><span class="status status-{{ selected_cycle.estado }}">{{ selected_cycle.estado|replace('_', ' ')|title }}</span></p>
+            </div>
+            <div>
+                <span class="meta-label">Vigencia</span>
+                <p>{{ selected_cycle.fecha_inicio }} a {{ selected_cycle.fecha_cierre }}</p>
+            </div>
+            <div>
+                <span class="meta-label">Cuestionario</span>
+                <p>{{ selected_cycle.version.nombre }}</p>
+            </div>
+            <div>
+                <span class="meta-label">Avance promedio</span>
+                <p>{{ selected_summary.avg_completion }}%</p>
+            </div>
+        </div>
+    </article>
+
+    <article class="panel">
+        <div class="section-heading">
+            <div>
+                <p class="eyebrow">Estados</p>
+                <h2>Distribucion</h2>
+            </div>
+        </div>
+        <div class="stack">
+            {% for state, count in selected_summary.state_counts.items() %}
+            <div class="list-row data-row">
+                <strong>{{ state|replace('_', ' ')|title }}</strong>
+                <span class="pill">{{ count }}</span>
+            </div>
+            {% else %}
+            <p class="muted">Sin evaluaciones registradas.</p>
+            {% endfor %}
+        </div>
+    </article>
+</section>
+
+<article class="panel compact-top">
+    <div class="section-heading">
+        <div>
+            <p class="eyebrow">Detalle</p>
+            <h2>Evaluaciones del ciclo</h2>
+        </div>
+    </div>
+    <div class="table-wrap">
+        <table class="executive-table">
+            <thead>
+                <tr>
+                    <th>Dependencia</th>
+                    <th>Responsable</th>
+                    <th>Revisor</th>
+                    <th>Estado</th>
+                    <th>Avance</th>
+                    <th>Cumplimiento</th>
+                    <th>Madurez</th>
+                    <th>Acciones</th>
+                </tr>
+            </thead>
+            <tbody>
+                {% for row in selected_summary.rows %}
+                <tr>
+                    <td><strong>{{ row.dependencia }}</strong></td>
+                    <td>{{ row.responsable }}</td>
+                    <td>{{ row.revisor }}</td>
+                    <td><span class="status status-{{ row.estado }}">{{ row.estado_label }}</span></td>
+                    <td>{{ row.avance }}%</td>
+                    <td>{% if row.cumplimiento is not none %}{{ row.cumplimiento }}%{% else %}-{% endif %}</td>
+                    <td><span class="status status-{{ row.maturity_slug }}">{{ row.madurez }}</span></td>
+                    <td>
+                        <div class="actions">
+                            <a class="button" href="{{ url_for('iso9001.evaluation_detail', evaluation_id=row.evaluacion.id) }}">Abrir</a>
+                            {% if current_user.rol in ['administrador', 'revisor'] %}
+                            <a class="button" href="{{ url_for('iso9001.review_evaluation', evaluation_id=row.evaluacion.id) }}">Revision</a>
+                            {% endif %}
+                            <a class="button" href="{{ url_for('iso9001.report_pdf', evaluation_id=row.evaluacion.id) }}">PDF</a>
+                            <a class="button" href="{{ url_for('iso9001.report_excel', evaluation_id=row.evaluacion.id) }}">XLSX</a>
+                        </div>
+                    </td>
+                </tr>
+                {% else %}
+                <tr><td colspan="8" class="muted">Sin evaluaciones visibles para este ciclo.</td></tr>
+                {% endfor %}
+            </tbody>
+        </table>
+    </div>
+</article>
+{% else %}
+<article class="panel">
+    <p class="muted">Aun no hay ciclos ISO para generar reportes.</p>
+</article>
+{% endif %}
+{% endblock %}

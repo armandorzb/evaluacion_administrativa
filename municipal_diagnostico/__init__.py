@@ -11,6 +11,7 @@ from municipal_diagnostico.blueprints.auth import bp as auth_bp
 from municipal_diagnostico.blueprints.campaigns import bp as campaigns_bp
 from municipal_diagnostico.blueprints.dashboard import bp as dashboard_bp
 from municipal_diagnostico.blueprints.evaluation import bp as evaluation_bp
+from municipal_diagnostico.blueprints.iso9001 import bp as iso9001_bp
 from municipal_diagnostico.blueprints.reports import bp as reports_bp
 from municipal_diagnostico.blueprints.wellbeing import bp as wellbeing_bp
 from municipal_diagnostico.extensions import db, login_manager, migrate
@@ -21,6 +22,7 @@ from municipal_diagnostico.seeds import (
     ensure_wellbeing_catalog,
     register_cli_commands,
 )
+from municipal_diagnostico.services.iso9001 import ensure_iso9001_catalog
 from municipal_diagnostico.timeutils import app_timezone, to_localtime, utcnow
 
 
@@ -78,6 +80,7 @@ def ensure_database_ready(app: Flask) -> None:
         ensure_schema_compatibility(app)
         ensure_official_questionnaire()
         ensure_wellbeing_catalog()
+        ensure_iso9001_catalog()
 
         if not has_user_table:
             email = app.config.get("BOOTSTRAP_ADMIN_EMAIL")
@@ -105,6 +108,7 @@ def ensure_schema_compatibility(app: Flask) -> None:
         columns = {column["name"] for column in inspector.get_columns("usuario")}
         needs_diagnostic_backfill = "acceso_diagnostico" not in columns
         needs_wellbeing_backfill = "acceso_bienestar" not in columns
+        needs_iso9001_backfill = "acceso_iso9001" not in columns
         with db.engine.begin() as connection:
             if needs_diagnostic_backfill:
                 connection.execute(text("ALTER TABLE usuario ADD COLUMN acceso_diagnostico BOOLEAN NOT NULL DEFAULT 1"))
@@ -112,13 +116,20 @@ def ensure_schema_compatibility(app: Flask) -> None:
             if needs_wellbeing_backfill:
                 connection.execute(text("ALTER TABLE usuario ADD COLUMN acceso_bienestar BOOLEAN NOT NULL DEFAULT 0"))
                 app.logger.info("Columna usuario.acceso_bienestar agregada automáticamente.")
-            if needs_diagnostic_backfill or needs_wellbeing_backfill:
+            if needs_iso9001_backfill:
+                connection.execute(text("ALTER TABLE usuario ADD COLUMN acceso_iso9001 BOOLEAN NOT NULL DEFAULT 0"))
+                app.logger.info("Columna usuario.acceso_iso9001 agregada automaticamente.")
+            if needs_diagnostic_backfill or needs_wellbeing_backfill or needs_iso9001_backfill:
                 connection.execute(
                     text(
                         """
                         UPDATE usuario
                         SET acceso_diagnostico = 1,
                             acceso_bienestar = CASE
+                                WHEN rol = 'administrador' THEN 1
+                                ELSE 0
+                            END,
+                            acceso_iso9001 = CASE
                                 WHEN rol = 'administrador' THEN 1
                                 ELSE 0
                             END
@@ -155,6 +166,7 @@ def register_blueprints(app: Flask) -> None:
     app.register_blueprint(admin_bp)
     app.register_blueprint(campaigns_bp)
     app.register_blueprint(evaluation_bp)
+    app.register_blueprint(iso9001_bp)
     app.register_blueprint(reports_bp)
     app.register_blueprint(wellbeing_bp)
 

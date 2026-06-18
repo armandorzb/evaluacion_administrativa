@@ -1,0 +1,66 @@
+<!DOCTYPE html>
+<html lang="es">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>{% block title %}Diagnostico ISO 9001:2015{% endblock %}</title>
+    <link rel="preconnect" href="https://fonts.googleapis.com">
+    <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+    <link href="https://fonts.googleapis.com/css2?family=Urbanist:wght@300;400;500;600;700;800&family=Source+Sans+3:wght@400;600;700&display=swap" rel="stylesheet">
+    <link rel="stylesheet" href="{{ url_for('static', filename='style.css') }}">
+    <script defer src="{{ url_for('static', filename='app.js') }}"></script>
+</head>
+<body class="{% block body_class %}{% endblock %}" {% if current_user.is_authenticated %}data-heartbeat-url="{{ url_for('dashboard.heartbeat') }}"{% endif %}>
+    <div class="site-shell">
+        <header class="site-header" data-header-region>
+            <div class="header-frame">
+                <div class="brand-block">
+                    <p class="eyebrow">Sistema de Gestion de la Calidad</p>
+                    <a href="{{ url_for('iso9001.dashboard') }}" class="brand">Diagnostico ISO 9001:2015</a>
+                    <p class="brand-subtitle">Implementacion, evidencia documental y madurez institucional</p>
+                </div>
+
+                <button class="menu-toggle" type="button" aria-expanded="false" aria-controls="iso9001-navigation" data-menu-toggle>
+                    <span class="menu-toggle-lines" aria-hidden="true"><span></span><span></span><span></span></span>
+                    <strong>Menu</strong>
+                </button>
+
+                <div class="header-shell" id="iso9001-navigation" data-header-shell data-open="false">
+                    <nav class="main-nav" aria-label="ISO 9001">
+                        <a href="{{ url_for('iso9001.dashboard') }}" style="--menu-order: 0;">Tablero</a>
+                        {% if current_user.rol == 'administrador' %}
+                        <a href="{{ url_for('iso9001.cycles') }}" style="--menu-order: 1;">Ciclos</a>
+                        {% endif %}
+                        <a href="{{ url_for('iso9001.reports') }}" style="--menu-order: 2;">Reportes</a>
+                        {% if current_user.tiene_selector_modulos %}
+                        <a href="{{ url_for('dashboard.modules') }}" style="--menu-order: 3;">Cambiar modulo</a>
+                        {% endif %}
+                    </nav>
+                    <div class="header-tools" style="--menu-order: 9;">
+                        <div class="identity">
+                            <span>{{ current_user.nombre }}</span>
+                            <small>{{ current_user.nombre_rol }} - {{ app_timezone }}</small>
+                        </div>
+                        <a class="secondary-link" href="{{ url_for('auth.logout') }}">Salir</a>
+                    </div>
+                </div>
+            </div>
+        </header>
+        <div class="menu-scrim" data-menu-scrim aria-hidden="true"></div>
+
+        <main class="content-shell">
+            {% with messages = get_flashed_messages(with_categories=true) %}
+                {% if messages %}
+                <div class="flash-stack">
+                    {% for category, message in messages %}
+                    <div class="flash flash-{{ category }}">{{ message }}</div>
+                    {% endfor %}
+                </div>
+                {% endif %}
+            {% endwith %}
+
+            {% block content %}{% endblock %}
+        </main>
+    </div>
+</body>
+</html>

@@ -1,0 +1,64 @@
+{% extends "iso9001_base.html" %}
+{% block title %}Tablero | Diagnostico ISO 9001:2015{% endblock %}
+{% block content %}
+<section class="executive-hero">
+    <div class="hero-copy">
+        <p class="eyebrow">Modulo interno</p>
+        <h1>Diagnostico de implementacion ISO 9001:2015</h1>
+        <p class="lede">
+            Gestiona ciclos por dependencia, captura evidencia por reactivo y cierra resultados oficiales con revision formal.
+        </p>
+    </div>
+    <article class="hero-card compact">
+        <div class="actions vertical">
+            {% if current_user.rol == 'administrador' %}
+            <a class="button button-primary" href="{{ url_for('iso9001.cycles') }}">Administrar ciclos</a>
+            {% endif %}
+            <a class="button" href="{{ url_for('iso9001.reports') }}">Ver reportes</a>
+        </div>
+    </article>
+</section>
+
+<section class="metric-grid">
+    <article class="metric-card"><span>Ciclos</span><strong>{{ counts.ciclos }}</strong></article>
+    <article class="metric-card"><span>Evaluaciones visibles</span><strong>{{ counts.evaluaciones }}</strong></article>
+    <article class="metric-card"><span>En revision</span><strong>{{ counts.en_revision }}</strong></article>
+    <article class="metric-card"><span>Cerradas</span><strong>{{ counts.cerradas }}</strong></article>
+</section>
+
+<section class="section-heading">
+    <div>
+        <p class="eyebrow">Seguimiento</p>
+        <h2>Evaluaciones ISO recientes</h2>
+    </div>
+</section>
+
+<section class="card-grid">
+    {% for card in summaries %}
+    <article class="report-card">
+        <div class="report-card-head">
+            <div>
+                <h3>{{ card.evaluacion.dependencia.nombre }}</h3>
+                <p>{{ card.evaluacion.ciclo.nombre }}</p>
+            </div>
+            <span class="status status-{{ card.evaluacion.estado }}">{{ card.summary.state_label }}</span>
+        </div>
+        <div class="metric-inline"><span>Avance</span><strong>{{ card.summary.completion }}%</strong></div>
+        <div class="metric-inline"><span>Cumplimiento</span><strong>{% if card.summary.percent is not none %}{{ card.summary.percent }}%{% else %}Sin aplicables{% endif %}</strong></div>
+        <div class="metric-inline"><span>Madurez</span><strong>{{ card.summary.maturity_label }}</strong></div>
+        <div class="actions">
+            <a class="button button-primary" href="{{ url_for('iso9001.evaluation_detail', evaluation_id=card.evaluacion.id) }}">Abrir</a>
+            {% if current_user.rol in ['administrador', 'revisor'] %}
+            <a class="button" href="{{ url_for('iso9001.review_evaluation', evaluation_id=card.evaluacion.id) }}">Revision</a>
+            {% endif %}
+            <a class="button" href="{{ url_for('iso9001.report_pdf', evaluation_id=card.evaluacion.id) }}">PDF</a>
+            <a class="button" href="{{ url_for('iso9001.report_excel', evaluation_id=card.evaluacion.id) }}">XLSX</a>
+        </div>
+    </article>
+    {% else %}
+    <article class="panel">
+        <p class="muted">Aun no hay evaluaciones ISO visibles.</p>
+    </article>
+    {% endfor %}
+</section>
+{% endblock %}

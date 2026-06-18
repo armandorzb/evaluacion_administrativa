@@ -6,8 +6,10 @@ from werkzeug.security import check_password_hash, generate_password_hash
 
 from municipal_diagnostico.extensions import db
 from municipal_diagnostico.services.module_access import (
+    ISO9001_ALLOWED_ROLES,
     MODULE_BIENESTAR,
     MODULE_DIAGNOSTICO,
+    MODULE_ISO9001,
     WELLBEING_ALLOWED_ROLES,
     normalize_module_flags,
 )
@@ -44,6 +46,7 @@ class Dependencia(TimestampMixin, db.Model):
         back_populates="dependencia",
         foreign_keys="AsignacionCuestionario.dependencia_id",
     )
+    iso9001_evaluaciones = db.relationship("Iso9001Evaluacion", back_populates="dependencia")
 
     @property
     def areas_activas(self):
@@ -83,6 +86,7 @@ class Usuario(UserMixin, TimestampMixin, db.Model):
     activo = db.Column(db.Boolean, default=True, nullable=False)
     acceso_diagnostico = db.Column(db.Boolean, nullable=False, default=True)
     acceso_bienestar = db.Column(db.Boolean, nullable=False, default=False)
+    acceso_iso9001 = db.Column(db.Boolean, nullable=False, default=False)
     dependencia_id = db.Column(db.Integer, db.ForeignKey("dependencia.id"))
     area_id = db.Column(db.Integer, db.ForeignKey("area.id"))
 
@@ -148,6 +152,36 @@ class Usuario(UserMixin, TimestampMixin, db.Model):
         back_populates="usuario",
         foreign_keys="SoporteSeccion.usuario_id",
     )
+    iso9001_ciclos_creados = db.relationship(
+        "Iso9001Ciclo",
+        back_populates="creado_por",
+        foreign_keys="Iso9001Ciclo.creado_por_id",
+    )
+    iso9001_asignaciones = db.relationship(
+        "Iso9001Asignacion",
+        back_populates="usuario",
+        foreign_keys="Iso9001Asignacion.usuario_id",
+    )
+    iso9001_revisiones = db.relationship(
+        "Iso9001Evaluacion",
+        back_populates="revisor",
+        foreign_keys="Iso9001Evaluacion.revisor_id",
+    )
+    iso9001_respuestas = db.relationship(
+        "Iso9001Respuesta",
+        back_populates="usuario",
+        foreign_keys="Iso9001Respuesta.usuario_id",
+    )
+    iso9001_evidencias = db.relationship(
+        "Iso9001Evidencia",
+        back_populates="usuario",
+        foreign_keys="Iso9001Evidencia.usuario_id",
+    )
+    iso9001_observaciones = db.relationship(
+        "Iso9001ObservacionRevision",
+        back_populates="autor",
+        foreign_keys="Iso9001ObservacionRevision.autor_id",
+    )
 
     def __init__(self, **kwargs):
         super().__init__(**kwargs)
@@ -155,9 +189,11 @@ class Usuario(UserMixin, TimestampMixin, db.Model):
             kwargs.get("rol", getattr(self, "rol", None)),
             kwargs.get("acceso_diagnostico", getattr(self, "acceso_diagnostico", None)),
             kwargs.get("acceso_bienestar", getattr(self, "acceso_bienestar", None)),
+            kwargs.get("acceso_iso9001", getattr(self, "acceso_iso9001", None)),
         )
         self.acceso_diagnostico = normalized["acceso_diagnostico"]
         self.acceso_bienestar = normalized["acceso_bienestar"]
+        self.acceso_iso9001 = normalized["acceso_iso9001"]
 
     def set_password(self, password: str) -> None:
         self.password_hash = generate_password_hash(password)
@@ -166,9 +202,10 @@ class Usuario(UserMixin, TimestampMixin, db.Model):
         return check_password_hash(self.password_hash, password)
 
     def sync_module_accesses(self) -> None:
-        normalized = normalize_module_flags(self.rol, self.acceso_diagnostico, self.acceso_bienestar)
+        normalized = normalize_module_flags(self.rol, self.acceso_diagnostico, self.acceso_bienestar, self.acceso_iso9001)
         self.acceso_diagnostico = normalized["acceso_diagnostico"]
         self.acceso_bienestar = normalized["acceso_bienestar"]
+        self.acceso_iso9001 = normalized["acceso_iso9001"]
 
     @property
     def nombre_rol(self) -> str:
@@ -193,12 +230,22 @@ class Usuario(UserMixin, TimestampMixin, db.Model):
         )
 
     @property
+    def puede_acceder_iso9001(self) -> bool:
+        return (
+            self.activo
+            and bool(self.acceso_iso9001)
+            and self.rol in ISO9001_ALLOWED_ROLES
+        )
+
+    @property
     def modulos_disponibles(self) -> list[str]:
         modules = []
         if self.puede_acceder_diagnostico:
             modules.append(MODULE_DIAGNOSTICO)
         if self.puede_acceder_bienestar:
             modules.append(MODULE_BIENESTAR)
+        if self.puede_acceder_iso9001:
+            modules.append(MODULE_ISO9001)
         return modules
 
     @property
@@ -212,6 +259,8 @@ class Usuario(UserMixin, TimestampMixin, db.Model):
             labels.append("Diagnóstico")
         if self.acceso_bienestar:
             labels.append("Bienestar")
+        if self.acceso_iso9001:
+            labels.append("ISO 9001")
         return " · ".join(labels) if labels else "Sin acceso"
 
 
@@ -517,6 +566,237 @@ class BienestarRespuesta(TimestampMixin, db.Model):
             name="uq_bienestar_encuesta_pregunta",
         ),
     )
+
+
+class Iso9001CuestionarioVersion(TimestampMixin, db.Model):
+    __tablename__ = "iso9001_cuestionario_version"
+
+    id = db.Column(db.Integer, primary_key=True)
+    slug = db.Column(db.String(80), unique=True, nullable=False, index=True)
+    nombre = db.Column(db.String(180), nullable=False)
+    descripcion = db.Column(db.Text)
+    norma = db.Column(db.String(80), nullable=False, default="ISO 9001:2015")
+    estado = db.Column(db.String(20), default="publicado", nullable=False)
+    publicado_at = db.Column(db.DateTime, default=utcnow)
+
+    clausulas = db.relationship(
+        "Iso9001Clausula",
+        back_populates="version",
+        cascade="all, delete-orphan",
+        order_by="Iso9001Clausula.orden",
+    )
+    ciclos = db.relationship("Iso9001Ciclo", back_populates="version")
+
+
+class Iso9001Clausula(TimestampMixin, db.Model):
+    __tablename__ = "iso9001_clausula"
+
+    id = db.Column(db.Integer, primary_key=True)
+    version_id = db.Column(db.Integer, db.ForeignKey("iso9001_cuestionario_version.id"), nullable=False)
+    numero = db.Column(db.String(10), nullable=False)
+    nombre = db.Column(db.String(180), nullable=False)
+    orden = db.Column(db.Integer, nullable=False)
+
+    version = db.relationship("Iso9001CuestionarioVersion", back_populates="clausulas")
+    apartados = db.relationship(
+        "Iso9001Apartado",
+        back_populates="clausula",
+        cascade="all, delete-orphan",
+        order_by="Iso9001Apartado.orden",
+    )
+
+    __table_args__ = (
+        UniqueConstraint("version_id", "numero", name="uq_iso9001_clausula_version_numero"),
+    )
+
+
+class Iso9001Apartado(TimestampMixin, db.Model):
+    __tablename__ = "iso9001_apartado"
+
+    id = db.Column(db.Integer, primary_key=True)
+    clausula_id = db.Column(db.Integer, db.ForeignKey("iso9001_clausula.id"), nullable=False)
+    codigo = db.Column(db.String(20), nullable=False)
+    nombre = db.Column(db.String(220), nullable=False)
+    orden = db.Column(db.Integer, nullable=False)
+
+    clausula = db.relationship("Iso9001Clausula", back_populates="apartados")
+    reactivos = db.relationship(
+        "Iso9001Reactivo",
+        back_populates="apartado",
+        cascade="all, delete-orphan",
+        order_by="Iso9001Reactivo.orden",
+    )
+
+    __table_args__ = (
+        UniqueConstraint("clausula_id", "codigo", name="uq_iso9001_apartado_clausula_codigo"),
+    )
+
+
+class Iso9001Reactivo(TimestampMixin, db.Model):
+    __tablename__ = "iso9001_reactivo"
+
+    id = db.Column(db.Integer, primary_key=True)
+    apartado_id = db.Column(db.Integer, db.ForeignKey("iso9001_apartado.id"), nullable=False)
+    numero = db.Column(db.Integer, nullable=False)
+    orden = db.Column(db.Integer, nullable=False)
+    texto = db.Column(db.Text, nullable=False)
+    evidencia_sugerida = db.Column(db.Text)
+    criterio_idoneidad = db.Column(db.Text)
+
+    apartado = db.relationship("Iso9001Apartado", back_populates="reactivos")
+    respuestas = db.relationship("Iso9001Respuesta", back_populates="reactivo")
+
+    __table_args__ = (
+        UniqueConstraint("apartado_id", "orden", name="uq_iso9001_reactivo_apartado_orden"),
+        UniqueConstraint("apartado_id", "numero", name="uq_iso9001_reactivo_apartado_numero"),
+    )
+
+    @property
+    def codigo(self) -> str:
+        return f"{self.apartado.codigo}.{self.numero}"
+
+
+class Iso9001Ciclo(TimestampMixin, db.Model):
+    __tablename__ = "iso9001_ciclo"
+
+    id = db.Column(db.Integer, primary_key=True)
+    nombre = db.Column(db.String(180), unique=True, nullable=False)
+    descripcion = db.Column(db.Text)
+    estado = db.Column(db.String(20), default="borrador", nullable=False)
+    fecha_inicio = db.Column(db.Date, nullable=False)
+    fecha_cierre = db.Column(db.Date, nullable=False)
+    version_id = db.Column(db.Integer, db.ForeignKey("iso9001_cuestionario_version.id"), nullable=False)
+    creado_por_id = db.Column(db.Integer, db.ForeignKey("usuario.id"))
+
+    version = db.relationship("Iso9001CuestionarioVersion", back_populates="ciclos")
+    creado_por = db.relationship("Usuario", back_populates="iso9001_ciclos_creados", foreign_keys=[creado_por_id])
+    evaluaciones = db.relationship(
+        "Iso9001Evaluacion",
+        back_populates="ciclo",
+        cascade="all, delete-orphan",
+        order_by="Iso9001Evaluacion.updated_at.desc()",
+    )
+
+    @property
+    def esta_activo(self) -> bool:
+        return self.estado == "activo"
+
+
+class Iso9001Evaluacion(TimestampMixin, db.Model):
+    __tablename__ = "iso9001_evaluacion"
+
+    id = db.Column(db.Integer, primary_key=True)
+    ciclo_id = db.Column(db.Integer, db.ForeignKey("iso9001_ciclo.id"), nullable=False)
+    dependencia_id = db.Column(db.Integer, db.ForeignKey("dependencia.id"), nullable=False)
+    revisor_id = db.Column(db.Integer, db.ForeignKey("usuario.id"))
+    estado = db.Column(db.String(20), default="borrador", nullable=False)
+    progreso = db.Column(db.Float, default=0.0, nullable=False)
+    enviada_revision_at = db.Column(db.DateTime)
+    cerrada_at = db.Column(db.DateTime)
+
+    ciclo = db.relationship("Iso9001Ciclo", back_populates="evaluaciones")
+    dependencia = db.relationship("Dependencia", back_populates="iso9001_evaluaciones")
+    revisor = db.relationship("Usuario", back_populates="iso9001_revisiones", foreign_keys=[revisor_id])
+    asignaciones = db.relationship(
+        "Iso9001Asignacion",
+        back_populates="evaluacion",
+        cascade="all, delete-orphan",
+    )
+    respuestas = db.relationship(
+        "Iso9001Respuesta",
+        back_populates="evaluacion",
+        cascade="all, delete-orphan",
+    )
+    observaciones = db.relationship(
+        "Iso9001ObservacionRevision",
+        back_populates="evaluacion",
+        cascade="all, delete-orphan",
+        order_by="Iso9001ObservacionRevision.created_at.desc()",
+    )
+
+    __table_args__ = (
+        UniqueConstraint("ciclo_id", "dependencia_id", name="uq_iso9001_evaluacion_ciclo_dependencia"),
+    )
+
+    @property
+    def editable(self) -> bool:
+        return self.estado in {"borrador", "en_captura", "devuelta"} and self.ciclo.esta_activo
+
+    @property
+    def responsable(self):
+        assignment = next((item for item in self.asignaciones if item.tipo == "captura"), None)
+        return assignment.usuario if assignment else None
+
+
+class Iso9001Asignacion(TimestampMixin, db.Model):
+    __tablename__ = "iso9001_asignacion"
+
+    id = db.Column(db.Integer, primary_key=True)
+    evaluacion_id = db.Column(db.Integer, db.ForeignKey("iso9001_evaluacion.id"), nullable=False)
+    usuario_id = db.Column(db.Integer, db.ForeignKey("usuario.id"), nullable=False)
+    tipo = db.Column(db.String(30), default="captura", nullable=False)
+
+    evaluacion = db.relationship("Iso9001Evaluacion", back_populates="asignaciones")
+    usuario = db.relationship("Usuario", back_populates="iso9001_asignaciones", foreign_keys=[usuario_id])
+
+    __table_args__ = (
+        UniqueConstraint("evaluacion_id", "usuario_id", "tipo", name="uq_iso9001_asignacion_usuario_tipo"),
+    )
+
+
+class Iso9001Respuesta(TimestampMixin, db.Model):
+    __tablename__ = "iso9001_respuesta"
+
+    id = db.Column(db.Integer, primary_key=True)
+    evaluacion_id = db.Column(db.Integer, db.ForeignKey("iso9001_evaluacion.id"), nullable=False)
+    reactivo_id = db.Column(db.Integer, db.ForeignKey("iso9001_reactivo.id"), nullable=False)
+    usuario_id = db.Column(db.Integer, db.ForeignKey("usuario.id"), nullable=False)
+    calificacion = db.Column(db.String(12), nullable=False)
+    valor = db.Column(db.Integer)
+    observacion = db.Column(db.Text)
+
+    evaluacion = db.relationship("Iso9001Evaluacion", back_populates="respuestas")
+    reactivo = db.relationship("Iso9001Reactivo", back_populates="respuestas")
+    usuario = db.relationship("Usuario", back_populates="iso9001_respuestas", foreign_keys=[usuario_id])
+    evidencias = db.relationship(
+        "Iso9001Evidencia",
+        back_populates="respuesta",
+        cascade="all, delete-orphan",
+        order_by="Iso9001Evidencia.created_at.desc()",
+    )
+
+    __table_args__ = (
+        UniqueConstraint("evaluacion_id", "reactivo_id", name="uq_iso9001_respuesta_evaluacion_reactivo"),
+    )
+
+
+class Iso9001Evidencia(TimestampMixin, db.Model):
+    __tablename__ = "iso9001_evidencia"
+
+    id = db.Column(db.Integer, primary_key=True)
+    respuesta_id = db.Column(db.Integer, db.ForeignKey("iso9001_respuesta.id"), nullable=False)
+    usuario_id = db.Column(db.Integer, db.ForeignKey("usuario.id"), nullable=False)
+    archivo_nombre_original = db.Column(db.String(255), nullable=False)
+    archivo_guardado = db.Column(db.String(255), nullable=False)
+    mime_type = db.Column(db.String(120), nullable=False)
+    tamano_bytes = db.Column(db.Integer, nullable=False)
+    activo = db.Column(db.Boolean, default=True, nullable=False)
+
+    respuesta = db.relationship("Iso9001Respuesta", back_populates="evidencias")
+    usuario = db.relationship("Usuario", back_populates="iso9001_evidencias", foreign_keys=[usuario_id])
+
+
+class Iso9001ObservacionRevision(TimestampMixin, db.Model):
+    __tablename__ = "iso9001_observacion_revision"
+
+    id = db.Column(db.Integer, primary_key=True)
+    evaluacion_id = db.Column(db.Integer, db.ForeignKey("iso9001_evaluacion.id"), nullable=False)
+    autor_id = db.Column(db.Integer, db.ForeignKey("usuario.id"), nullable=False)
+    accion = db.Column(db.String(20), nullable=False)
+    comentario = db.Column(db.Text, nullable=False)
+
+    evaluacion = db.relationship("Iso9001Evaluacion", back_populates="observaciones")
+    autor = db.relationship("Usuario", back_populates="iso9001_observaciones", foreign_keys=[autor_id])
 
 
 class Evaluacion(TimestampMixin, db.Model):

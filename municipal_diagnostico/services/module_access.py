@@ -3,13 +3,16 @@ from __future__ import annotations
 
 MODULE_DIAGNOSTICO = "diagnostico"
 MODULE_BIENESTAR = "bienestar"
+MODULE_ISO9001 = "iso9001"
 
 MODULE_LABELS = {
     MODULE_DIAGNOSTICO: "Diagnóstico Integral Municipal",
     MODULE_BIENESTAR: "Bienestar Policial",
+    MODULE_ISO9001: "Diagnostico ISO 9001:2015",
 }
 
 WELLBEING_ALLOWED_ROLES = {"administrador", "consulta"}
+ISO9001_ALLOWED_ROLES = {"administrador", "revisor", "evaluador", "consulta"}
 
 TRUTHY_VALUES = {"1", "true", "t", "si", "sí", "yes", "y", "on", "x"}
 FALSY_VALUES = {"0", "false", "f", "no", "n", "off"}
@@ -20,6 +23,7 @@ def default_module_flags(role: str | None) -> dict[str, bool]:
     return {
         "acceso_diagnostico": True,
         "acceso_bienestar": normalized_role == "administrador",
+        "acceso_iso9001": normalized_role == "administrador",
     }
 
 
@@ -27,18 +31,23 @@ def normalize_module_flags(
     role: str | None,
     acceso_diagnostico: bool | None = None,
     acceso_bienestar: bool | None = None,
+    acceso_iso9001: bool | None = None,
 ) -> dict[str, bool]:
     defaults = default_module_flags(role)
     normalized_role = (role or "").strip().lower()
     diagnostico = defaults["acceso_diagnostico"] if acceso_diagnostico is None else bool(acceso_diagnostico)
     bienestar = defaults["acceso_bienestar"] if acceso_bienestar is None else bool(acceso_bienestar)
+    iso9001 = defaults["acceso_iso9001"] if acceso_iso9001 is None else bool(acceso_iso9001)
 
     if normalized_role not in WELLBEING_ALLOWED_ROLES:
         bienestar = False
+    if normalized_role not in ISO9001_ALLOWED_ROLES:
+        iso9001 = False
 
     return {
         "acceso_diagnostico": diagnostico,
         "acceso_bienestar": bienestar,
+        "acceso_iso9001": iso9001,
     }
 
 
@@ -48,6 +57,8 @@ def modules_for_user(user) -> list[str]:
         available.append(MODULE_DIAGNOSTICO)
     if getattr(user, "puede_acceder_bienestar", False):
         available.append(MODULE_BIENESTAR)
+    if getattr(user, "puede_acceder_iso9001", False):
+        available.append(MODULE_ISO9001)
     return available
 
 
@@ -63,6 +74,8 @@ def landing_endpoint_for_user(user) -> str | None:
         return "dashboard.modules"
     if available[0] == MODULE_BIENESTAR:
         return "wellbeing.dashboard"
+    if available[0] == MODULE_ISO9001:
+        return "iso9001.dashboard"
     return "dashboard.diagnostic_home"
 
 
@@ -71,6 +84,8 @@ def endpoint_for_module(user, module_slug: str) -> str | None:
         return "dashboard.diagnostic_home"
     if module_slug == MODULE_BIENESTAR and getattr(user, "puede_acceder_bienestar", False):
         return "wellbeing.dashboard"
+    if module_slug == MODULE_ISO9001 and getattr(user, "puede_acceder_iso9001", False):
+        return "iso9001.dashboard"
     return None
 
 

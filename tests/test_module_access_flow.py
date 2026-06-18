@@ -34,6 +34,7 @@ def build_app():
                 activo=True,
                 acceso_diagnostico=True,
                 acceso_bienestar=True,
+                acceso_iso9001=True,
             ),
             Usuario(
                 nombre="Solo Diagnostico",
@@ -42,6 +43,7 @@ def build_app():
                 activo=True,
                 acceso_diagnostico=True,
                 acceso_bienestar=False,
+                acceso_iso9001=False,
             ),
             Usuario(
                 nombre="Solo Bienestar",
@@ -50,6 +52,7 @@ def build_app():
                 activo=True,
                 acceso_diagnostico=False,
                 acceso_bienestar=True,
+                acceso_iso9001=False,
             ),
             Usuario(
                 nombre="Sin Modulos",
@@ -58,6 +61,7 @@ def build_app():
                 activo=True,
                 acceso_diagnostico=False,
                 acceso_bienestar=False,
+                acceso_iso9001=False,
             ),
         ]
         for user in users:
@@ -77,6 +81,7 @@ def test_login_routes_users_to_the_correct_module_shell():
     assert "Selecciona el módulo" in dual_html
     assert "Diagnóstico Integral Municipal" in dual_html
     assert "Bienestar Policial" in dual_html
+    assert "ISO 9001" in dual_html
 
     client.get("/auth/logout", follow_redirects=True)
 
@@ -115,6 +120,9 @@ def test_module_guards_block_cross_module_access():
     wellbeing_denied = client.get("/bienestar/panel")
     assert wellbeing_denied.status_code == 403
     assert "Bienestar Policial" in wellbeing_denied.get_data(as_text=True)
+    iso_denied = client.get("/iso9001/")
+    assert iso_denied.status_code == 403
+    assert "ISO 9001:2015" in iso_denied.get_data(as_text=True)
 
     client.get("/auth/logout", follow_redirects=True)
     login(client, "bienestar@test.local")
@@ -183,6 +191,7 @@ def test_admin_catalogs_validate_module_assignment_rules():
         assert created_default_user is not None
         assert created_default_user.acceso_diagnostico is True
         assert created_default_user.acceso_bienestar is False
+        assert created_default_user.acceso_iso9001 is False
 
     valid_wellbeing_only = client.post(
         "/admin/catalogos",
@@ -204,6 +213,7 @@ def test_admin_catalogs_validate_module_assignment_rules():
         assert created_user is not None
         assert created_user.acceso_diagnostico is False
         assert created_user.acceso_bienestar is True
+        assert created_user.acceso_iso9001 is False
 
     client.get("/auth/logout", follow_redirects=True)
     redirected = login(client, "consultabienestar@test.local")

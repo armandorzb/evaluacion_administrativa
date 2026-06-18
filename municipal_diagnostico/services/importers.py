@@ -7,7 +7,7 @@ from openpyxl import load_workbook
 
 from municipal_diagnostico.extensions import db
 from municipal_diagnostico.models import Area, Dependencia, Usuario
-from municipal_diagnostico.services.module_access import WELLBEING_ALLOWED_ROLES, normalize_module_flags, parse_optional_flag
+from municipal_diagnostico.services.module_access import ISO9001_ALLOWED_ROLES, WELLBEING_ALLOWED_ROLES, normalize_module_flags, parse_optional_flag
 
 
 def load_rows(file_storage) -> list[dict]:
@@ -98,15 +98,19 @@ def import_usuarios(rows: list[dict]) -> dict:
         try:
             requested_diagnostic = parse_optional_flag(row.get("acceso_diagnostico"))
             requested_wellbeing = parse_optional_flag(row.get("acceso_bienestar"))
+            requested_iso9001 = parse_optional_flag(row.get("acceso_iso9001"))
         except ValueError:
             errors.append(f"Valor de acceso inválido para usuario {email}. Usa si/no, true/false o 1/0.")
             continue
         if requested_wellbeing is True and role not in WELLBEING_ALLOWED_ROLES:
             errors.append(f"Bienestar Policial solo puede asignarse a administrador o consulta: {email}")
             continue
+        if requested_iso9001 is True and role not in ISO9001_ALLOWED_ROLES:
+            errors.append(f"Diagnostico ISO 9001:2015 solo puede asignarse a administrador, revisor, evaluador o consulta: {email}")
+            continue
 
-        module_access = normalize_module_flags(role, requested_diagnostic, requested_wellbeing)
-        if not module_access["acceso_diagnostico"] and not module_access["acceso_bienestar"]:
+        module_access = normalize_module_flags(role, requested_diagnostic, requested_wellbeing, requested_iso9001)
+        if not module_access["acceso_diagnostico"] and not module_access["acceso_bienestar"] and not module_access["acceso_iso9001"]:
             errors.append(f"El usuario {email} debe conservar al menos un módulo activo.")
             continue
 
@@ -139,6 +143,7 @@ def import_usuarios(rows: list[dict]) -> dict:
         user.area = area
         user.acceso_diagnostico = module_access["acceso_diagnostico"]
         user.acceso_bienestar = module_access["acceso_bienestar"]
+        user.acceso_iso9001 = module_access["acceso_iso9001"]
         user.activo = True
         if password:
             user.set_password(password)
