@@ -3704,7 +3704,7 @@ body.wellbeing-body {
 
 .live-presentation-title h1 {
     margin: 0.1rem 0;
-    font-size: clamp(2rem, 4vw, 4.35rem);
+    font-size: clamp(1.8rem, 3.35vw, 3.65rem);
     line-height: 1;
     letter-spacing: 0;
 }
@@ -3777,7 +3777,7 @@ body.wellbeing-body {
 
 .live-presentation-body {
     display: grid;
-    grid-template-columns: minmax(15rem, 0.23fr) minmax(0, 1fr);
+    grid-template-columns: minmax(13.5rem, 0.18fr) minmax(0, 1fr);
     gap: 1rem;
     min-height: 0;
 }
@@ -3791,10 +3791,10 @@ body.wellbeing-body {
 .live-presentation-main {
     display: grid;
     grid-template-rows: auto minmax(0, 1fr);
-    gap: 0.75rem;
+    gap: 0.55rem;
     min-width: 0;
     min-height: 0;
-    padding: clamp(1rem, 1.6vw, 1.5rem);
+    padding: clamp(0.85rem, 1.25vw, 1.2rem);
     border: 1px solid rgba(47, 90, 116, 0.12);
     border-radius: var(--radius-lg);
     background: rgba(255, 255, 255, 0.86);
@@ -3808,16 +3808,16 @@ body.wellbeing-body {
 
 .live-presentation-question h2 {
     margin: 0.15rem 0;
-    font-size: clamp(1.65rem, 2.9vw, 3.3rem);
+    font-size: clamp(1.45rem, 2.5vw, 2.85rem);
     line-height: 1.04;
     letter-spacing: 0;
 }
 
 .live-presentation-question p:not(.eyebrow):not(.tag) {
     max-width: 72rem;
-    margin: 0.25rem 0 0;
+    margin: 0.15rem 0 0;
     color: var(--ink-muted);
-    font-size: clamp(1rem, 1.5vw, 1.35rem);
+    font-size: clamp(0.95rem, 1.2vw, 1.12rem);
 }
 
 .live-presentation-results {
@@ -3832,20 +3832,25 @@ body.wellbeing-body {
 }
 
 .live-presentation-shell[data-live-activity-type="brainstorm"] .live-presentation-results {
-    grid-template-columns: minmax(28rem, 1.65fr) minmax(18rem, 0.75fr);
-    gap: clamp(0.75rem, 1.25vw, 1.2rem);
-    align-items: stretch;
+    position: relative;
+    display: block;
+    min-height: clamp(26rem, 58vh, 44rem);
+    overflow: hidden;
+    border-radius: var(--radius-lg);
 }
 
 .live-presentation-shell[data-live-activity-type="brainstorm"] .live-wordcloud {
+    position: absolute;
+    inset: 0;
     display: block;
     width: 100%;
     height: 100%;
     min-height: 0;
     border: 0;
-    border-radius: var(--radius-lg);
+    border-radius: inherit;
     background:
-        linear-gradient(180deg, rgba(47, 90, 116, 0.06), rgba(225, 128, 36, 0.08)),
+        radial-gradient(circle at 45% 45%, rgba(255, 255, 255, 0.96), rgba(255, 255, 255, 0.68) 48%, rgba(225, 128, 36, 0.08) 100%),
+        linear-gradient(180deg, rgba(47, 90, 116, 0.04), rgba(225, 128, 36, 0.06)),
         #fff;
 }
 
@@ -3854,20 +3859,39 @@ body.wellbeing-body {
 }
 
 .live-presentation-shell[data-live-activity-type="brainstorm"] .live-results-list {
+    position: absolute;
+    right: clamp(0.7rem, 1.1vw, 1rem);
+    bottom: clamp(0.7rem, 1.1vw, 1rem);
+    z-index: 2;
     align-content: start;
-    max-height: 100%;
+    width: min(20rem, 27vw);
+    max-height: min(15rem, 34%);
     margin-top: 0;
     overflow: auto;
-    padding-right: 0.35rem;
+    padding: 0.5rem;
+    border: 1px solid rgba(47, 90, 116, 0.12);
+    border-radius: 10px;
+    background: rgba(255, 255, 255, 0.78);
+    box-shadow: 0 1rem 2.5rem rgba(31, 56, 73, 0.12);
+    backdrop-filter: blur(8px);
     scrollbar-color: rgba(47, 90, 116, 0.28) transparent;
     scrollbar-width: thin;
 }
 
 .live-presentation-shell[data-live-activity-type="brainstorm"] .live-presentation-results.is-list-only {
-    grid-template-columns: 1fr;
+    display: grid;
+    overflow: auto;
 }
 
 .live-presentation-shell[data-live-activity-type="brainstorm"] .live-presentation-results.is-list-only .live-results-list {
+    position: static;
+    width: 100%;
+    max-height: none;
+    padding: 0;
+    border: 0;
+    background: transparent;
+    box-shadow: none;
+    backdrop-filter: none;
     grid-template-columns: repeat(auto-fit, minmax(min(24rem, 100%), 1fr));
     align-content: stretch;
 }
@@ -3877,14 +3901,14 @@ body.wellbeing-body {
     grid-template-columns: minmax(0, 1fr) auto;
     gap: 0.45rem 0.8rem;
     align-items: center;
-    padding: clamp(0.7rem, 0.85vw, 0.95rem) clamp(0.85rem, 1vw, 1.15rem);
+    padding: clamp(0.48rem, 0.65vw, 0.72rem) clamp(0.6rem, 0.8vw, 0.85rem);
     border-color: rgba(47, 90, 116, 0.1);
     border-radius: 8px;
     background: rgba(255, 255, 255, 0.92);
     color: var(--ink);
-    font-size: clamp(0.95rem, 1.1vw, 1.08rem);
-    line-height: 1.28;
-    box-shadow: 0 0.45rem 1.2rem rgba(31, 56, 73, 0.06);
+    font-size: clamp(0.86rem, 0.95vw, 1rem);
+    line-height: 1.22;
+    box-shadow: 0 0.35rem 0.9rem rgba(31, 56, 73, 0.05);
 }
 
 .live-presentation-shell .live-idea-text {
@@ -3931,8 +3955,7 @@ body.wellbeing-body {
     }
 
     .live-presentation-topbar,
-    .live-presentation-body,
-    .live-presentation-shell[data-live-activity-type="brainstorm"] .live-presentation-results {
+    .live-presentation-body {
         grid-template-columns: 1fr;
     }
 
@@ -3945,11 +3968,16 @@ body.wellbeing-body {
     }
 
     .live-presentation-shell[data-live-activity-type="brainstorm"] .live-wordcloud {
+        position: relative;
         min-height: 24rem;
+        height: auto;
     }
 
     .live-presentation-shell[data-live-activity-type="brainstorm"] .live-results-list {
-        max-height: none;
+        position: static;
+        width: 100%;
+        max-height: 18rem;
+        margin-top: 0.75rem;
     }
 }
 
