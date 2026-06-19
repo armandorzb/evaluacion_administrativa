@@ -3832,7 +3832,7 @@ body.wellbeing-body {
 }
 
 .live-presentation-shell[data-live-activity-type="brainstorm"] .live-presentation-results {
-    grid-template-columns: minmax(22rem, 1.1fr) minmax(20rem, 0.9fr);
+    grid-template-columns: minmax(28rem, 1.65fr) minmax(18rem, 0.75fr);
     gap: clamp(0.75rem, 1.25vw, 1.2rem);
     align-items: stretch;
 }

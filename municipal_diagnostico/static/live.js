@@ -548,11 +548,15 @@
     if (canRenderCloud) {
       wordCloud.hidden = false;
       const maxWeight = Math.max(...(results.words || []).map((item) => Number(item[1] || 1)), 1);
-      const baseWeight = isPresentation ? Math.max(18, Math.min(42, wordCloud.clientWidth / 34)) : 12;
+      const cloudWordCount = (results.words || []).length || 1;
+      const cloudMinSide = Math.max(240, Math.min(wordCloud.clientWidth || 0, wordCloud.clientHeight || 0));
+      const densityFactor = cloudWordCount <= 8 ? 4.6 : cloudWordCount <= 16 ? 6.2 : 8.5;
+      const baseWeight = isPresentation ? Math.max(30, Math.min(76, cloudMinSide / densityFactor)) : 12;
       WordCloud(wordCloud, {
         list: results.words,
         weightFactor: (weight) => baseWeight * Math.sqrt(Number(weight || 1) / maxWeight),
-        gridSize: isPresentation ? 12 : 10,
+        gridSize: isPresentation ? 8 : 10,
+        minSize: isPresentation ? 10 : 0,
         rotateRatio: isPresentation ? 0.08 : 0.2,
         color: isPresentation ? "#1f3849" : "random-dark",
         backgroundColor: "transparent",
