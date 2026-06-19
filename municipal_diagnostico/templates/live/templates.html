@@ -1,0 +1,196 @@
+{% extends "base.html" %}
+{% block title %}Reactivos Live{% endblock %}
+{% block header_brand %}Live en Tiempo Real{% endblock %}
+{% block header_subtitle %}Banco reusable de dinamicas participativas{% endblock %}
+
+{% block content %}
+<section class="section-heading">
+    <div>
+        <p class="eyebrow">Reactivos Live</p>
+        <h1>Banco reusable</h1>
+    </div>
+    <a class="button" href="{{ url_for('live.dashboard') }}">Panel Live</a>
+</section>
+
+{% if current_user.rol == "administrador" %}
+<article class="panel">
+    <form method="post" class="stack catalog-form live-template-form">
+        <input type="hidden" name="action" value="create">
+        <div class="form-grid">
+            <label>Titulo<input name="titulo" required maxlength="180"></label>
+            <label>Tipo
+                <select name="tipo" data-live-template-type>
+                    <option value="brainstorm">Lluvia de ideas</option>
+                    <option value="multiple_choice">Opcion multiple</option>
+                    <option value="scale">Escala</option>
+                    <option value="ranking">Ranking</option>
+                    <option value="points_100">100 puntos</option>
+                    <option value="matrix_2x2">Matriz 2x2</option>
+                    <option value="qa">Q&A</option>
+                    <option value="quiz_choice">Quiz opcion</option>
+                    <option value="quiz_text">Quiz texto</option>
+                </select>
+            </label>
+        </div>
+        <label>Reactivo<textarea name="prompt" rows="3" required maxlength="1200"></textarea></label>
+
+        <div class="form-grid">
+            <label>Layout resultados
+                <select name="result_layout">
+                    <option value="chart">Grafica</option>
+                    <option value="list">Lista</option>
+                    <option value="grid">Matriz</option>
+                </select>
+            </label>
+            <label class="checkbox-inline">
+                <input type="checkbox" name="show_results" checked>
+                <span>Mostrar resultados al responder</span>
+            </label>
+        </div>
+
+        <div class="form-grid" data-live-config="brainstorm">
+            <label>Ideas por participante<input name="max_ideas_per_participant" type="number" min="1" max="20" value="5"></label>
+            <label>Caracteres por idea<input name="max_length" type="number" min="20" max="500" value="160"></label>
+            <label>Moderacion
+                <select name="moderation">
+                    <option value="none">Sin moderacion</option>
+                    <option value="manual">Manual</option>
+                </select>
+            </label>
+        </div>
+
+        <label data-live-config="multiple_choice" hidden>Opciones<textarea name="options" rows="4" placeholder="Una opcion por linea"></textarea></label>
+
+        <div class="stack" data-live-config="scale" hidden>
+            <label>Items<textarea name="items" rows="4" placeholder="Un item por linea"></textarea></label>
+            <div class="form-grid">
+                <label>Minimo<input name="min" type="number" step="0.1" value="1"></label>
+                <label>Maximo<input name="max" type="number" step="0.1" value="5"></label>
+                <label>Etiqueta minimo<input name="min_label" maxlength="80" placeholder="Bajo"></label>
+                <label>Etiqueta maximo<input name="max_label" maxlength="80" placeholder="Alto"></label>
+                <label class="checkbox-inline">
+                    <input type="checkbox" name="allow_skip">
+                    <span>Permitir omitir items</span>
+                </label>
+            </div>
+        </div>
+
+        <div class="stack" data-live-config="ranking" hidden>
+            <label>Items a priorizar<textarea name="items" rows="4" placeholder="Un item por linea"></textarea></label>
+            <label>Maximo de items rankeados<input name="max_ranked" type="number" min="1" max="12" value="5"></label>
+        </div>
+
+        <div class="stack" data-live-config="points_100" hidden>
+            <label>Items para distribuir puntos<textarea name="items" rows="4" placeholder="Un item por linea"></textarea></label>
+            <div class="form-grid">
+                <label>Total de puntos<input name="total_points" type="number" min="10" max="1000" value="100"></label>
+                <label>Paso<input name="step" type="number" min="1" max="100" value="10"></label>
+            </div>
+        </div>
+
+        <div class="stack" data-live-config="matrix_2x2" hidden>
+            <label>Items a ubicar<textarea name="items" rows="4" placeholder="Un item por linea"></textarea></label>
+            <div class="form-grid">
+                <label>Minimo<input name="min" type="number" step="0.1" value="-5"></label>
+                <label>Maximo<input name="max" type="number" step="0.1" value="5"></label>
+                <label>Eje X bajo<input name="x_min_label" maxlength="80" placeholder="Bajo poder"></label>
+                <label>Eje X alto<input name="x_max_label" maxlength="80" placeholder="Alto poder"></label>
+                <label>Eje Y bajo<input name="y_min_label" maxlength="80" placeholder="Bajo interes"></label>
+                <label>Eje Y alto<input name="y_max_label" maxlength="80" placeholder="Alto interes"></label>
+            </div>
+            <label>Cuadrantes opcionales<textarea name="quadrants" rows="2" placeholder="Uno por linea"></textarea></label>
+        </div>
+
+        <div class="form-grid" data-live-config="qa" hidden>
+            <label>Moderacion
+                <select name="moderation">
+                    <option value="manual">Manual</option>
+                    <option value="none">Sin moderacion</option>
+                </select>
+            </label>
+            <label>Visibilidad
+                <select name="visibility">
+                    <option value="approved">Solo aprobadas</option>
+                    <option value="all">Todas salvo rechazadas</option>
+                </select>
+            </label>
+            <label>Caracteres por pregunta<input name="max_length" type="number" min="20" max="600" value="280"></label>
+            <label class="checkbox-inline">
+                <input type="checkbox" name="allow_upvotes" checked>
+                <span>Permitir upvotes</span>
+            </label>
+            <label class="checkbox-inline">
+                <input type="checkbox" name="global_scope">
+                <span>Q&A global de sesion</span>
+            </label>
+        </div>
+
+        <div class="stack" data-live-config="quiz_choice" hidden>
+            <label>Opciones<textarea name="options" rows="4" placeholder="Una opcion por linea"></textarea></label>
+            <label>Respuestas correctas<textarea name="correct_options" rows="2" placeholder="Una respuesta correcta por linea"></textarea></label>
+            <div class="form-grid">
+                <label>Temporizador (segundos)<input name="timer_seconds" type="number" min="5" max="600" value="30"></label>
+                <label>Puntos<input name="points" type="number" min="1" max="1000" value="100"></label>
+            </div>
+        </div>
+
+        <div class="stack" data-live-config="quiz_text" hidden>
+            <label>Respuestas correctas<textarea name="answers" rows="4" placeholder="Una respuesta aceptada por linea"></textarea></label>
+            <div class="form-grid">
+                <label>Temporizador (segundos)<input name="timer_seconds" type="number" min="5" max="600" value="30"></label>
+                <label>Puntos<input name="points" type="number" min="1" max="1000" value="100"></label>
+                <label class="checkbox-inline">
+                    <input type="checkbox" name="case_sensitive">
+                    <span>Distinguir mayusculas</span>
+                </label>
+            </div>
+        </div>
+
+        <div class="actions">
+            <button class="button button-primary" type="submit">Crear reactivo</button>
+        </div>
+    </form>
+</article>
+{% endif %}
+
+<section class="panel">
+    <div class="table-wrap">
+        <table class="executive-table">
+            <thead>
+                <tr>
+                    <th>Reactivo</th>
+                    <th>Tipo</th>
+                    <th>Config</th>
+                    <th>Estado</th>
+                    {% if current_user.rol == "administrador" %}<th>Acciones</th>{% endif %}
+                </tr>
+            </thead>
+            <tbody>
+                {% for template in templates %}
+                <tr>
+                    <td>
+                        <strong>{{ template.titulo }}</strong>
+                        <div class="muted">{{ template.prompt }}</div>
+                    </td>
+                    <td>{{ live_type_label(template.tipo) }}</td>
+                    <td><code>{{ template.config_json }}</code></td>
+                    <td><span class="status status-{{ 'opportune' if template.activo else 'low' }}">{{ "Activo" if template.activo else "Inactivo" }}</span></td>
+                    {% if current_user.rol == "administrador" %}
+                    <td>
+                        <form method="post">
+                            <input type="hidden" name="action" value="toggle">
+                            <input type="hidden" name="template_id" value="{{ template.id }}">
+                            <button class="button" type="submit">{{ "Desactivar" if template.activo else "Activar" }}</button>
+                        </form>
+                    </td>
+                    {% endif %}
+                </tr>
+                {% else %}
+                <tr><td colspan="5" class="muted">Sin reactivos live.</td></tr>
+                {% endfor %}
+            </tbody>
+        </table>
+    </div>
+</section>
+<script defer src="{{ url_for('static', filename='live.js') }}"></script>
+{% endblock %}

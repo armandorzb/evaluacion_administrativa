@@ -1,0 +1,20 @@
+<!DOCTYPE html>
+<html lang="es">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Entrar a Live</title>
+    <link rel="stylesheet" href="{{ url_for('static', filename='style.css') }}">
+</head>
+<body class="live-public-page live-join-page">
+    <main class="live-public-shell">
+        <form method="post" class="panel live-join-card">
+            <p class="eyebrow">Live</p>
+            <h1>Ingresa el codigo</h1>
+            <p class="muted">Tambien puedes escanear el QR que muestre el presentador para entrar directo a la sesion.</p>
+            <label>Codigo de sesion<input name="code" autocomplete="off" required maxlength="12"></label>
+            <button class="button button-primary" type="submit">Entrar</button>
+        </form>
+    </main>
+</body>
+</html>

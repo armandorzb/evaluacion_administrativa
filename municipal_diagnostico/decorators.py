@@ -69,3 +69,22 @@ def iso9001_role_required(*roles):
         return wrapper
 
     return decorator
+
+
+def live_role_required(*roles):
+    def decorator(func):
+        @wraps(func)
+        @login_required
+        def wrapper(*args, **kwargs):
+            if not getattr(current_user, "puede_acceder_live", False):
+                _abort_module_access(
+                    "live",
+                    "No cuentas con acceso al módulo Live en Tiempo Real.",
+                )
+            if current_user.rol not in roles:
+                abort(403)
+            return func(*args, **kwargs)
+
+        return wrapper
+
+    return decorator

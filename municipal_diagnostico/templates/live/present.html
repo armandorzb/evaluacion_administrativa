@@ -1,0 +1,52 @@
+{% extends "base.html" %}
+{% block title %}Presentar {{ session.titulo }}{% endblock %}
+{% block header_brand %}Live en Tiempo Real{% endblock %}
+{% block header_subtitle %}Pantalla de presentación{% endblock %}
+
+{% block content %}
+<section
+    class="live-presenter live-mobile-stage"
+    data-live-presenter
+    data-session-id="{{ session.id }}"
+    data-session-code="{{ session.code }}"
+    data-can-control="{{ 'true' if current_user.rol == 'administrador' else 'false' }}"
+>
+    <div class="live-stage-head">
+        <div>
+            <p class="eyebrow">Código {{ session.code }}</p>
+            <h1>{{ session.titulo }}</h1>
+            <p class="lede" data-live-status>{{ session.estado }}</p>
+        </div>
+        <div class="live-qr-block">
+            <img src="{{ qr_image_url }}" alt="QR de acceso a {{ session.code }}">
+            <small>Escanea para entrar</small>
+            <code>{{ join_url }}</code>
+        </div>
+    </div>
+
+    {% if current_user.rol == "administrador" %}
+    <div class="actions live-controls">
+        <button class="button" type="button" data-live-control="open_session">Abrir sesión</button>
+        <button class="button danger" type="button" data-live-control="close_session">Cerrar sesión</button>
+        <a class="button" href="{{ url_for('live.instructions', session_id=session.id) }}">QR</a>
+        <a class="button" href="{{ url_for('live.export_session_xlsx', session_id=session.id) }}">Excel</a>
+        <a class="button" href="{{ url_for('live.export_session_pdf', session_id=session.id) }}">PDF</a>
+    </div>
+    {% endif %}
+
+    <div class="live-stage-grid">
+        <aside class="panel live-activity-list" data-live-activity-list></aside>
+        <article class="panel live-results-panel">
+            <div data-live-current-activity></div>
+            <div class="live-chart-wrap"><canvas data-live-chart></canvas></div>
+            <div data-live-wordcloud class="live-wordcloud"></div>
+            <div data-live-results-list class="live-results-list"></div>
+        </article>
+    </div>
+</section>
+<script id="live-session-state" type="application/json">{{ session_state|tojson }}</script>
+<script src="https://cdn.socket.io/4.7.5/socket.io.min.js"></script>
+<script src="https://cdn.jsdelivr.net/npm/chart.js"></script>
+<script src="https://cdn.jsdelivr.net/npm/wordcloud@1.2.2/src/wordcloud2.min.js"></script>
+<script defer src="{{ url_for('static', filename='live.js') }}"></script>
+{% endblock %}

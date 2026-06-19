@@ -1,0 +1,82 @@
+{% extends "base.html" %}
+{% block title %}Sesiones Live{% endblock %}
+{% block header_brand %}Live en Tiempo Real{% endblock %}
+{% block header_subtitle %}Sesiones persistentes con código público{% endblock %}
+
+{% block content %}
+<section class="section-heading">
+    <div>
+        <p class="eyebrow">Sesiones</p>
+        <h1>Administración Live</h1>
+    </div>
+    <a class="button" href="{{ url_for('live.dashboard') }}">Panel Live</a>
+</section>
+
+{% if current_user.rol == "administrador" %}
+<article class="panel">
+    <form method="post" class="stack catalog-form">
+        <div class="form-grid">
+            <label>Título<input name="titulo" required maxlength="180"></label>
+            <label>Modo
+                <select name="mode">
+                    <option value="guided">Guiada</option>
+                    <option value="self_paced">Libre</option>
+                </select>
+            </label>
+        </div>
+        <label>Descripción<textarea name="descripcion" rows="3" maxlength="1200"></textarea></label>
+        <div class="choice-grid">
+            {% for template in templates %}
+            <label class="checkbox-card">
+                <input type="checkbox" name="template_ids" value="{{ template.id }}">
+                <span>
+                    <strong>{{ template.titulo }}</strong>
+                    <small>{{ live_type_label(template.tipo) }}</small>
+                </span>
+            </label>
+            {% else %}
+            <p class="muted">Crea reactivos antes de armar sesiones.</p>
+            {% endfor %}
+        </div>
+        <div class="actions">
+            <button class="button button-primary" type="submit">Crear sesión</button>
+        </div>
+    </form>
+</article>
+{% endif %}
+
+<section class="panel">
+    <div class="table-wrap">
+        <table class="executive-table">
+            <thead>
+                <tr>
+                    <th>Sesión</th>
+                    <th>Código</th>
+                    <th>Modo</th>
+                    <th>Estado</th>
+                    <th>Actividades</th>
+                    <th>Acciones</th>
+                </tr>
+            </thead>
+            <tbody>
+                {% for session in sessions %}
+                <tr>
+                    <td><strong>{{ session.titulo }}</strong><div class="muted">{{ session.descripcion or "Sin descripción" }}</div></td>
+                    <td><code>{{ session.code }}</code></td>
+                    <td>{{ "Guiada" if session.mode == "guided" else "Libre" }}</td>
+                    <td><span class="status status-{{ 'opportune' if session.estado == 'active' else 'low' }}">{{ session.estado }}</span></td>
+                    <td>{{ session.activities|length }}</td>
+                    <td class="actions">
+                        <a class="button" href="{{ url_for('live.session_detail', session_id=session.id) }}">Detalle</a>
+                        <a class="button button-primary" href="{{ url_for('live.present', session_id=session.id) }}">Presentar</a>
+                        <a class="button" href="{{ url_for('live.instructions', session_id=session.id) }}">QR</a>
+                    </td>
+                </tr>
+                {% else %}
+                <tr><td colspan="6" class="muted">Sin sesiones live.</td></tr>
+                {% endfor %}
+            </tbody>
+        </table>
+    </div>
+</section>
+{% endblock %}

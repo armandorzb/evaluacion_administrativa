@@ -1,0 +1,143 @@
+<!DOCTYPE html>
+<html lang="es">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>{{ session.titulo }} | Live</title>
+    <link rel="stylesheet" href="{{ url_for('static', filename='style.css') }}">
+</head>
+<body class="live-public-page live-participant-page">
+    <main
+        class="live-public-shell"
+        data-live-participant
+        data-session-id="{{ session.id }}"
+        data-session-code="{{ session.code }}"
+        data-participant-token="{{ participant.token }}"
+        data-activity-id="{{ activity.id if activity else '' }}"
+    >
+        <section class="live-public-head">
+            <p class="eyebrow">Codigo {{ session.code }}</p>
+            <h1>{{ session.titulo }}</h1>
+            <span class="status status-{{ 'opportune' if session.estado == 'active' else 'low' }}">{{ session.estado }}</span>
+        </section>
+
+        {% if activity %}
+        <article class="panel live-answer-card" data-live-answer-card data-activity-type="{{ activity.tipo }}">
+            <p class="eyebrow">{{ live_type_label(activity.tipo) }}</p>
+            <h2>{{ activity.titulo }}</h2>
+            <p class="lede">{{ activity.prompt }}</p>
+            <form data-live-response-form>
+                {% if activity.tipo == "brainstorm" %}
+                <label>Idea<textarea name="idea" rows="4" maxlength="{{ activity.config_json.max_length if activity.config_json.max_length else 160 }}" required></textarea></label>
+
+                {% elif activity.tipo == "multiple_choice" or activity.tipo == "quiz_choice" %}
+                <div class="choice-grid">
+                    {% for option in activity.config_json.options %}
+                    <label class="choice-chip">
+                        <input type="radio" name="choice" value="{{ option }}" required>
+                        <span>{{ option }}</span>
+                    </label>
+                    {% endfor %}
+                </div>
+
+                {% elif activity.tipo == "scale" %}
+                <div class="live-input-list">
+                    {% for item in activity.config_json["items"] %}
+                    <label class="live-input-row">
+                        <span>{{ item }}</span>
+                        <input
+                            type="number"
+                            name="scale__{{ item }}"
+                            min="{{ activity.config_json.min }}"
+                            max="{{ activity.config_json.max }}"
+                            step="0.1"
+                            value="{{ activity.config_json.min }}"
+                            {% if not activity.config_json.allow_skip %}required{% endif %}
+                        >
+                    </label>
+                    {% endfor %}
+                </div>
+
+                {% elif activity.tipo == "ranking" %}
+                <div class="live-input-list">
+                    {% for rank in range(activity.config_json.max_ranked) %}
+                    <label class="live-input-row">
+                        <span>Lugar {{ rank + 1 }}</span>
+                        <select name="ranking" {% if rank == 0 %}required{% endif %}>
+                            <option value="">Sin seleccionar</option>
+                            {% for item in activity.config_json["items"] %}
+                            <option value="{{ item }}">{{ item }}</option>
+                            {% endfor %}
+                        </select>
+                    </label>
+                    {% endfor %}
+                </div>
+
+                {% elif activity.tipo == "points_100" %}
+                <p class="muted">Distribuye exactamente {{ activity.config_json.total_points }} puntos en pasos de {{ activity.config_json.step }}.</p>
+                <div class="live-input-list">
+                    {% for item in activity.config_json["items"] %}
+                    <label class="live-input-row">
+                        <span>{{ item }}</span>
+                        <input type="number" name="points__{{ item }}" min="0" max="{{ activity.config_json.total_points }}" step="{{ activity.config_json.step }}" value="0">
+                    </label>
+                    {% endfor %}
+                </div>
+
+                {% elif activity.tipo == "matrix_2x2" %}
+                <div class="live-input-list">
+                    {% for item in activity.config_json["items"] %}
+                    <div class="live-input-row live-input-row-wide">
+                        <span>{{ item }}</span>
+                        <label>X<input type="number" name="matrix_x__{{ item }}" min="{{ activity.config_json.min }}" max="{{ activity.config_json.max }}" step="0.1" value="0"></label>
+                        <label>Y<input type="number" name="matrix_y__{{ item }}" min="{{ activity.config_json.min }}" max="{{ activity.config_json.max }}" step="0.1" value="0"></label>
+                    </div>
+                    {% endfor %}
+                </div>
+
+                {% elif activity.tipo == "qa" %}
+                <label>Pregunta<textarea name="question" rows="4" maxlength="{{ activity.config_json.max_length if activity.config_json.max_length else 280 }}" required></textarea></label>
+
+                {% elif activity.tipo == "quiz_text" %}
+                <label>Respuesta<input name="answer" maxlength="240" required></label>
+                {% endif %}
+
+                <button class="button button-primary" type="submit">Enviar</button>
+                <p class="muted" data-live-response-status></p>
+            </form>
+        </article>
+
+        <article class="panel live-results-panel">
+            <div class="live-chart-wrap"><canvas data-live-chart></canvas></div>
+            <div data-live-wordcloud class="live-wordcloud"></div>
+            <div data-live-results-list class="live-results-list"></div>
+        </article>
+        {% else %}
+        <article class="panel">
+            <p class="eyebrow">{{ "Actividades abiertas" if activities else "En espera" }}</p>
+            {% if activities %}
+            <div class="stack">
+                {% for item in activities %}
+                <a class="list-row" href="{{ url_for('live.public_activity', code=session.code, activity_id=item.id) }}">
+                    <span>
+                        <strong>{{ item.titulo }}</strong>
+                        <small>{{ live_type_label(item.tipo) }}</small>
+                    </span>
+                    <span class="tag">Abrir</span>
+                </a>
+                {% endfor %}
+            </div>
+            {% else %}
+            <h2>La actividad aparecera aqui.</h2>
+            {% endif %}
+        </article>
+        {% endif %}
+    </main>
+    <script id="live-session-state" type="application/json">{{ session_state|tojson }}</script>
+    {% if activity_state %}<script id="live-activity-state" type="application/json">{{ activity_state|tojson }}</script>{% endif %}
+    <script src="https://cdn.socket.io/4.7.5/socket.io.min.js"></script>
+    <script src="https://cdn.jsdelivr.net/npm/chart.js"></script>
+    <script src="https://cdn.jsdelivr.net/npm/wordcloud@1.2.2/src/wordcloud2.min.js"></script>
+    <script defer src="{{ url_for('static', filename='live.js') }}"></script>
+</body>
+</html>

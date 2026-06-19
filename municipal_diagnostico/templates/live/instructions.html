@@ -1,0 +1,29 @@
+{% extends "base.html" %}
+{% block title %}Acceso {{ session.code }} | Live{% endblock %}
+{% block header_brand %}Live en Tiempo Real{% endblock %}
+{% block header_subtitle %}Pantalla de instrucciones para participantes{% endblock %}
+
+{% block content %}
+<section class="hero-panel live-instructions-stage live-mobile-stage">
+    <div>
+        <p class="eyebrow">Ingresa a la sesion</p>
+        <h1>{{ session.code }}</h1>
+        <p class="lede">{{ session.titulo }}</p>
+        <div class="tag-row">
+            <span class="tag">{{ "Guiada" if session.mode == "guided" else "Libre" }}</span>
+            <span class="tag">{{ session.estado }}</span>
+        </div>
+    </div>
+    <div class="live-qr-block live-qr-large">
+        <img src="{{ qr_image_url }}" alt="QR de acceso a {{ session.code }}">
+        <small>Escanea para entrar</small>
+        <code>{{ join_url }}</code>
+        <code>{{ qr_access_url }}</code>
+    </div>
+</section>
+
+<section class="actions">
+    <a class="button" href="{{ url_for('live.session_detail', session_id=session.id) }}">Detalle</a>
+    <a class="button button-primary" href="{{ url_for('live.present', session_id=session.id) }}">Presentar</a>
+</section>
+{% endblock %}

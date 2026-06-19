@@ -17,6 +17,7 @@
             <span class="tag">Acceso Diagnóstico: {{ stats.usuarios_diagnostico }}</span>
             <span class="tag">Acceso Bienestar: {{ stats.usuarios_bienestar }}</span>
             <span class="tag">Acceso ISO 9001: {{ stats.usuarios_iso9001 }}</span>
+            <span class="tag">Acceso Live: {{ stats.usuarios_live }}</span>
         </div>
     </div>
 
@@ -139,7 +140,10 @@
                             {% if usuario.acceso_iso9001 %}
                             <span class="tag">ISO 9001</span>
                             {% endif %}
-                            {% if not usuario.acceso_diagnostico and not usuario.acceso_bienestar and not usuario.acceso_iso9001 %}
+                            {% if usuario.acceso_live %}
+                            <span class="tag">Live</span>
+                            {% endif %}
+                            {% if not usuario.acceso_diagnostico and not usuario.acceso_bienestar and not usuario.acceso_iso9001 and not usuario.acceso_live %}
                             <span class="tag">Sin acceso</span>
                             {% endif %}
                         </div>
@@ -300,7 +304,7 @@
         <button class="button" type="button" data-dialog-open="dialog-import-create">Abrir importación</button>
     </div>
     <p class="muted">
-        Usa CSV o Excel con encabezados simples: <code>nombre</code>, <code>tipo</code>, <code>dependencia</code>, <code>area</code>, <code>correo</code>, <code>rol</code>, <code>password</code>, <code>acceso_diagnostico</code>, <code>acceso_bienestar</code> y <code>acceso_iso9001</code>.
+        Usa CSV o Excel con encabezados simples: <code>nombre</code>, <code>tipo</code>, <code>dependencia</code>, <code>area</code>, <code>correo</code>, <code>rol</code>, <code>password</code>, <code>acceso_diagnostico</code>, <code>acceso_bienestar</code>, <code>acceso_iso9001</code> y <code>acceso_live</code>.
     </p>
 </article>
 
@@ -369,6 +373,18 @@
                 <span>
                     <strong>Acceso a ISO 9001</strong>
                     <small>Diagnostico de implementacion, evidencias y revision formal.</small>
+                </span>
+            </label>
+            <label class="checkbox-card">
+                <input
+                    type="checkbox"
+                    name="acceso_live"
+                    checked
+                    data-default-mode="admin-only"
+                >
+                <span>
+                    <strong>Acceso a Live</strong>
+                    <small>Sesiones participativas en tiempo real y QR.</small>
                 </span>
             </label>
         </div>
@@ -571,6 +587,13 @@
                     <small>Modulo independiente para diagnostico de implementacion y evidencias.</small>
                 </span>
             </label>
+            <label class="checkbox-card">
+                <input type="checkbox" name="acceso_live" {% if usuario.acceso_live %}checked{% endif %}>
+                <span>
+                    <strong>Acceso a Live</strong>
+                    <small>Sesiones participativas en tiempo real y QR.</small>
+                </span>
+            </label>
         </div>
         <label>Dependencia
             <select name="dependencia_id" data-dependency-select data-area-target="user-edit-area-{{ usuario.id }}">
@@ -676,10 +699,10 @@
         "format": "CSV o Excel",
         "description": "Carga una fila por usuario. Puedes crear cuentas nuevas o actualizar usuarios existentes por correo institucional.",
         "required": ["nombre", "correo", "rol"],
-        "optional": ["password", "dependencia", "area", "acceso_diagnostico", "acceso_bienestar", "acceso_iso9001"],
-        "example": "nombre,correo,rol,password,dependencia,area,acceso_diagnostico,acceso_bienestar,acceso_iso9001",
+        "optional": ["password", "dependencia", "area", "acceso_diagnostico", "acceso_bienestar", "acceso_iso9001", "acceso_live"],
+        "example": "nombre,correo,rol,password,dependencia,area,acceso_diagnostico,acceso_bienestar,acceso_iso9001,acceso_live",
         "note_title": "Consideraciones importantes",
-        "note": "Los roles válidos son administrador, revisor, evaluador, respondente y consulta. Si omites acceso_bienestar o acceso_iso9001, solo administrador los conserva por default. ISO 9001 puede asignarse a cualquier rol activo. Si incluyes dependencia o area, deben existir previamente en catálogos."
+        "note": "Los roles válidos son administrador, revisor, evaluador, respondente y consulta. Si omites acceso_bienestar, acceso_iso9001 o acceso_live, solo administrador los conserva por default. Live y Bienestar se asignan a administrador o consulta. Si incluyes dependencia o area, deben existir previamente en catálogos."
     }
 } %}
 <script id="role-definitions-data" type="application/json">{{ role_definitions|tojson }}</script>

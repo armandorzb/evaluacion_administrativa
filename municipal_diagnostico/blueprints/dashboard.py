@@ -12,6 +12,7 @@ from municipal_diagnostico.services.module_access import (
     MODULE_BIENESTAR,
     MODULE_DIAGNOSTICO,
     MODULE_ISO9001,
+    MODULE_LIVE,
     endpoint_for_module,
     landing_endpoint_for_user,
 )
@@ -69,6 +70,14 @@ def modules():
                 "description": "Evalúa cumplimiento por dependencia con evidencia por reactivo, revisión formal y reportes ejecutivos.",
                 "url": url_for("dashboard.open_module", module_slug=MODULE_ISO9001),
                 "is_available": current_user.puede_acceder_iso9001,
+            },
+            {
+                "slug": MODULE_LIVE,
+                "title": "Live en Tiempo Real",
+                "subtitle": "Sesiones participativas, codigo QR y resultados al instante",
+                "description": "Crea dinamicas tipo Mentimeter para lluvia de ideas y cuestionarios en vivo con participantes anonimos.",
+                "url": url_for("dashboard.open_module", module_slug=MODULE_LIVE),
+                "is_available": current_user.puede_acceder_live,
             },
         ],
     )

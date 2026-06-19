@@ -14,7 +14,8 @@ from municipal_diagnostico.blueprints.evaluation import bp as evaluation_bp
 from municipal_diagnostico.blueprints.iso9001 import bp as iso9001_bp
 from municipal_diagnostico.blueprints.reports import bp as reports_bp
 from municipal_diagnostico.blueprints.wellbeing import bp as wellbeing_bp
-from municipal_diagnostico.extensions import db, login_manager, migrate
+from municipal_diagnostico.extensions import db, login_manager, migrate, socketio
+from municipal_diagnostico.live import init_live_module
 from municipal_diagnostico.models import Notificacion, Usuario
 from municipal_diagnostico.seeds import (
     bootstrap_admin,
@@ -55,6 +56,7 @@ def init_extensions(app: Flask) -> None:
     db.init_app(app)
     migrate.init_app(app, db)
     login_manager.init_app(app)
+    socketio.init_app(app)
 
     @login_manager.user_loader
     def load_user(user_id: str) -> Usuario | None:
@@ -109,6 +111,7 @@ def ensure_schema_compatibility(app: Flask) -> None:
         needs_diagnostic_backfill = "acceso_diagnostico" not in columns
         needs_wellbeing_backfill = "acceso_bienestar" not in columns
         needs_iso9001_backfill = "acceso_iso9001" not in columns
+        needs_live_backfill = "acceso_live" not in columns
         with db.engine.begin() as connection:
             if needs_diagnostic_backfill:
                 connection.execute(text("ALTER TABLE usuario ADD COLUMN acceso_diagnostico BOOLEAN NOT NULL DEFAULT 1"))
@@ -119,7 +122,10 @@ def ensure_schema_compatibility(app: Flask) -> None:
             if needs_iso9001_backfill:
                 connection.execute(text("ALTER TABLE usuario ADD COLUMN acceso_iso9001 BOOLEAN NOT NULL DEFAULT 0"))
                 app.logger.info("Columna usuario.acceso_iso9001 agregada automaticamente.")
-            if needs_diagnostic_backfill or needs_wellbeing_backfill or needs_iso9001_backfill:
+            if needs_live_backfill:
+                connection.execute(text("ALTER TABLE usuario ADD COLUMN acceso_live BOOLEAN NOT NULL DEFAULT 0"))
+                app.logger.info("Columna usuario.acceso_live agregada automaticamente.")
+            if needs_diagnostic_backfill or needs_wellbeing_backfill or needs_iso9001_backfill or needs_live_backfill:
                 connection.execute(
                     text(
                         """
@@ -130,6 +136,10 @@ def ensure_schema_compatibility(app: Flask) -> None:
                                 ELSE 0
                             END,
                             acceso_iso9001 = CASE
+                                WHEN rol = 'administrador' THEN 1
+                                ELSE 0
+                            END,
+                            acceso_live = CASE
                                 WHEN rol = 'administrador' THEN 1
                                 ELSE 0
                             END
@@ -169,6 +179,7 @@ def register_blueprints(app: Flask) -> None:
     app.register_blueprint(iso9001_bp)
     app.register_blueprint(reports_bp)
     app.register_blueprint(wellbeing_bp)
+    init_live_module(app, socketio, db)
 
     @app.route("/")
     def index():

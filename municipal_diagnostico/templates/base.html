@@ -17,7 +17,7 @@
             <div class="header-frame">
                 <div class="brand-block">
                     <p class="eyebrow">{% block header_eyebrow %}Ayuntamiento de Hermosillo{% endblock %}</p>
-                    <a href="{{ url_for('dashboard.diagnostic_home') }}" class="brand">{% block header_brand %}Diagnóstico Integral Municipal{% endblock %}</a>
+                    <a href="{{ url_for('dashboard.home') }}" class="brand">{% block header_brand %}Diagnóstico Integral Municipal{% endblock %}</a>
                     <p class="brand-subtitle">{% block header_subtitle %}Cuestionarios, seguimiento operativo y reportería institucional{% endblock %}</p>
                 </div>
 
@@ -39,6 +39,7 @@
 
                 <div class="header-shell" id="platform-navigation" data-header-shell data-open="false">
                     <nav class="main-nav" aria-label="Principal">
+                        {% if current_user.puede_acceder_diagnostico %}
                         <a href="{{ url_for('dashboard.diagnostic_home') }}" style="--menu-order: 0;">Tablero</a>
                         {% if current_user.rol == 'administrador' %}
                         <a href="{{ url_for('admin.questionnaires') }}" style="--menu-order: 1;">Cuestionarios</a>
@@ -57,6 +58,10 @@
                         {% elif current_user.rol == 'revisor' %}
                         <a href="{{ url_for('evaluation.index') }}" style="--menu-order: 1;">Revisión</a>
                         <a href="{{ url_for('reports.executive_home') }}" style="--menu-order: 2;">Resultados</a>
+                        {% endif %}
+                        {% endif %}
+                        {% if current_user.puede_acceder_live %}
+                        <a href="{{ url_for('live.dashboard') }}" style="--menu-order: 8;">Live</a>
                         {% endif %}
                     </nav>
 

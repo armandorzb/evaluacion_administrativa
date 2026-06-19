@@ -2,14 +2,17 @@ from __future__ import annotations
 
 from flask_login import UserMixin
 from sqlalchemy import UniqueConstraint, event
+from sqlalchemy.dialects.postgresql import JSONB
 from werkzeug.security import check_password_hash, generate_password_hash
 
 from municipal_diagnostico.extensions import db
 from municipal_diagnostico.services.module_access import (
     ISO9001_ALLOWED_ROLES,
+    LIVE_ALLOWED_ROLES,
     MODULE_BIENESTAR,
     MODULE_DIAGNOSTICO,
     MODULE_ISO9001,
+    MODULE_LIVE,
     WELLBEING_ALLOWED_ROLES,
     normalize_module_flags,
 )
@@ -24,6 +27,10 @@ class TimestampMixin:
         onupdate=utcnow,
         nullable=False,
     )
+
+
+def json_payload_type():
+    return db.JSON().with_variant(JSONB, "postgresql")
 
 
 class Dependencia(TimestampMixin, db.Model):
@@ -87,6 +94,7 @@ class Usuario(UserMixin, TimestampMixin, db.Model):
     acceso_diagnostico = db.Column(db.Boolean, nullable=False, default=True)
     acceso_bienestar = db.Column(db.Boolean, nullable=False, default=False)
     acceso_iso9001 = db.Column(db.Boolean, nullable=False, default=False)
+    acceso_live = db.Column(db.Boolean, nullable=False, default=False)
     dependencia_id = db.Column(db.Integer, db.ForeignKey("dependencia.id"))
     area_id = db.Column(db.Integer, db.ForeignKey("area.id"))
 
@@ -182,18 +190,34 @@ class Usuario(UserMixin, TimestampMixin, db.Model):
         back_populates="autor",
         foreign_keys="Iso9001ObservacionRevision.autor_id",
     )
+    live_templates = db.relationship(
+        "LiveReactivoTemplate",
+        back_populates="creado_por",
+        foreign_keys="LiveReactivoTemplate.creado_por_id",
+    )
+    live_sessions_presentadas = db.relationship(
+        "LiveSession",
+        back_populates="presentador",
+        foreign_keys="LiveSession.presentador_id",
+    )
 
     def __init__(self, **kwargs):
         super().__init__(**kwargs)
+        explicit_module_flags = {"acceso_diagnostico", "acceso_bienestar", "acceso_iso9001", "acceso_live"}
+        acceso_live = kwargs.get("acceso_live", getattr(self, "acceso_live", None))
+        if "acceso_live" not in kwargs and explicit_module_flags.intersection(kwargs):
+            acceso_live = False
         normalized = normalize_module_flags(
             kwargs.get("rol", getattr(self, "rol", None)),
             kwargs.get("acceso_diagnostico", getattr(self, "acceso_diagnostico", None)),
             kwargs.get("acceso_bienestar", getattr(self, "acceso_bienestar", None)),
             kwargs.get("acceso_iso9001", getattr(self, "acceso_iso9001", None)),
+            acceso_live,
         )
         self.acceso_diagnostico = normalized["acceso_diagnostico"]
         self.acceso_bienestar = normalized["acceso_bienestar"]
         self.acceso_iso9001 = normalized["acceso_iso9001"]
+        self.acceso_live = normalized["acceso_live"]
 
     def set_password(self, password: str) -> None:
         self.password_hash = generate_password_hash(password)
@@ -202,10 +226,17 @@ class Usuario(UserMixin, TimestampMixin, db.Model):
         return check_password_hash(self.password_hash, password)
 
     def sync_module_accesses(self) -> None:
-        normalized = normalize_module_flags(self.rol, self.acceso_diagnostico, self.acceso_bienestar, self.acceso_iso9001)
+        normalized = normalize_module_flags(
+            self.rol,
+            self.acceso_diagnostico,
+            self.acceso_bienestar,
+            self.acceso_iso9001,
+            self.acceso_live,
+        )
         self.acceso_diagnostico = normalized["acceso_diagnostico"]
         self.acceso_bienestar = normalized["acceso_bienestar"]
         self.acceso_iso9001 = normalized["acceso_iso9001"]
+        self.acceso_live = normalized["acceso_live"]
 
     @property
     def nombre_rol(self) -> str:
@@ -238,6 +269,14 @@ class Usuario(UserMixin, TimestampMixin, db.Model):
         )
 
     @property
+    def puede_acceder_live(self) -> bool:
+        return (
+            self.activo
+            and bool(self.acceso_live)
+            and self.rol in LIVE_ALLOWED_ROLES
+        )
+
+    @property
     def modulos_disponibles(self) -> list[str]:
         modules = []
         if self.puede_acceder_diagnostico:
@@ -246,6 +285,8 @@ class Usuario(UserMixin, TimestampMixin, db.Model):
             modules.append(MODULE_BIENESTAR)
         if self.puede_acceder_iso9001:
             modules.append(MODULE_ISO9001)
+        if self.puede_acceder_live:
+            modules.append(MODULE_LIVE)
         return modules
 
     @property
@@ -261,6 +302,8 @@ class Usuario(UserMixin, TimestampMixin, db.Model):
             labels.append("Bienestar")
         if self.acceso_iso9001:
             labels.append("ISO 9001")
+        if self.acceso_live:
+            labels.append("Live")
         return " · ".join(labels) if labels else "Sin acceso"
 
 
@@ -963,6 +1006,126 @@ class Notificacion(TimestampMixin, db.Model):
     leida = db.Column(db.Boolean, default=False, nullable=False)
 
     usuario = db.relationship("Usuario", back_populates="notificaciones")
+
+
+class LiveReactivoTemplate(TimestampMixin, db.Model):
+    __tablename__ = "live_reactivo_template"
+
+    id = db.Column(db.Integer, primary_key=True)
+    tipo = db.Column(db.String(40), nullable=False, index=True)
+    titulo = db.Column(db.String(180), nullable=False)
+    prompt = db.Column(db.Text, nullable=False)
+    config_json = db.Column(json_payload_type(), nullable=False, default=dict)
+    activo = db.Column(db.Boolean, nullable=False, default=True)
+    creado_por_id = db.Column(db.Integer, db.ForeignKey("usuario.id"))
+
+    creado_por = db.relationship("Usuario", back_populates="live_templates", foreign_keys=[creado_por_id])
+    activities = db.relationship("LiveActivity", back_populates="template")
+
+
+class LiveSession(TimestampMixin, db.Model):
+    __tablename__ = "live_session"
+
+    id = db.Column(db.Integer, primary_key=True)
+    titulo = db.Column(db.String(180), nullable=False)
+    descripcion = db.Column(db.Text)
+    code = db.Column(db.String(12), nullable=False, unique=True, index=True)
+    mode = db.Column(db.String(20), nullable=False, default="guided")
+    estado = db.Column(db.String(20), nullable=False, default="draft")
+    active_activity_id = db.Column(db.Integer)
+    presentador_id = db.Column(db.Integer, db.ForeignKey("usuario.id"))
+    config_json = db.Column(json_payload_type(), nullable=False, default=dict)
+    opened_at = db.Column(db.DateTime)
+    closed_at = db.Column(db.DateTime)
+
+    presentador = db.relationship("Usuario", back_populates="live_sessions_presentadas", foreign_keys=[presentador_id])
+    activities = db.relationship(
+        "LiveActivity",
+        back_populates="session",
+        cascade="all, delete-orphan",
+        order_by="LiveActivity.orden",
+    )
+    participants = db.relationship(
+        "LiveParticipant",
+        back_populates="session",
+        cascade="all, delete-orphan",
+    )
+    responses = db.relationship(
+        "LiveResponse",
+        back_populates="session",
+        cascade="all, delete-orphan",
+    )
+
+
+class LiveActivity(TimestampMixin, db.Model):
+    __tablename__ = "live_activity"
+
+    id = db.Column(db.Integer, primary_key=True)
+    session_id = db.Column(db.Integer, db.ForeignKey("live_session.id"), nullable=False)
+    template_id = db.Column(db.Integer, db.ForeignKey("live_reactivo_template.id"))
+    orden = db.Column(db.Integer, nullable=False)
+    tipo = db.Column(db.String(40), nullable=False, index=True)
+    titulo = db.Column(db.String(180), nullable=False)
+    prompt = db.Column(db.Text, nullable=False)
+    estado = db.Column(db.String(20), nullable=False, default="draft")
+    config_json = db.Column(json_payload_type(), nullable=False, default=dict)
+    payload_json = db.Column(json_payload_type(), nullable=False, default=dict)
+    opened_at = db.Column(db.DateTime)
+    closed_at = db.Column(db.DateTime)
+
+    session = db.relationship("LiveSession", back_populates="activities")
+    template = db.relationship("LiveReactivoTemplate", back_populates="activities")
+    responses = db.relationship(
+        "LiveResponse",
+        back_populates="activity",
+        cascade="all, delete-orphan",
+        order_by="LiveResponse.created_at",
+    )
+
+    __table_args__ = (
+        UniqueConstraint("session_id", "orden", name="uq_live_activity_session_order"),
+    )
+
+
+class LiveParticipant(TimestampMixin, db.Model):
+    __tablename__ = "live_participant"
+
+    id = db.Column(db.Integer, primary_key=True)
+    session_id = db.Column(db.Integer, db.ForeignKey("live_session.id"), nullable=False)
+    token = db.Column(db.String(120), nullable=False)
+    ultima_actividad_at = db.Column(db.DateTime, default=utcnow, nullable=False)
+    connected = db.Column(db.Boolean, nullable=False, default=False)
+
+    session = db.relationship("LiveSession", back_populates="participants")
+    responses = db.relationship(
+        "LiveResponse",
+        back_populates="participant",
+        cascade="all, delete-orphan",
+    )
+
+    __table_args__ = (
+        UniqueConstraint("session_id", "token", name="uq_live_participant_session_token"),
+    )
+
+
+class LiveResponse(TimestampMixin, db.Model):
+    __tablename__ = "live_response"
+
+    id = db.Column(db.Integer, primary_key=True)
+    session_id = db.Column(db.Integer, db.ForeignKey("live_session.id"), nullable=False)
+    activity_id = db.Column(db.Integer, db.ForeignKey("live_activity.id"), nullable=False)
+    participant_id = db.Column(db.Integer, db.ForeignKey("live_participant.id"), nullable=False)
+    response_key = db.Column(db.String(80), nullable=False)
+    payload_json = db.Column(json_payload_type(), nullable=False, default=dict)
+    is_active = db.Column(db.Boolean, nullable=False, default=True)
+
+    session = db.relationship("LiveSession", back_populates="responses")
+    activity = db.relationship("LiveActivity", back_populates="responses")
+    participant = db.relationship("LiveParticipant", back_populates="responses")
+
+    __table_args__ = (
+        UniqueConstraint("activity_id", "participant_id", "response_key", name="uq_live_response_activity_participant_key"),
+    )
 
 
 class SesionPlataforma(TimestampMixin, db.Model):

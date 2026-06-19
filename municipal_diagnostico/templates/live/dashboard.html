@@ -1,0 +1,81 @@
+{% extends "base.html" %}
+{% block title %}Live en Tiempo Real{% endblock %}
+{% block header_brand %}Live en Tiempo Real{% endblock %}
+{% block header_subtitle %}Sesiones participativas con resultados al instante{% endblock %}
+
+{% block content %}
+<section class="hero-panel live-hero">
+    <div>
+        <p class="eyebrow">Módulo independiente</p>
+        <h1>Live en Tiempo Real</h1>
+        <p class="lede">Banco de reactivos, sesiones con código público y resultados por WebSocket.</p>
+    </div>
+    <div class="actions">
+        <a class="button" href="{{ url_for('live.templates') }}">Reactivos</a>
+        <a class="button button-primary" href="{{ url_for('live.sessions') }}">Sesiones</a>
+    </div>
+</section>
+
+<section class="metric-grid">
+    <article class="metric-card">
+        <span>Reactivos</span>
+        <strong>{{ counts.templates }}</strong>
+    </article>
+    <article class="metric-card">
+        <span>Sesiones</span>
+        <strong>{{ counts.sessions }}</strong>
+    </article>
+    <article class="metric-card">
+        <span>Activas</span>
+        <strong>{{ counts.active_sessions }}</strong>
+    </article>
+</section>
+
+<section class="grid-two">
+    <article class="panel">
+        <div class="section-heading">
+            <div>
+                <p class="eyebrow">Sesiones</p>
+                <h2>Actividad reciente</h2>
+            </div>
+            <a class="button" href="{{ url_for('live.sessions') }}">Ver todas</a>
+        </div>
+        <div class="stack">
+            {% for session in sessions %}
+            <a class="list-row" href="{{ url_for('live.session_detail', session_id=session.id) }}">
+                <span>
+                    <strong>{{ session.titulo }}</strong>
+                    <small>{{ session.code }} · {{ session.mode }}</small>
+                </span>
+                <span class="status status-{{ 'opportune' if session.estado == 'active' else 'low' }}">{{ session.estado }}</span>
+            </a>
+            {% else %}
+            <p class="muted">Sin sesiones registradas.</p>
+            {% endfor %}
+        </div>
+    </article>
+
+    <article class="panel">
+        <div class="section-heading">
+            <div>
+                <p class="eyebrow">Reactivos</p>
+                <h2>Banco reusable</h2>
+            </div>
+            <a class="button" href="{{ url_for('live.templates') }}">Gestionar</a>
+        </div>
+        <div class="stack">
+            {% for template in templates %}
+            <div class="list-row">
+                <span>
+                    <strong>{{ template.titulo }}</strong>
+                    <small>{{ live_type_label(template.tipo) }}</small>
+                </span>
+                <span class="tag">{{ "Activo" if template.activo else "Inactivo" }}</span>
+            </div>
+            {% else %}
+            <p class="muted">Sin reactivos registrados.</p>
+            {% endfor %}
+        </div>
+    </article>
+</section>
+{% endblock %}

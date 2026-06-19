@@ -113,8 +113,10 @@
     if (!form) return;
     const wellbeingCheckbox = form.querySelector('input[name="acceso_bienestar"]');
     const iso9001Checkbox = form.querySelector('input[name="acceso_iso9001"]');
+    const liveCheckbox = form.querySelector('input[name="acceso_live"]');
     const allowsWellbeing = ["administrador", "consulta"].includes(select.value);
     const allowsIso9001 = ["administrador", "revisor", "evaluador", "respondente", "consulta"].includes(select.value);
+    const allowsLive = ["administrador", "consulta"].includes(select.value);
 
     if (wellbeingCheckbox) {
       const roleBasedDefault = wellbeingCheckbox.dataset.defaultMode === "admin-only";
@@ -133,6 +135,16 @@
         iso9001Checkbox.checked = false;
       } else if (roleBasedDefault && iso9001Checkbox.dataset.userTouched !== "true") {
         iso9001Checkbox.checked = select.value === "administrador";
+      }
+    }
+
+    if (liveCheckbox) {
+      const roleBasedDefault = liveCheckbox.dataset.defaultMode === "admin-only";
+      liveCheckbox.disabled = !allowsLive;
+      if (!allowsLive) {
+        liveCheckbox.checked = false;
+      } else if (roleBasedDefault && liveCheckbox.dataset.userTouched !== "true") {
+        liveCheckbox.checked = select.value === "administrador";
       }
     }
   }
@@ -221,7 +233,7 @@
     }
   }
 
-  document.querySelectorAll('input[name="acceso_bienestar"][data-default-mode], input[name="acceso_iso9001"][data-default-mode]').forEach((checkbox) => {
+  document.querySelectorAll('input[name="acceso_bienestar"][data-default-mode], input[name="acceso_iso9001"][data-default-mode], input[name="acceso_live"][data-default-mode]').forEach((checkbox) => {
     checkbox.dataset.userTouched = "false";
     checkbox.addEventListener("change", () => {
       checkbox.dataset.userTouched = "true";

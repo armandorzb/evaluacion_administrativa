@@ -1,0 +1,117 @@
+{% extends "base.html" %}
+{% block title %}{{ session.titulo }} | Live{% endblock %}
+{% block header_brand %}Live en Tiempo Real{% endblock %}
+{% block header_subtitle %}Detalle de sesión y actividades{% endblock %}
+
+{% block content %}
+<section class="hero-panel live-session-head">
+    <div>
+        <p class="eyebrow">Código {{ session.code }}</p>
+        <h1>{{ session.titulo }}</h1>
+        <p class="lede">{{ session.descripcion or "Sesión live" }}</p>
+        <div class="tag-row">
+            <span class="tag">{{ "Guiada" if session.mode == "guided" else "Libre" }}</span>
+            <span class="tag">{{ session.estado }}</span>
+        </div>
+    </div>
+    <div class="live-qr-block">
+        <img src="{{ qr_image_url }}" alt="QR de acceso a {{ session.code }}">
+        <small>Escanea para entrar</small>
+        <code>{{ join_url }}</code>
+        <code>{{ qr_access_url }}</code>
+    </div>
+</section>
+
+<section class="actions">
+    <a class="button" href="{{ url_for('live.sessions') }}">Sesiones</a>
+    <a class="button button-primary" href="{{ url_for('live.present', session_id=session.id) }}">Pantalla presentador</a>
+    <a class="button" href="{{ url_for('live.instructions', session_id=session.id) }}">Pantalla QR</a>
+    <a class="button" href="{{ url_for('live.export_session_xlsx', session_id=session.id) }}">Excel</a>
+    <a class="button" href="{{ url_for('live.export_session_pdf', session_id=session.id) }}">PDF</a>
+    {% if current_user.rol == "administrador" %}
+    <form method="post" action="{{ url_for('live.control_session', session_id=session.id) }}">
+        <input type="hidden" name="action" value="open_session">
+        <button class="button" type="submit">Abrir</button>
+    </form>
+    <form method="post" action="{{ url_for('live.control_session', session_id=session.id) }}">
+        <input type="hidden" name="action" value="close_session">
+        <button class="button danger" type="submit">Cerrar</button>
+    </form>
+    {% endif %}
+</section>
+
+{% if current_user.rol == "administrador" %}
+<article class="panel">
+    <div class="section-heading">
+        <div>
+            <p class="eyebrow">Actividades</p>
+            <h2>Agregar desde banco</h2>
+        </div>
+    </div>
+    <form method="post" class="actions">
+        <label class="compact-field">Reactivo
+            <select name="template_id" required>
+                {% for template in templates %}
+                <option value="{{ template.id }}">{{ template.titulo }}</option>
+                {% endfor %}
+            </select>
+        </label>
+        <button class="button button-primary" type="submit">Agregar</button>
+    </form>
+</article>
+{% endif %}
+
+<section class="panel">
+    <div class="table-wrap">
+        <table class="executive-table">
+            <thead>
+                <tr>
+                    <th>Orden</th>
+                    <th>Actividad</th>
+                    <th>Tipo</th>
+                    <th>Estado</th>
+                    <th>Respuestas</th>
+                    {% if current_user.rol == "administrador" %}<th>Control</th>{% endif %}
+                </tr>
+            </thead>
+            <tbody>
+                {% for activity in session.activities %}
+                <tr>
+                    <td>{{ activity.orden }}</td>
+                    <td><strong>{{ activity.titulo }}</strong><div class="muted">{{ activity.prompt }}</div></td>
+                    <td>{{ live_type_label(activity.tipo) }}</td>
+                    <td><span class="status status-{{ 'opportune' if activity.estado == 'open' else 'low' }}">{{ activity.estado }}</span></td>
+                    <td>{{ activity.responses|length }}</td>
+                    {% if current_user.rol == "administrador" %}
+                    <td class="actions">
+                        <form method="post" action="{{ url_for('live.control_session', session_id=session.id) }}">
+                            <input type="hidden" name="action" value="open_activity">
+                            <input type="hidden" name="activity_id" value="{{ activity.id }}">
+                            <button class="button" type="submit">Abrir</button>
+                        </form>
+                        <form method="post" action="{{ url_for('live.control_session', session_id=session.id) }}">
+                            <input type="hidden" name="action" value="close_activity">
+                            <input type="hidden" name="activity_id" value="{{ activity.id }}">
+                            <button class="button" type="submit">Cerrar</button>
+                        </form>
+                        <form method="post" action="{{ url_for('live.control_session', session_id=session.id) }}">
+                            <input type="hidden" name="action" value="hide_results">
+                            <input type="hidden" name="activity_id" value="{{ activity.id }}">
+                            <button class="button" type="submit">Ocultar</button>
+                        </form>
+                        <form method="post" action="{{ url_for('live.control_session', session_id=session.id) }}">
+                            <input type="hidden" name="action" value="reveal_results">
+                            <input type="hidden" name="activity_id" value="{{ activity.id }}">
+                            <button class="button" type="submit">Revelar</button>
+                        </form>
+                    </td>
+                    {% endif %}
+                </tr>
+                {% else %}
+                <tr><td colspan="6" class="muted">Sin actividades.</td></tr>
+                {% endfor %}
+            </tbody>
+        </table>
+    </div>
+</section>
+{% endblock %}
