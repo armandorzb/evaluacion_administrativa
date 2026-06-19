@@ -766,7 +766,7 @@ def _build_clause_metrics_table(clause: dict) -> Table:
 
 
 def _build_clause_sections_table(clause: dict, styles: dict[str, ParagraphStyle]) -> Table:
-    rows = [["Apartado", "Reactivos", "Avance", "Aplicables", "N/A", "Cumpl.", "Evid.", "Madurez"]]
+    rows = [["Apartado", "React.", "Avance", "Aplicables", "N/A", "Cumpl.", "Evid.", "Madurez"]]
     for section in clause["sections"]:
         rows.append(
             [
