@@ -107,13 +107,7 @@
 
   function sendPresenterControl(socket, sessionId, payload, currentState, onState) {
     const body = { session_id: sessionId, ...payload };
-    if (socket) {
-      socket.emit("live:presenter_control", body, (ack) => {
-        if (ack && ack.ok && ack.session) onState(ack.session);
-      });
-      return;
-    }
-    fetch(`/live/api/sessions/${sessionId}/control`, {
+    const fallback = () => fetch(`/live/api/sessions/${sessionId}/control`, {
       method: "POST",
       headers: { "Content-Type": "application/json" },
       body: JSON.stringify(body),
@@ -123,6 +117,15 @@
         if (json.ok && json.session) onState(json.session);
       })
       .catch(() => onState(currentState));
+    emitWithHttpFallback(
+      socket,
+      "live:presenter_control",
+      body,
+      (ack) => {
+        if (ack && ack.ok && ack.session) onState(ack.session);
+      },
+      fallback,
+    );
   }
 
   function sendModeration(socket, sessionId, payload) {
@@ -245,11 +248,7 @@
       if (status) status.textContent = "Respuesta guardada.";
       if (ack.results) renderResults(root, ack.results);
     };
-    if (socket) {
-      socket.emit("live:submit_response", body, done);
-      return;
-    }
-    fetch(`/live/api/s/${encodeURIComponent(code)}/activities/${activityId}/responses`, {
+    const fallback = () => fetch(`/live/api/s/${encodeURIComponent(code)}/activities/${activityId}/responses`, {
       method: "POST",
       headers: { "Content-Type": "application/json" },
       body: JSON.stringify({ payload }),
@@ -257,6 +256,7 @@
       .then((response) => response.json())
       .then(done)
       .catch(() => done({ ok: false, error: "No se pudo enviar." }));
+    emitWithHttpFallback(socket, "live:submit_response", body, done, fallback);
   }
 
   function sendUpvote(root, socket, code, sessionId, activityId, participantToken, responseId) {
@@ -264,11 +264,7 @@
     const done = (ack) => {
       if (ack && ack.ok && ack.results) renderResults(root, ack.results);
     };
-    if (socket) {
-      socket.emit("live:upvote_response", body, done);
-      return;
-    }
-    fetch(`/live/api/s/${encodeURIComponent(code)}/activities/${activityId}/responses/${responseId}/upvote`, {
+    const fallback = () => fetch(`/live/api/s/${encodeURIComponent(code)}/activities/${activityId}/responses/${responseId}/upvote`, {
       method: "POST",
       headers: { "Content-Type": "application/json" },
       body: JSON.stringify({}),
@@ -276,6 +272,26 @@
       .then((response) => response.json())
       .then(done)
       .catch(() => {});
+    emitWithHttpFallback(socket, "live:upvote_response", body, done, fallback);
+  }
+
+  function emitWithHttpFallback(socket, eventName, body, onAck, fallback, timeoutMs = 3500) {
+    if (!socket || !socket.connected) {
+      fallback();
+      return;
+    }
+    let settled = false;
+    const timer = window.setTimeout(() => {
+      if (settled) return;
+      settled = true;
+      fallback();
+    }, timeoutMs);
+    socket.emit(eventName, body, (ack) => {
+      if (settled) return;
+      settled = true;
+      window.clearTimeout(timer);
+      onAck(ack);
+    });
   }
 
   function responsePayloadFromForm(form) {
