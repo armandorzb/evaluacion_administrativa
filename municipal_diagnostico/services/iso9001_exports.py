@@ -510,7 +510,7 @@ def _build_iso_pdf_styles() -> dict[str, ParagraphStyle]:
             fontName=PDF_FONT_REGULAR,
             fontSize=7.8,
             leading=9.5,
-            textColor=PDF_THEME["navy"],
+            textColor=PDF_THEME["gray_dark"],
         ),
         "small_center": ParagraphStyle(
             "IsoSmallCenter",
@@ -519,7 +519,25 @@ def _build_iso_pdf_styles() -> dict[str, ParagraphStyle]:
             fontSize=7.8,
             leading=9.5,
             alignment=TA_CENTER,
-            textColor=PDF_THEME["navy"],
+            textColor=PDF_THEME["gray_dark"],
+        ),
+        "traffic_label_light": ParagraphStyle(
+            "IsoTrafficLabelLight",
+            parent=base["BodyText"],
+            fontName=PDF_FONT_BOLD,
+            fontSize=7.8,
+            leading=9.5,
+            alignment=TA_CENTER,
+            textColor=colors.white,
+        ),
+        "traffic_label_dark": ParagraphStyle(
+            "IsoTrafficLabelDark",
+            parent=base["BodyText"],
+            fontName=PDF_FONT_BOLD,
+            fontSize=7.8,
+            leading=9.5,
+            alignment=TA_CENTER,
+            textColor=PDF_THEME["gray_dark"],
         ),
         "table_header": ParagraphStyle(
             "IsoTableHeader",
@@ -830,9 +848,10 @@ def _build_methodology_panel(styles: dict[str, ParagraphStyle]) -> Table:
 def _build_maturity_legend_table(styles: dict[str, ParagraphStyle]) -> Table:
     rows = [[Paragraph("Rango", styles["table_header"]), Paragraph("Nivel", styles["table_header"])]]
     for range_label, label, slug in ISO_MATURITY_GUIDE:
+        range_style = _traffic_label_style_for_slug(slug, styles)
         rows.append(
             [
-                Paragraph(_paragraph_escape(range_label), styles["small_center"]),
+                Paragraph(_paragraph_escape(range_label), range_style),
                 Paragraph(_paragraph_escape(label), styles["small"]),
             ]
         )
@@ -951,13 +970,13 @@ def _build_progress_comparison_chart(summary: dict) -> Drawing:
 
 def _build_iso_radar_chart(summary: dict) -> Drawing:
     clauses = summary["clauses"]
-    drawing = Drawing(520, 285)
+    drawing = Drawing(520, 300)
     center_x = 260
-    center_y = 135
-    radius = 102
-    label_radius = radius + 31
-    drawing.add(String(260, 270, "Araña de madurez por cláusula", fontName=PDF_FONT_BOLD, fontSize=11, fillColor=PDF_THEME["navy"], textAnchor="middle"))
-    drawing.add(String(260, 253, "Índice comparativo de cumplimiento 0-100; N/A excluido del denominador", fontName=PDF_FONT_REGULAR, fontSize=7.8, fillColor=PDF_THEME["muted"], textAnchor="middle"))
+    center_y = 130
+    radius = 92
+    label_radius = radius + 26
+    drawing.add(String(260, 288, "Araña de madurez por cláusula", fontName=PDF_FONT_BOLD, fontSize=11, fillColor=PDF_THEME["navy"], textAnchor="middle"))
+    drawing.add(String(260, 272, "Índice comparativo de cumplimiento 0-100; N/A excluido del denominador", fontName=PDF_FONT_REGULAR, fontSize=7.8, fillColor=PDF_THEME["muted"], textAnchor="middle"))
 
     if not clauses:
         drawing.add(String(center_x, center_y, "Sin cláusulas disponibles", fontName=PDF_FONT_REGULAR, fontSize=8.5, fillColor=PDF_THEME["muted"], textAnchor="middle"))
@@ -970,7 +989,7 @@ def _build_iso_radar_chart(summary: dict) -> Drawing:
         for angle in angles:
             points.extend([center_x + math.cos(angle) * radius * scale, center_y + math.sin(angle) * radius * scale])
         drawing.add(Polygon(points, fillColor=None, strokeColor=PDF_THEME["line"], strokeWidth=0.65))
-        drawing.add(String(center_x + 7, center_y + radius * scale - 2, str(level), fontName=PDF_FONT_REGULAR, fontSize=6.2, fillColor=PDF_THEME["muted"]))
+        drawing.add(String(center_x + 8, center_y + radius * scale - 1, str(level), fontName=PDF_FONT_REGULAR, fontSize=6.5, fillColor=PDF_THEME["gray_dark"]))
 
     value_points = []
     for angle, clause in zip(angles, clauses):
@@ -984,7 +1003,7 @@ def _build_iso_radar_chart(summary: dict) -> Drawing:
             anchor = "end"
         elif label_x > center_x + 10:
             anchor = "start"
-        drawing.add(String(label_x, label_y - 3, f"C{clause['numero']}", fontName=PDF_FONT_BOLD, fontSize=7.4, fillColor=PDF_THEME["gray_dark"], textAnchor=anchor))
+        drawing.add(String(label_x, label_y - 3, f"C{clause['numero']}", fontName=PDF_FONT_BOLD, fontSize=7.8, fillColor=PDF_THEME["gray_dark"], textAnchor=anchor))
         percent = min(clause["percent"] or 0, 100)
         value_points.extend([center_x + math.cos(angle) * radius * percent / 100, center_y + math.sin(angle) * radius * percent / 100])
 
@@ -1002,7 +1021,7 @@ def _build_iso_radar_chart(summary: dict) -> Drawing:
         ("81-100", "Madurez alta", PDF_THEME["traffic_green"]),
     ]
     legend_x = 392
-    legend_y = 154
+    legend_y = 150
     for index, (range_label, label, color) in enumerate(legend_rows):
         y = legend_y - index * 18
         drawing.add(Rect(legend_x, y, 8, 8, fillColor=color, strokeColor=color))
@@ -1036,7 +1055,7 @@ def _build_clause_heatmap_table(summary: dict, styles: dict[str, ParagraphStyle]
             Paragraph(_format_percent(clause["percent"]), styles["small_center"]),
         ]
         if bucket is not None:
-            cells[bucket + 1] = Paragraph("OK", styles["small_center"])
+            cells[bucket + 1] = Paragraph("OK", _traffic_label_style_for_percent(clause["percent"], styles))
             color = _traffic_color_for_percent(clause["percent"])
             heat_styles.extend(
                 [
@@ -1565,6 +1584,21 @@ def _traffic_soft_color_for_percent(percent: float | int | None):
     if value <= 80:
         return PDF_THEME["traffic_yellow_soft"]
     return PDF_THEME["traffic_green_soft"]
+
+
+def _traffic_label_style_for_percent(percent: float | int | None, styles: dict[str, ParagraphStyle]) -> ParagraphStyle:
+    if percent is None:
+        return styles["traffic_label_dark"]
+    value = float(percent)
+    if value <= 40 or value > 80:
+        return styles["traffic_label_light"]
+    return styles["traffic_label_dark"]
+
+
+def _traffic_label_style_for_slug(slug: str, styles: dict[str, ParagraphStyle]) -> ParagraphStyle:
+    if slug in {"low", "optimal"}:
+        return styles["traffic_label_light"]
+    return styles["traffic_label_dark"]
 
 
 def _compact_maturity_label(label: str | None) -> str:
