@@ -543,10 +543,10 @@
     const hasWords = Boolean((results.words || []).length);
     const canRenderCloud = Boolean(wordCloud && window.WordCloud && hasWords);
     const resultsWrap = list?.closest(".live-presentation-results");
+    const isPresentation = Boolean(list?.closest(".live-presentation-shell"));
     resultsWrap?.classList.toggle("is-list-only", !canRenderCloud);
     if (canRenderCloud) {
       wordCloud.hidden = false;
-      const isPresentation = Boolean(wordCloud.closest(".live-presentation-shell"));
       const maxWeight = Math.max(...(results.words || []).map((item) => Number(item[1] || 1)), 1);
       const baseWeight = isPresentation ? Math.max(18, Math.min(42, wordCloud.clientWidth / 34)) : 12;
       WordCloud(wordCloud, {
@@ -559,13 +559,53 @@
       });
     }
     if (list) {
+      const ideas = isPresentation ? groupBrainstormIdeas(results.ideas || []) : (results.ideas || []).slice().reverse();
       list.innerHTML =
-        (results.ideas || [])
-          .slice()
-          .reverse()
-          .map((item) => `<div class="live-idea">${escapeHtml(item.idea)}${statusTag(item.status)}</div>`)
+        ideas
+          .map((item) => `<div class="live-idea">
+            <span class="live-idea-text">${escapeHtml(item.idea)}</span>
+            ${item.count > 1 ? `<span class="live-idea-count">${item.count} menciones</span>` : ""}
+            ${statusTag(item.status)}
+          </div>`)
           .join("") || `<p class="muted">Sin ideas todavia.</p>`;
     }
+  }
+
+  function groupBrainstormIdeas(ideas) {
+    const grouped = new Map();
+    ideas.forEach((item, index) => {
+      const idea = String(item.idea || "").trim();
+      if (!idea) return;
+      const key = normalizeIdeaKey(idea);
+      const createdAt = item.created_at ? Date.parse(item.created_at) || 0 : 0;
+      const current = grouped.get(key);
+      if (!current) {
+        grouped.set(key, { ...item, idea, count: 1, latestAt: createdAt, latestIndex: index });
+        return;
+      }
+      current.count += 1;
+      if (createdAt > current.latestAt || (!createdAt && index > current.latestIndex)) {
+        current.idea = idea;
+        current.status = item.status;
+        current.created_at = item.created_at;
+        current.latestAt = createdAt;
+        current.latestIndex = index;
+      }
+    });
+    return Array.from(grouped.values()).sort((left, right) => {
+      if (right.count !== left.count) return right.count - left.count;
+      if (right.latestAt !== left.latestAt) return right.latestAt - left.latestAt;
+      return right.latestIndex - left.latestIndex;
+    });
+  }
+
+  function normalizeIdeaKey(value) {
+    return String(value || "")
+      .normalize("NFD")
+      .replace(/[\u0300-\u036f]/g, "")
+      .replace(/\s+/g, " ")
+      .trim()
+      .toLowerCase();
   }
 
   function renderQa(root, list, results) {
