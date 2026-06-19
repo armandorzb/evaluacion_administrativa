@@ -110,6 +110,18 @@ def cycles():
                 log_activity("change_iso9001_cycle_state", entity_type="iso9001_ciclo", entity_id=cycle.id, metadata={"estado": next_state})
                 flash("Estado del ciclo actualizado.", "success")
 
+        elif action == "delete_cycle":
+            cycle = Iso9001Ciclo.query.get_or_404(request.form.get("cycle_id", type=int))
+            if iso9001_cycle_has_activity(cycle):
+                redirect_url = url_for("iso9001.cycles", cycle_id=cycle.id)
+                flash("No se puede eliminar un ciclo con respuestas u observaciones registradas.", "error")
+            else:
+                cycle_id = cycle.id
+                db.session.delete(cycle)
+                db.session.commit()
+                log_activity("delete_iso9001_cycle", entity_type="iso9001_ciclo", entity_id=cycle_id)
+                flash("Ciclo ISO eliminado.", "success")
+
         elif action == "add_evaluations":
             cycle = Iso9001Ciclo.query.get_or_404(request.form.get("cycle_id", type=int))
             redirect_url = url_for("iso9001.cycles", cycle_id=cycle.id)
@@ -132,6 +144,25 @@ def cycles():
                 db.session.commit()
                 log_activity("update_iso9001_evaluation", entity_type="iso9001_evaluacion", entity_id=evaluation.id)
                 flash("Evaluación ISO actualizada.", "success")
+
+        elif action == "delete_evaluation":
+            evaluation = Iso9001Evaluacion.query.get_or_404(request.form.get("evaluation_id", type=int))
+            redirect_url = url_for("iso9001.cycles", cycle_id=evaluation.ciclo_id)
+            if iso9001_evaluation_has_activity(evaluation):
+                flash("No se puede desasignar una dependencia con respuestas u observaciones registradas.", "error")
+            else:
+                evaluation_id = evaluation.id
+                cycle_id = evaluation.ciclo_id
+                dependency_id = evaluation.dependencia_id
+                db.session.delete(evaluation)
+                db.session.commit()
+                log_activity(
+                    "delete_iso9001_evaluation",
+                    entity_type="iso9001_evaluacion",
+                    entity_id=evaluation_id,
+                    metadata={"ciclo_id": cycle_id, "dependencia_id": dependency_id},
+                )
+                flash("Dependencia desasignada del ciclo.", "success")
 
         return redirect(redirect_url)
 
@@ -419,6 +450,14 @@ def sync_evaluation_assignment(evaluation: Iso9001Evaluacion, responsable: Usuar
     if responsable and not any(assignment.usuario_id == responsable.id for assignment in capture_assignments):
         grant_iso_access(responsable)
         db.session.add(Iso9001Asignacion(evaluacion=evaluation, usuario=responsable, tipo="captura"))
+
+
+def iso9001_evaluation_has_activity(evaluation: Iso9001Evaluacion) -> bool:
+    return bool(evaluation.respuestas or evaluation.observaciones)
+
+
+def iso9001_cycle_has_activity(cycle: Iso9001Ciclo) -> bool:
+    return any(iso9001_evaluation_has_activity(evaluation) for evaluation in cycle.evaluaciones)
 
 
 def persist_section_from_form(evaluation: Iso9001Evaluacion, section) -> tuple[int, int]:

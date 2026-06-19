@@ -93,16 +93,19 @@
             <p class="eyebrow">Evaluaciones</p>
             <h2>{{ selected_cycle.nombre }}</h2>
         </div>
-        <form method="post" class="actions">
-            <input type="hidden" name="action" value="change_cycle_state">
-            <input type="hidden" name="cycle_id" value="{{ selected_cycle.id }}">
-            <select name="estado">
-                {% for state, label in cycle_states.items() %}
-                <option value="{{ state }}" {% if selected_cycle.estado == state %}selected{% endif %}>{{ label }}</option>
-                {% endfor %}
-            </select>
-            <button class="button" type="submit">Cambiar estado</button>
-        </form>
+        <div class="actions wrap">
+            <form method="post" class="actions">
+                <input type="hidden" name="action" value="change_cycle_state">
+                <input type="hidden" name="cycle_id" value="{{ selected_cycle.id }}">
+                <select name="estado">
+                    {% for state, label in cycle_states.items() %}
+                    <option value="{{ state }}" {% if selected_cycle.estado == state %}selected{% endif %}>{{ label }}</option>
+                    {% endfor %}
+                </select>
+                <button class="button" type="submit">Cambiar estado</button>
+            </form>
+            <button class="button danger" type="button" data-dialog-open="dialog-iso-cycle-delete">Eliminar ciclo</button>
+        </div>
     </div>
     <div class="table-wrap">
         <table class="executive-table">
@@ -131,6 +134,7 @@
                             <a class="button button-primary" href="{{ url_for('iso9001.evaluation_detail', evaluation_id=row.evaluacion.id) }}">Abrir</a>
                             <a class="button" href="{{ url_for('iso9001.review_evaluation', evaluation_id=row.evaluacion.id) }}">Revisión</a>
                             <button class="button" type="button" data-dialog-open="dialog-iso-evaluation-edit-{{ row.evaluacion.id }}">Editar</button>
+                            <button class="button danger" type="button" data-dialog-open="dialog-iso-evaluation-delete-{{ row.evaluacion.id }}">Desasignar</button>
                         </div>
                     </td>
                 </tr>
@@ -141,6 +145,29 @@
         </table>
     </div>
 </article>
+
+<dialog class="catalog-dialog" id="dialog-iso-cycle-delete">
+    <form method="dialog" class="dialog-shell">
+        <div class="dialog-head">
+            <div>
+                <p class="eyebrow">Eliminar ciclo</p>
+                <h2>{{ selected_cycle.nombre }}</h2>
+            </div>
+            <button class="button" type="submit">Cerrar</button>
+        </div>
+    </form>
+    <form method="post" class="stack catalog-form">
+        <input type="hidden" name="action" value="delete_cycle">
+        <input type="hidden" name="cycle_id" value="{{ selected_cycle.id }}">
+        <div class="callout callout-warning compact">
+            <strong>Esta accion elimina el ciclo y sus dependencias asignadas.</strong>
+            <p>Solo se permite cuando ninguna evaluacion del ciclo tiene respuestas u observaciones registradas.</p>
+        </div>
+        <div class="actions">
+            <button class="button danger" type="submit">Eliminar ciclo</button>
+        </div>
+    </form>
+</dialog>
 
 {% for row in selected_summary.rows %}
 <dialog class="catalog-dialog" id="dialog-iso-evaluation-edit-{{ row.evaluacion.id }}">
@@ -181,6 +208,29 @@
         </label>
         <div class="actions">
             <button class="button button-primary" type="submit">Guardar cambios</button>
+        </div>
+    </form>
+</dialog>
+
+<dialog class="catalog-dialog" id="dialog-iso-evaluation-delete-{{ row.evaluacion.id }}">
+    <form method="dialog" class="dialog-shell">
+        <div class="dialog-head">
+            <div>
+                <p class="eyebrow">Desasignar dependencia</p>
+                <h2>{{ row.dependencia }}</h2>
+            </div>
+            <button class="button" type="submit">Cerrar</button>
+        </div>
+    </form>
+    <form method="post" class="stack catalog-form">
+        <input type="hidden" name="action" value="delete_evaluation">
+        <input type="hidden" name="evaluation_id" value="{{ row.evaluacion.id }}">
+        <div class="callout callout-warning compact">
+            <strong>Esta accion quita la dependencia del ciclo.</strong>
+            <p>Solo se permite cuando la evaluacion no tiene respuestas u observaciones registradas.</p>
+        </div>
+        <div class="actions">
+            <button class="button danger" type="submit">Desasignar dependencia</button>
         </div>
     </form>
 </dialog>

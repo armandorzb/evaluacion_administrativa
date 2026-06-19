@@ -584,6 +584,146 @@ def test_iso9001_admin_can_update_existing_evaluation_assignment():
         assert evaluation.estado == "devuelta"
 
 
+def test_iso9001_admin_can_unassign_empty_evaluation_and_delete_empty_cycle():
+    app, ids = build_app()
+    client = app.test_client()
+
+    login(client, "admin.iso@test.local")
+    cycle_response = client.post(
+        "/iso9001/ciclos",
+        data={
+            "action": "create_cycle",
+            "nombre": "Ciclo ISO Desasignaciones",
+            "descripcion": "Prueba de desasignacion",
+            "estado": "activo",
+            "fecha_inicio": "2026-01-01",
+            "fecha_cierre": "2026-12-31",
+        },
+        follow_redirects=True,
+    )
+    assert cycle_response.status_code == 200
+
+    with app.app_context():
+        cycle = Iso9001Ciclo.query.filter_by(nombre="Ciclo ISO Desasignaciones").first()
+        cycle_id = cycle.id
+
+    assignment_response = client.post(
+        "/iso9001/ciclos",
+        data={
+            "action": "add_evaluations",
+            "cycle_id": str(cycle_id),
+            "dependencia_ids": [str(ids["dependency_one_id"]), str(ids["dependency_two_id"])],
+            "responsable_id": str(ids["evaluator_id"]),
+            "revisor_id": str(ids["reviewer_id"]),
+        },
+        follow_redirects=True,
+    )
+    assert assignment_response.status_code == 200
+
+    with app.app_context():
+        removable_evaluation = Iso9001Evaluacion.query.filter_by(
+            ciclo_id=cycle_id,
+            dependencia_id=ids["dependency_one_id"],
+        ).first()
+        blocked_evaluation = Iso9001Evaluacion.query.filter_by(
+            ciclo_id=cycle_id,
+            dependencia_id=ids["dependency_two_id"],
+        ).first()
+        removable_evaluation_id = removable_evaluation.id
+        blocked_evaluation_id = blocked_evaluation.id
+
+    cycles_page = client.get(f"/iso9001/ciclos?cycle_id={cycle_id}")
+    cycles_html = cycles_page.get_data(as_text=True)
+    assert cycles_page.status_code == 200
+    assert 'data-dialog-open="dialog-iso-cycle-delete"' in cycles_html
+    assert f'data-dialog-open="dialog-iso-evaluation-delete-{removable_evaluation_id}"' in cycles_html
+
+    delete_response = client.post(
+        "/iso9001/ciclos",
+        data={"action": "delete_evaluation", "evaluation_id": str(removable_evaluation_id)},
+        follow_redirects=True,
+    )
+    delete_html = delete_response.get_data(as_text=True)
+    assert delete_response.status_code == 200
+    assert "Dependencia desasignada del ciclo." in delete_html
+
+    with app.app_context():
+        assert db.session.get(Iso9001Evaluacion, removable_evaluation_id) is None
+        assert db.session.get(Iso9001Evaluacion, blocked_evaluation_id) is not None
+        assert db.session.get(Iso9001Ciclo, cycle_id) is not None
+
+        blocked_evaluation = db.session.get(Iso9001Evaluacion, blocked_evaluation_id)
+        first_reactive = Iso9001Reactivo.query.order_by(Iso9001Reactivo.id).first()
+        db.session.add(
+            Iso9001Respuesta(
+                evaluacion=blocked_evaluation,
+                reactivo=first_reactive,
+                usuario_id=ids["evaluator_id"],
+                calificacion="si",
+                valor=ISO9001_OPTION_POINTS["si"],
+            )
+        )
+        db.session.commit()
+
+    blocked_delete = client.post(
+        "/iso9001/ciclos",
+        data={"action": "delete_evaluation", "evaluation_id": str(blocked_evaluation_id)},
+        follow_redirects=True,
+    )
+    assert blocked_delete.status_code == 200
+    assert "No se puede desasignar una dependencia" in blocked_delete.get_data(as_text=True)
+
+    blocked_cycle_delete = client.post(
+        "/iso9001/ciclos",
+        data={"action": "delete_cycle", "cycle_id": str(cycle_id)},
+        follow_redirects=True,
+    )
+    assert blocked_cycle_delete.status_code == 200
+    assert "No se puede eliminar un ciclo" in blocked_cycle_delete.get_data(as_text=True)
+
+    empty_cycle_response = client.post(
+        "/iso9001/ciclos",
+        data={
+            "action": "create_cycle",
+            "nombre": "Ciclo ISO Eliminable",
+            "descripcion": "Sin captura",
+            "estado": "activo",
+            "fecha_inicio": "2026-01-01",
+            "fecha_cierre": "2026-12-31",
+        },
+        follow_redirects=True,
+    )
+    assert empty_cycle_response.status_code == 200
+
+    with app.app_context():
+        empty_cycle = Iso9001Ciclo.query.filter_by(nombre="Ciclo ISO Eliminable").first()
+        empty_cycle_id = empty_cycle.id
+
+    client.post(
+        "/iso9001/ciclos",
+        data={
+            "action": "add_evaluations",
+            "cycle_id": str(empty_cycle_id),
+            "dependencia_ids": [str(ids["dependency_one_id"])],
+            "responsable_id": str(ids["evaluator_id"]),
+            "revisor_id": str(ids["reviewer_id"]),
+        },
+        follow_redirects=True,
+    )
+
+    delete_cycle_response = client.post(
+        "/iso9001/ciclos",
+        data={"action": "delete_cycle", "cycle_id": str(empty_cycle_id)},
+        follow_redirects=True,
+    )
+    assert delete_cycle_response.status_code == 200
+    assert "Ciclo ISO eliminado." in delete_cycle_response.get_data(as_text=True)
+
+    with app.app_context():
+        assert db.session.get(Iso9001Ciclo, empty_cycle_id) is None
+        assert Iso9001Evaluacion.query.filter_by(ciclo_id=empty_cycle_id).first() is None
+
+
 def test_iso9001_capture_review_close_permissions_and_exports():
     app, ids = build_app()
     client = app.test_client()
