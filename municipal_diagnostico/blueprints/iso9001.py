@@ -77,6 +77,7 @@ def cycles():
     version = ensure_iso9001_catalog()
     if request.method == "POST":
         action = request.form.get("action")
+        redirect_url = url_for("iso9001.cycles")
         if action == "create_cycle":
             data, error = validate_cycle_payload(request.form)
             if error:
@@ -95,9 +96,11 @@ def cycles():
                 db.session.commit()
                 log_activity("create_iso9001_cycle", entity_type="iso9001_ciclo", entity_id=cycle.id)
                 flash("Ciclo ISO registrado.", "success")
+                redirect_url = url_for("iso9001.cycles", cycle_id=cycle.id)
 
         elif action == "change_cycle_state":
             cycle = Iso9001Ciclo.query.get_or_404(request.form.get("cycle_id", type=int))
+            redirect_url = url_for("iso9001.cycles", cycle_id=cycle.id)
             next_state = clean_text(request.form.get("estado"))
             if next_state not in ISO9001_CYCLE_STATES:
                 flash("Selecciona un estado valido para el ciclo.", "error")
@@ -109,6 +112,7 @@ def cycles():
 
         elif action == "add_evaluations":
             cycle = Iso9001Ciclo.query.get_or_404(request.form.get("cycle_id", type=int))
+            redirect_url = url_for("iso9001.cycles", cycle_id=cycle.id)
             created = create_evaluations_from_form(cycle)
             db.session.commit()
             log_activity("create_iso9001_evaluations", entity_type="iso9001_ciclo", entity_id=cycle.id, metadata={"created": created})
@@ -116,19 +120,20 @@ def cycles():
 
         elif action == "update_evaluation":
             evaluation = Iso9001Evaluacion.query.get_or_404(request.form.get("evaluation_id", type=int))
-            sync_evaluation_assignment(evaluation)
-            next_state = clean_text(request.form.get("estado")) or evaluation.estado
-            if next_state not in ISO9001_EVALUATION_STATES:
-                flash("Selecciona un estado valido para la evaluacion.", "error")
+            redirect_url = url_for("iso9001.cycles", cycle_id=evaluation.ciclo_id)
+            data, error = validate_evaluation_update_payload(request.form, evaluation)
+            if error:
+                flash(error, "error")
             else:
-                evaluation.estado = next_state
-                if next_state == "cerrada" and evaluation.cerrada_at is None:
+                sync_evaluation_assignment(evaluation, data["responsable"], data["revisor"])
+                evaluation.estado = data["estado"]
+                if data["estado"] == "cerrada" and evaluation.cerrada_at is None:
                     evaluation.cerrada_at = utcnow()
                 db.session.commit()
                 log_activity("update_iso9001_evaluation", entity_type="iso9001_evaluacion", entity_id=evaluation.id)
                 flash("Evaluacion ISO actualizada.", "success")
 
-        return redirect(url_for("iso9001.cycles"))
+        return redirect(redirect_url)
 
     cycles_list = Iso9001Ciclo.query.order_by(Iso9001Ciclo.created_at.desc()).all()
     selected_cycle_id = request.args.get("cycle_id", type=int)
@@ -366,20 +371,54 @@ def create_evaluations_from_form(cycle: Iso9001Ciclo) -> int:
     return created
 
 
-def sync_evaluation_assignment(evaluation: Iso9001Evaluacion) -> None:
-    responsable_id = request.form.get("responsable_id", type=int)
-    revisor_id = request.form.get("revisor_id", type=int)
-    evaluation.revisor = active_user_or_none(revisor_id)
+def validate_evaluation_update_payload(form_data, evaluation: Iso9001Evaluacion):
+    next_state = clean_text(form_data.get("estado")) or evaluation.estado
+    if next_state not in ISO9001_EVALUATION_STATES:
+        return None, "Selecciona un estado valido para la evaluacion."
+
+    responsable, error = optional_active_user_from_form(form_data.get("responsable_id"), "responsable de captura")
+    if error:
+        return None, error
+
+    revisor, error = optional_active_user_from_form(form_data.get("revisor_id"), "revisor", allowed_roles={"administrador", "revisor"})
+    if error:
+        return None, error
+
+    return {
+        "estado": next_state,
+        "responsable": responsable,
+        "revisor": revisor,
+    }, None
+
+
+def optional_active_user_from_form(raw_value, field_label: str, allowed_roles: set[str] | None = None):
+    raw_text = clean_text(raw_value)
+    if raw_text is None:
+        return None, None
+    try:
+        user_id = int(raw_text)
+    except ValueError:
+        return None, f"Selecciona un {field_label} valido."
+    user = db.session.get(Usuario, user_id)
+    if user is None or not user.activo:
+        return None, f"Selecciona un {field_label} activo."
+    if allowed_roles is not None and user.rol not in allowed_roles:
+        return None, f"Selecciona un {field_label} con rol valido."
+    return user, None
+
+
+def sync_evaluation_assignment(evaluation: Iso9001Evaluacion, responsable: Usuario | None, revisor: Usuario | None) -> None:
+    evaluation.revisor = revisor
     if evaluation.revisor:
         grant_iso_access(evaluation.revisor)
-    for assignment in list(evaluation.asignaciones):
-        if assignment.tipo == "captura" and assignment.usuario_id != responsable_id:
+
+    capture_assignments = [assignment for assignment in list(evaluation.asignaciones) if assignment.tipo == "captura"]
+    for assignment in capture_assignments:
+        if responsable is None or assignment.usuario_id != responsable.id:
             db.session.delete(assignment)
-    if responsable_id and not any(assignment.usuario_id == responsable_id and assignment.tipo == "captura" for assignment in evaluation.asignaciones):
-        user = active_user_or_none(responsable_id)
-        if user:
-            grant_iso_access(user)
-            db.session.add(Iso9001Asignacion(evaluacion=evaluation, usuario=user, tipo="captura"))
+    if responsable and not any(assignment.usuario_id == responsable.id for assignment in capture_assignments):
+        grant_iso_access(responsable)
+        db.session.add(Iso9001Asignacion(evaluacion=evaluation, usuario=responsable, tipo="captura"))
 
 
 def persist_section_from_form(evaluation: Iso9001Evaluacion, section) -> tuple[int, int]:

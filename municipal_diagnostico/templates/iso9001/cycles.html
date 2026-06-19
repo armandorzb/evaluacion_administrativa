@@ -127,9 +127,10 @@
                     <td>{{ row.avance }}%</td>
                     <td>{% if row.cumplimiento is not none %}{{ row.cumplimiento }}%{% else %}-{% endif %}</td>
                     <td>
-                        <div class="actions">
+                        <div class="actions wrap">
                             <a class="button button-primary" href="{{ url_for('iso9001.evaluation_detail', evaluation_id=row.evaluacion.id) }}">Abrir</a>
                             <a class="button" href="{{ url_for('iso9001.review_evaluation', evaluation_id=row.evaluacion.id) }}">Revision</a>
+                            <button class="button" type="button" data-dialog-open="dialog-iso-evaluation-edit-{{ row.evaluacion.id }}">Editar</button>
                         </div>
                     </td>
                 </tr>
@@ -140,5 +141,49 @@
         </table>
     </div>
 </article>
+
+{% for row in selected_summary.rows %}
+<dialog class="catalog-dialog" id="dialog-iso-evaluation-edit-{{ row.evaluacion.id }}">
+    <form method="dialog" class="dialog-shell">
+        <div class="dialog-head">
+            <div>
+                <p class="eyebrow">Editar evaluacion</p>
+                <h2>{{ row.dependencia }}</h2>
+            </div>
+            <button class="button" type="submit">Cerrar</button>
+        </div>
+    </form>
+    <form method="post" class="stack catalog-form">
+        <input type="hidden" name="action" value="update_evaluation">
+        <input type="hidden" name="evaluation_id" value="{{ row.evaluacion.id }}">
+        <label>Responsable de captura
+            <select name="responsable_id">
+                <option value="" {% if not row.evaluacion.responsable %}selected{% endif %}>Sin responsable</option>
+                {% for user in users %}
+                <option value="{{ user.id }}" {% if row.evaluacion.responsable and row.evaluacion.responsable.id == user.id %}selected{% endif %}>{{ user.nombre }} - {{ user.nombre_rol }}</option>
+                {% endfor %}
+            </select>
+        </label>
+        <label>Revisor
+            <select name="revisor_id">
+                <option value="" {% if not row.evaluacion.revisor %}selected{% endif %}>Sin revisor</option>
+                {% for user in reviewers %}
+                <option value="{{ user.id }}" {% if row.evaluacion.revisor_id == user.id %}selected{% endif %}>{{ user.nombre }} - {{ user.nombre_rol }}</option>
+                {% endfor %}
+            </select>
+        </label>
+        <label>Estado
+            <select name="estado">
+                {% for state, label in evaluation_states.items() %}
+                <option value="{{ state }}" {% if row.evaluacion.estado == state %}selected{% endif %}>{{ label }}</option>
+                {% endfor %}
+            </select>
+        </label>
+        <div class="actions">
+            <button class="button button-primary" type="submit">Guardar cambios</button>
+        </div>
+    </form>
+</dialog>
+{% endfor %}
 {% endif %}
 {% endblock %}
