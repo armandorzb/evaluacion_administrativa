@@ -99,6 +99,25 @@
       startPolling();
     }
 
+    root.querySelectorAll("[data-live-fullscreen]").forEach((button) => {
+      const syncLabel = () => {
+        button.textContent = document.fullscreenElement ? "Salir de pantalla completa" : "Pantalla completa";
+      };
+      button.addEventListener("click", () => {
+        if (document.fullscreenElement) {
+          document.exitFullscreen?.();
+          return;
+        }
+        const request = root.requestFullscreen?.();
+        request?.catch?.(() => {
+          button.textContent = "Usa F11 para pantalla completa";
+          window.setTimeout(syncLabel, 2500);
+        });
+      });
+      document.addEventListener("fullscreenchange", syncLabel);
+      syncLabel();
+    });
+
     root.querySelectorAll("[data-live-control]").forEach((button) => {
       button.addEventListener("click", () => {
         sendPresenterControl(socket, sessionId, { action: button.dataset.liveControl }, currentState, (nextState) => {
@@ -359,6 +378,7 @@
 
   function renderActivity(root, activity) {
     root.dataset.liveShowResults = activity?.payload?.show_results === false ? "false" : "true";
+    root.dataset.liveActivityType = activity?.tipo || "";
     const target = root.querySelector("[data-live-current-activity]");
     if (target) {
       const timer = renderTimer(activity);
@@ -376,18 +396,22 @@
 
   function renderResults(root, results) {
     const chartCanvas = root.querySelector("[data-live-chart]");
+    const chartWrap = chartCanvas?.closest(".live-chart-wrap");
     const wordCloud = root.querySelector("[data-live-wordcloud]");
     const list = root.querySelector("[data-live-results-list]");
+    const resultsWrap = root.querySelector(".live-presentation-results");
     if (liveChart) {
       liveChart.destroy();
       liveChart = null;
     }
+    resultsWrap?.classList.remove("is-list-only");
     if (wordCloud) {
       wordCloud.innerHTML = "";
       wordCloud.hidden = true;
     }
     if (list) list.innerHTML = "";
     if (chartCanvas) chartCanvas.hidden = true;
+    if (chartWrap) chartWrap.hidden = true;
     if (!results) return;
 
     if (root.matches("[data-live-participant]") && root.dataset.liveShowResults === "false") {
@@ -449,6 +473,8 @@
 
   function renderBarResults(canvas, items, valueKey, label) {
     if (!canvas || !window.Chart) return;
+    const chartWrap = canvas.closest(".live-chart-wrap");
+    if (chartWrap) chartWrap.hidden = false;
     canvas.hidden = false;
     liveChart = new Chart(canvas.getContext("2d"), {
       type: "bar",
@@ -473,6 +499,8 @@
 
   function renderMatrix(canvas, results) {
     if (!canvas || !window.Chart) return;
+    const chartWrap = canvas.closest(".live-chart-wrap");
+    if (chartWrap) chartWrap.hidden = false;
     canvas.hidden = false;
     const min = Number(results.min ?? -5);
     const max = Number(results.max ?? 5);
@@ -512,13 +540,21 @@
   }
 
   function renderBrainstorm(wordCloud, list, results) {
-    if (wordCloud && window.WordCloud && (results.words || []).length) {
+    const hasWords = Boolean((results.words || []).length);
+    const canRenderCloud = Boolean(wordCloud && window.WordCloud && hasWords);
+    const resultsWrap = list?.closest(".live-presentation-results");
+    resultsWrap?.classList.toggle("is-list-only", !canRenderCloud);
+    if (canRenderCloud) {
       wordCloud.hidden = false;
+      const isPresentation = Boolean(wordCloud.closest(".live-presentation-shell"));
+      const maxWeight = Math.max(...(results.words || []).map((item) => Number(item[1] || 1)), 1);
+      const baseWeight = isPresentation ? Math.max(18, Math.min(42, wordCloud.clientWidth / 34)) : 12;
       WordCloud(wordCloud, {
         list: results.words,
-        weightFactor: 12,
-        gridSize: 10,
-        color: "random-dark",
+        weightFactor: (weight) => baseWeight * Math.sqrt(Number(weight || 1) / maxWeight),
+        gridSize: isPresentation ? 12 : 10,
+        rotateRatio: isPresentation ? 0.08 : 0.2,
+        color: isPresentation ? "#1f3849" : "random-dark",
         backgroundColor: "transparent",
       });
     }
