@@ -983,13 +983,14 @@ def _build_iso_radar_chart(summary: dict) -> Drawing:
         return drawing
 
     angles = [math.pi / 2 - (2 * math.pi * index / len(clauses)) for index in range(len(clauses))]
+    scale_labels = []
     for level in (25, 50, 75, 100):
         scale = level / 100
         points = []
         for angle in angles:
             points.extend([center_x + math.cos(angle) * radius * scale, center_y + math.sin(angle) * radius * scale])
         drawing.add(Polygon(points, fillColor=None, strokeColor=PDF_THEME["line"], strokeWidth=0.65))
-        drawing.add(String(center_x + 8, center_y + radius * scale - 1, str(level), fontName=PDF_FONT_REGULAR, fontSize=6.5, fillColor=PDF_THEME["gray_dark"]))
+        scale_labels.append((level, center_x + 18, center_y + radius * scale - 2))
 
     value_points = []
     for angle, clause in zip(angles, clauses):
@@ -1014,6 +1015,10 @@ def _build_iso_radar_chart(summary: dict) -> Drawing:
             drawing.add(Rect(value_points[point_index] - 2, value_points[point_index + 1] - 2, 4, 4, fillColor=radar_color, strokeColor=radar_color))
     else:
         drawing.add(String(center_x, center_y - 4, "Sin cumplimiento registrado", fontName=PDF_FONT_REGULAR, fontSize=8.2, fillColor=PDF_THEME["muted"], textAnchor="middle"))
+
+    for level, label_x, label_y in scale_labels:
+        drawing.add(Rect(label_x - 7, label_y - 3, 24, 10, fillColor=colors.white, strokeColor=colors.white, strokeWidth=0))
+        drawing.add(String(label_x + 5, label_y, str(level), fontName=PDF_FONT_BOLD, fontSize=6.7, fillColor=PDF_THEME["gray_dark"], textAnchor="middle"))
 
     legend_rows = [
         ("0-40", "Atención prioritaria", PDF_THEME["low"]),
