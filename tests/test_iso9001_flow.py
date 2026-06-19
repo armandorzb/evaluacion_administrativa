@@ -13,12 +13,19 @@ from municipal_diagnostico.models import (
     Iso9001Ciclo,
     Iso9001Clausula,
     Iso9001CuestionarioVersion,
+    Iso9001Evidencia,
     Iso9001Evaluacion,
     Iso9001Reactivo,
     Iso9001Respuesta,
     Usuario,
 )
 from municipal_diagnostico.services.iso9001 import ISO9001_OPTION_POINTS, summarize_iso9001_evaluation
+from municipal_diagnostico.services.iso9001_exports import (
+    _priority_sections,
+    _response_distribution,
+    _section_evidence_count,
+    build_iso9001_pdf,
+)
 
 
 class TestConfig:
@@ -75,6 +82,15 @@ def build_app():
                 acceso_iso9001=True,
             ),
             Usuario(
+                nombre="Revisor Alterno ISO",
+                correo="revisor.alterno.iso@test.local",
+                rol="revisor",
+                activo=True,
+                acceso_diagnostico=False,
+                acceso_bienestar=False,
+                acceso_iso9001=False,
+            ),
+            Usuario(
                 nombre="Consulta ISO",
                 correo="consulta.iso@test.local",
                 rol="consulta",
@@ -112,7 +128,8 @@ def build_app():
             "admin_id": users[0].id,
             "evaluator_id": users[1].id,
             "reviewer_id": users[2].id,
-            "respondent_id": users[4].id,
+            "alternate_reviewer_id": users[3].id,
+            "respondent_id": users[5].id,
         }
 
 
@@ -210,6 +227,114 @@ def test_iso9001_scoring_excludes_na_from_denominator():
         assert summary["completion"] == round((3 / 293) * 100, 2)
 
 
+def test_iso9001_pdf_data_helpers_rank_gaps_and_evidence():
+    app, ids = build_app()
+
+    with app.app_context():
+        evaluation_id = create_iso_evaluation(
+            ids["dependency_one_id"],
+            ids["evaluator_id"],
+            ids["reviewer_id"],
+            ids["admin_id"],
+        )
+        evaluation = db.session.get(Iso9001Evaluacion, evaluation_id)
+        user = db.session.get(Usuario, ids["evaluator_id"])
+        sections = Iso9001Apartado.query.order_by(Iso9001Apartado.orden).limit(2).all()
+        first_section_reactives = sections[0].reactivos[:2]
+        second_section_reactives = sections[1].reactivos[:2]
+        payload = [
+            (first_section_reactives[0], "si"),
+            (first_section_reactives[1], "parcial"),
+            (second_section_reactives[0], "no"),
+            (second_section_reactives[1], "na"),
+        ]
+        responses = []
+        for reactive, value in payload:
+            response = Iso9001Respuesta(
+                evaluacion=evaluation,
+                reactivo=reactive,
+                usuario=user,
+                calificacion=value,
+                valor=ISO9001_OPTION_POINTS[value],
+                observacion=f"Observacion {value}",
+            )
+            responses.append(response)
+            db.session.add(response)
+        db.session.flush()
+        db.session.add_all(
+            [
+                Iso9001Evidencia(
+                    respuesta=responses[0],
+                    usuario=user,
+                    archivo_nombre_original="evidencia-a.pdf",
+                    archivo_guardado="iso/evidencia-a.pdf",
+                    mime_type="application/pdf",
+                    tamano_bytes=20,
+                ),
+                Iso9001Evidencia(
+                    respuesta=responses[0],
+                    usuario=user,
+                    archivo_nombre_original="evidencia-b.pdf",
+                    archivo_guardado="iso/evidencia-b.pdf",
+                    mime_type="application/pdf",
+                    tamano_bytes=22,
+                ),
+            ]
+        )
+        db.session.flush()
+
+        summary = summarize_iso9001_evaluation(evaluation)
+        distribution = {row["key"]: row["count"] for row in _response_distribution(summary)}
+        priorities = _priority_sections(summary)
+        section_map = {section["codigo"]: section for section in summary["sections"]}
+
+        assert distribution == {"no": 1, "parcial": 1, "si": 1, "na": 1}
+        assert priorities[0]["codigo"] == sections[1].codigo
+        assert priorities[1]["codigo"] == sections[0].codigo
+        assert _section_evidence_count(section_map[sections[0].codigo]) == 2
+        assert _section_evidence_count(section_map[sections[1].codigo]) == 0
+
+
+def test_iso9001_pdf_generates_without_completed_capture_and_with_all_na_section():
+    app, ids = build_app()
+
+    with app.app_context():
+        empty_evaluation_id = create_iso_evaluation(
+            ids["dependency_one_id"],
+            ids["evaluator_id"],
+            ids["reviewer_id"],
+            ids["admin_id"],
+        )
+        empty_evaluation = db.session.get(Iso9001Evaluacion, empty_evaluation_id)
+        empty_pdf = build_iso9001_pdf(empty_evaluation)
+        assert empty_pdf.getvalue().startswith(b"%PDF")
+
+        na_evaluation_id = create_iso_evaluation(
+            ids["dependency_two_id"],
+            ids["evaluator_id"],
+            ids["reviewer_id"],
+            ids["admin_id"],
+        )
+        na_evaluation = db.session.get(Iso9001Evaluacion, na_evaluation_id)
+        user = db.session.get(Usuario, ids["evaluator_id"])
+        first_section = Iso9001Apartado.query.order_by(Iso9001Apartado.orden).first()
+        for reactive in first_section.reactivos:
+            db.session.add(
+                Iso9001Respuesta(
+                    evaluacion=na_evaluation,
+                    reactivo=reactive,
+                    usuario=user,
+                    calificacion="na",
+                    valor=ISO9001_OPTION_POINTS["na"],
+                    observacion="No aplica por alcance documentado.",
+                )
+            )
+        db.session.flush()
+
+        na_pdf = build_iso9001_pdf(na_evaluation)
+        assert na_pdf.getvalue().startswith(b"%PDF")
+
+
 def test_iso9001_capture_can_be_assigned_to_any_active_user():
     app, ids = build_app()
     client = app.test_client()
@@ -286,6 +411,110 @@ def test_iso9001_capture_can_be_assigned_to_any_active_user():
     submit_response = client.post(f"/iso9001/evaluaciones/{evaluation_id}/enviar", follow_redirects=True)
     assert submit_response.status_code == 200
     assert "Evaluacion enviada a revision." in submit_response.get_data(as_text=True)
+
+
+def test_iso9001_admin_can_update_existing_evaluation_assignment():
+    app, ids = build_app()
+    client = app.test_client()
+
+    with app.app_context():
+        evaluation_id = create_iso_evaluation(
+            ids["dependency_one_id"],
+            ids["evaluator_id"],
+            ids["reviewer_id"],
+            ids["admin_id"],
+        )
+        evaluation = db.session.get(Iso9001Evaluacion, evaluation_id)
+        cycle_id = evaluation.ciclo_id
+
+    login(client, "admin.iso@test.local")
+    cycles_page = client.get(f"/iso9001/ciclos?cycle_id={cycle_id}")
+    cycles_html = cycles_page.get_data(as_text=True)
+    assert cycles_page.status_code == 200
+    assert f'data-dialog-open="dialog-iso-evaluation-edit-{evaluation_id}"' in cycles_html
+    assert "Revisor Alterno ISO" in cycles_html
+
+    invalid_update = client.post(
+        "/iso9001/ciclos",
+        data={
+            "action": "update_evaluation",
+            "evaluation_id": str(evaluation_id),
+            "responsable_id": "999999",
+            "revisor_id": str(ids["alternate_reviewer_id"]),
+            "estado": "en_revision",
+        },
+        follow_redirects=True,
+    )
+    invalid_html = invalid_update.get_data(as_text=True)
+    assert invalid_update.status_code == 200
+    assert "Selecciona un responsable de captura activo." in invalid_html
+
+    with app.app_context():
+        evaluation = db.session.get(Iso9001Evaluacion, evaluation_id)
+        alternate_reviewer = db.session.get(Usuario, ids["alternate_reviewer_id"])
+        assert evaluation.responsable.id == ids["evaluator_id"]
+        assert evaluation.revisor_id == ids["reviewer_id"]
+        assert evaluation.estado == "borrador"
+        assert alternate_reviewer.acceso_iso9001 is False
+
+    update_response = client.post(
+        "/iso9001/ciclos",
+        data={
+            "action": "update_evaluation",
+            "evaluation_id": str(evaluation_id),
+            "responsable_id": str(ids["respondent_id"]),
+            "revisor_id": str(ids["alternate_reviewer_id"]),
+            "estado": "en_revision",
+        },
+        follow_redirects=False,
+    )
+    assert update_response.status_code == 302
+    assert f"/iso9001/ciclos?cycle_id={cycle_id}" in update_response.headers["Location"]
+
+    updated_page = client.get(update_response.headers["Location"])
+    updated_html = updated_page.get_data(as_text=True)
+    assert updated_page.status_code == 200
+    assert "Operativo Disponible" in updated_html
+    assert "Revisor Alterno ISO" in updated_html
+    assert "En revision" in updated_html
+
+    with app.app_context():
+        evaluation = db.session.get(Iso9001Evaluacion, evaluation_id)
+        old_responsible_assignments = [
+            assignment
+            for assignment in evaluation.asignaciones
+            if assignment.tipo == "captura" and assignment.usuario_id == ids["evaluator_id"]
+        ]
+        respondent = db.session.get(Usuario, ids["respondent_id"])
+        alternate_reviewer = db.session.get(Usuario, ids["alternate_reviewer_id"])
+        assert old_responsible_assignments == []
+        assert evaluation.responsable.id == ids["respondent_id"]
+        assert evaluation.revisor_id == ids["alternate_reviewer_id"]
+        assert evaluation.estado == "en_revision"
+        assert respondent.acceso_iso9001 is True
+        assert alternate_reviewer.acceso_iso9001 is True
+
+    clear_response = client.post(
+        "/iso9001/ciclos",
+        data={
+            "action": "update_evaluation",
+            "evaluation_id": str(evaluation_id),
+            "responsable_id": "",
+            "revisor_id": "",
+            "estado": "devuelta",
+        },
+        follow_redirects=True,
+    )
+    clear_html = clear_response.get_data(as_text=True)
+    assert clear_response.status_code == 200
+    assert "Sin responsable" in clear_html
+    assert "Sin revisor" in clear_html
+
+    with app.app_context():
+        evaluation = db.session.get(Iso9001Evaluacion, evaluation_id)
+        assert evaluation.responsable is None
+        assert evaluation.revisor_id is None
+        assert evaluation.estado == "devuelta"
 
 
 def test_iso9001_capture_review_close_permissions_and_exports():

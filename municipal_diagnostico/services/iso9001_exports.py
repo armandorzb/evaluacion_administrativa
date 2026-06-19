@@ -1,15 +1,20 @@
 from __future__ import annotations
 
+from html import escape
 from io import BytesIO
 
 from openpyxl import Workbook
 from openpyxl.styles import Alignment, Border, Font, PatternFill, Side
+from reportlab.graphics.shapes import Drawing, Line, Rect, String
 from reportlab.lib import colors
+from reportlab.lib.enums import TA_CENTER
 from reportlab.lib.pagesizes import letter
-from reportlab.lib.styles import getSampleStyleSheet
-from reportlab.platypus import Paragraph, SimpleDocTemplate, Spacer, Table, TableStyle
+from reportlab.lib.styles import ParagraphStyle, getSampleStyleSheet
+from reportlab.lib.units import inch
+from reportlab.platypus import PageBreak, Paragraph, SimpleDocTemplate, Spacer, Table, TableStyle
 
-from municipal_diagnostico.services.iso9001 import summarize_iso9001_evaluation
+from municipal_diagnostico.services.iso9001 import format_iso_datetime, summarize_iso9001_evaluation
+from municipal_diagnostico.timeutils import utcnow
 
 
 EXCEL_COLORS = {
@@ -18,6 +23,38 @@ EXCEL_COLORS = {
     "line": "D9E0E5",
     "white": "FFFFFF",
 }
+
+PDF_THEME = {
+    "navy": colors.HexColor("#163042"),
+    "navy_soft": colors.HexColor("#EEF2F5"),
+    "sage": colors.HexColor("#728B50"),
+    "sage_soft": colors.HexColor("#EEF3E5"),
+    "line": colors.HexColor("#D9E0E5"),
+    "muted": colors.HexColor("#516673"),
+    "low": colors.HexColor("#B13A3F"),
+    "medium": colors.HexColor("#C56E14"),
+    "high": colors.HexColor("#B39B26"),
+    "optimal": colors.HexColor("#5D7F48"),
+    "empty": colors.HexColor("#8B98A3"),
+}
+
+ISO_RESPONSE_ORDER = [
+    ("no", "No", PDF_THEME["low"]),
+    ("parcial", "Parcial", PDF_THEME["medium"]),
+    ("si", "Si", PDF_THEME["optimal"]),
+    ("na", "N/A", PDF_THEME["muted"]),
+]
+
+ISO_MATURITY_GUIDE = [
+    ("0%", "Nivel 0 - No iniciado", "low"),
+    ("1-20%", "Nivel 1 - Inicial", "low"),
+    ("21-40%", "Nivel 2 - En desarrollo", "medium"),
+    ("41-60%", "Nivel 3 - Definido", "medium"),
+    ("61-80%", "Nivel 4 - Gestionado", "high"),
+    ("81-100%", "Nivel 5 - Optimizado", "optimal"),
+]
+
+ISO_PDF_FOOTER = "Diagnostico ISO 9001:2015 | Autodiagnostico institucional"
 
 
 def build_iso9001_excel(evaluation) -> BytesIO:
@@ -102,65 +139,878 @@ def build_iso9001_excel(evaluation) -> BytesIO:
 def build_iso9001_pdf(evaluation) -> BytesIO:
     summary = summarize_iso9001_evaluation(evaluation)
     buffer = BytesIO()
-    doc = SimpleDocTemplate(buffer, pagesize=letter, leftMargin=36, rightMargin=36, topMargin=36, bottomMargin=36)
-    styles = getSampleStyleSheet()
-    story = [
-        Paragraph("Diagnostico ISO 9001:2015", styles["Title"]),
-        Paragraph(f"Dependencia: {evaluation.dependencia.nombre}", styles["Normal"]),
-        Paragraph(f"Ciclo: {evaluation.ciclo.nombre}", styles["Normal"]),
-        Paragraph(f"Estado: {summary['state_label']}", styles["Normal"]),
-        Spacer(1, 12),
-    ]
+    doc = SimpleDocTemplate(
+        buffer,
+        pagesize=letter,
+        leftMargin=0.55 * inch,
+        rightMargin=0.55 * inch,
+        topMargin=0.62 * inch,
+        bottomMargin=0.55 * inch,
+    )
+
+    styles = _build_iso_pdf_styles()
+    story: list = []
+    story.extend(_build_iso_cover_story(evaluation, summary, styles))
+
+    story.append(Paragraph("Resumen ejecutivo", styles["section"]))
+    if not summary["is_final"]:
+        story.append(
+            Paragraph(
+                "Resultado preliminar. El autodiagnostico puede cambiar mientras la captura o revision siga abierta.",
+                styles["warning"],
+            )
+        )
+        story.append(Spacer(1, 0.08 * inch))
+    story.append(_build_iso_metric_cards(summary, styles))
+    story.append(Spacer(1, 0.14 * inch))
+    story.append(_build_methodology_panel(styles))
+    story.append(Spacer(1, 0.16 * inch))
+
+    story.append(Paragraph("Graficas de autodiagnostico", styles["section"]))
+    story.append(_build_chart_pair(summary))
+    story.append(Spacer(1, 0.12 * inch))
+    story.append(_build_progress_comparison_chart(summary))
+
+    story.append(PageBreak())
+    story.append(Paragraph("Diagnostico accionable", styles["section"]))
     story.append(
-        _table(
+        Paragraph(
+            "La lectura prioriza brechas por cumplimiento, avance de captura y soporte documental disponible.",
+            styles["body"],
+        )
+    )
+    story.append(Spacer(1, 0.08 * inch))
+    story.append(_build_clause_heatmap_table(summary, styles))
+    story.append(Spacer(1, 0.14 * inch))
+    story.append(Paragraph("Subapartados de atencion prioritaria", styles["subsection"]))
+    story.append(_build_priority_sections_table(_priority_sections(summary), styles))
+    story.append(Spacer(1, 0.14 * inch))
+    story.append(Paragraph("Cobertura de evidencia por clausula", styles["subsection"]))
+    story.append(_build_evidence_coverage_table(summary, styles))
+
+    for clause in summary["clauses"]:
+        story.append(PageBreak())
+        story.extend(_build_clause_story(clause, styles))
+
+    story.append(PageBreak())
+    story.append(Paragraph("Anexo consultable de hallazgos y evidencias", styles["section"]))
+    story.append(
+        Paragraph(
+            "Se listan reactivos con respuesta No, Parcial o N/A, asi como reactivos con observacion o evidencia cargada.",
+            styles["body"],
+        )
+    )
+    story.append(Spacer(1, 0.08 * inch))
+    story.append(_build_findings_appendix(summary, styles))
+
+    doc.build(story, onFirstPage=_draw_iso_pdf_chrome, onLaterPages=_draw_iso_pdf_chrome)
+    buffer.seek(0)
+    return buffer
+
+
+def _build_iso_pdf_styles() -> dict[str, ParagraphStyle]:
+    base = getSampleStyleSheet()
+    return {
+        "cover_kicker": ParagraphStyle(
+            "IsoCoverKicker",
+            parent=base["BodyText"],
+            fontName="Helvetica-Bold",
+            fontSize=10,
+            leading=13,
+            textColor=PDF_THEME["sage"],
+            alignment=TA_CENTER,
+            spaceAfter=6,
+        ),
+        "cover_title": ParagraphStyle(
+            "IsoCoverTitle",
+            parent=base["Title"],
+            fontName="Helvetica-Bold",
+            fontSize=26,
+            leading=30,
+            textColor=PDF_THEME["navy"],
+            alignment=TA_CENTER,
+            spaceAfter=8,
+        ),
+        "cover_subject": ParagraphStyle(
+            "IsoCoverSubject",
+            parent=base["Heading2"],
+            fontName="Helvetica-Bold",
+            fontSize=15,
+            leading=19,
+            textColor=PDF_THEME["navy"],
+            alignment=TA_CENTER,
+            spaceAfter=12,
+        ),
+        "section": ParagraphStyle(
+            "IsoSection",
+            parent=base["Heading2"],
+            fontName="Helvetica-Bold",
+            fontSize=14,
+            leading=18,
+            textColor=PDF_THEME["navy"],
+            spaceBefore=4,
+            spaceAfter=6,
+        ),
+        "subsection": ParagraphStyle(
+            "IsoSubsection",
+            parent=base["Heading3"],
+            fontName="Helvetica-Bold",
+            fontSize=11.2,
+            leading=14,
+            textColor=PDF_THEME["navy"],
+            spaceBefore=2,
+            spaceAfter=5,
+        ),
+        "body": ParagraphStyle(
+            "IsoBody",
+            parent=base["BodyText"],
+            fontName="Helvetica",
+            fontSize=9,
+            leading=12,
+            textColor=PDF_THEME["muted"],
+        ),
+        "note": ParagraphStyle(
+            "IsoNote",
+            parent=base["BodyText"],
+            fontName="Helvetica",
+            fontSize=7.6,
+            leading=9.2,
+            textColor=PDF_THEME["muted"],
+        ),
+        "small": ParagraphStyle(
+            "IsoSmall",
+            parent=base["BodyText"],
+            fontName="Helvetica",
+            fontSize=7.8,
+            leading=9.5,
+            textColor=PDF_THEME["navy"],
+        ),
+        "small_center": ParagraphStyle(
+            "IsoSmallCenter",
+            parent=base["BodyText"],
+            fontName="Helvetica",
+            fontSize=7.8,
+            leading=9.5,
+            alignment=TA_CENTER,
+            textColor=PDF_THEME["navy"],
+        ),
+        "table_header": ParagraphStyle(
+            "IsoTableHeader",
+            parent=base["BodyText"],
+            fontName="Helvetica-Bold",
+            fontSize=7.5,
+            leading=9,
+            alignment=TA_CENTER,
+            textColor=colors.white,
+        ),
+        "metric_label": ParagraphStyle(
+            "IsoMetricLabel",
+            parent=base["BodyText"],
+            fontName="Helvetica-Bold",
+            fontSize=7.3,
+            leading=9,
+            alignment=TA_CENTER,
+            textColor=PDF_THEME["muted"],
+        ),
+        "metric_value": ParagraphStyle(
+            "IsoMetricValue",
+            parent=base["BodyText"],
+            fontName="Helvetica-Bold",
+            fontSize=21,
+            leading=23,
+            alignment=TA_CENTER,
+            textColor=PDF_THEME["navy"],
+        ),
+        "metric_caption": ParagraphStyle(
+            "IsoMetricCaption",
+            parent=base["BodyText"],
+            fontName="Helvetica",
+            fontSize=7.1,
+            leading=8.4,
+            alignment=TA_CENTER,
+            textColor=PDF_THEME["muted"],
+        ),
+        "warning": ParagraphStyle(
+            "IsoWarning",
+            parent=base["BodyText"],
+            fontName="Helvetica-Bold",
+            fontSize=8.5,
+            leading=11,
+            textColor=PDF_THEME["medium"],
+            backColor=colors.HexColor("#F8E0C5"),
+            borderPadding=7,
+        ),
+    }
+
+
+def _build_iso_cover_story(evaluation, summary: dict, styles: dict[str, ParagraphStyle]) -> list:
+    status = "OFICIAL" if summary["is_final"] else "PRELIMINAR"
+    status_color = PDF_THEME["optimal"] if summary["is_final"] else PDF_THEME["medium"]
+    responsible = evaluation.responsable.nombre if evaluation.responsable else "Sin responsable"
+    reviewer = evaluation.revisor.nombre if evaluation.revisor else "Sin revisor"
+    generated = format_iso_datetime(utcnow())
+    cycle_dates = f"{_date_or_dash(evaluation.ciclo.fecha_inicio)} al {_date_or_dash(evaluation.ciclo.fecha_cierre)}"
+    status_badge = Table(
+        [[Paragraph(status, styles["table_header"])]],
+        colWidths=[1.55 * inch],
+        rowHeights=[0.32 * inch],
+    )
+    status_badge.setStyle(
+        TableStyle(
             [
-                ["Avance", "Cumplimiento", "Madurez", "Evidencias"],
+                ("BACKGROUND", (0, 0), (-1, -1), status_color),
+                ("BOX", (0, 0), (-1, -1), 0.4, status_color),
+                ("VALIGN", (0, 0), (-1, -1), "MIDDLE"),
+                ("ALIGN", (0, 0), (-1, -1), "CENTER"),
+            ]
+        )
+    )
+    metadata_rows = [
+        ["Dependencia", evaluation.dependencia.nombre, "Estado", summary["state_label"]],
+        ["Ciclo", evaluation.ciclo.nombre, "Periodo", cycle_dates],
+        ["Responsable", responsible, "Revisor", reviewer],
+        ["Fecha de descarga", generated, "Version", evaluation.ciclo.version.nombre],
+    ]
+    metadata = _pdf_table(
+        metadata_rows,
+        styles,
+        col_widths=[1.1 * inch, 2.35 * inch, 1.1 * inch, 2.0 * inch],
+        header=False,
+    )
+
+    story = [
+        Spacer(1, 1.55 * inch),
+        Paragraph("Sistema de gestion de la calidad", styles["cover_kicker"]),
+        Paragraph("Autodiagnostico ISO 9001:2015", styles["cover_title"]),
+        Paragraph(_paragraph_escape(evaluation.dependencia.nombre), styles["cover_subject"]),
+        status_badge,
+        Spacer(1, 0.35 * inch),
+        metadata,
+        Spacer(1, 0.28 * inch),
+        Paragraph(
+            "Informe ejecutivo de implementacion, evidencia documental y madurez institucional por clausula auditable.",
+            styles["body"],
+        ),
+        Spacer(1, 2.15 * inch),
+        PageBreak(),
+    ]
+    return story
+
+
+def _build_iso_metric_cards(summary: dict, styles: dict[str, ParagraphStyle]) -> Table:
+    cards = [
+        ("Avance", _format_percent(summary["completion"]), f"{summary['answered_questions']} de {summary['total_questions']} reactivos"),
+        ("Cumplimiento", _format_percent(summary["percent"]), "Puntos sobre aplicables"),
+        ("Madurez", summary["maturity_label"], "Nivel global ISO"),
+        ("Evidencias", str(summary["evidence_count"]), "Archivos activos"),
+        ("Aplicables", str(summary["applicable_questions"]), "Base del denominador"),
+        ("N/A", str(summary["na_questions"]), "Excluidos del calculo"),
+        ("Puntos", str(summary["points"]), "Escala 0, 1, 2"),
+        ("Estado", summary["state_label"], "Flujo formal"),
+    ]
+    rows = []
+    for start in range(0, len(cards), 4):
+        cells = []
+        for label, value, caption in cards[start:start + 4]:
+            card = Table(
                 [
-                    f"{summary['completion']}%",
-                    f"{summary['percent']}%" if summary["percent"] is not None else "Sin aplicables",
-                    summary["maturity_label"],
-                    str(summary["evidence_count"]),
+                    [Paragraph(_paragraph_escape(label.upper()), styles["metric_label"])],
+                    [Paragraph(_paragraph_escape(value), styles["metric_value"])],
+                    [Paragraph(_paragraph_escape(caption), styles["metric_caption"])],
                 ],
-            ],
-            repeat_rows=1,
+                colWidths=[1.55 * inch],
+                rowHeights=[0.22 * inch, 0.43 * inch, 0.27 * inch],
+            )
+            card.setStyle(
+                TableStyle(
+                    [
+                        ("VALIGN", (0, 0), (-1, -1), "MIDDLE"),
+                        ("ALIGN", (0, 0), (-1, -1), "CENTER"),
+                        ("LEFTPADDING", (0, 0), (-1, -1), 2),
+                        ("RIGHTPADDING", (0, 0), (-1, -1), 2),
+                        ("TOPPADDING", (0, 0), (-1, -1), 0),
+                        ("BOTTOMPADDING", (0, 0), (-1, -1), 0),
+                    ]
+                )
+            )
+            cells.append(card)
+        rows.append(cells)
+
+    table = Table(rows, colWidths=[1.76 * inch] * 4, rowHeights=[0.98 * inch] * len(rows))
+    table.setStyle(
+        TableStyle(
+            [
+                ("BACKGROUND", (0, 0), (-1, -1), colors.white),
+                ("ROWBACKGROUNDS", (0, 0), (-1, -1), [colors.white, PDF_THEME["navy_soft"]]),
+                ("BOX", (0, 0), (-1, -1), 0.55, PDF_THEME["line"]),
+                ("INNERGRID", (0, 0), (-1, -1), 0.55, PDF_THEME["line"]),
+                ("VALIGN", (0, 0), (-1, -1), "MIDDLE"),
+                ("ALIGN", (0, 0), (-1, -1), "CENTER"),
+                ("LEFTPADDING", (0, 0), (-1, -1), 7),
+                ("RIGHTPADDING", (0, 0), (-1, -1), 7),
+                ("TOPPADDING", (0, 0), (-1, -1), 9),
+                ("BOTTOMPADDING", (0, 0), (-1, -1), 9),
+            ]
         )
     )
-    story.append(Spacer(1, 14))
-    story.append(Paragraph("Resultado por clausula", styles["Heading2"]))
-    story.append(
-        _table(
-            [["Clausula", "Reactivos", "Respondidos", "Aplicables", "% Cumpl.", "Madurez"]]
-            + [
+    return table
+
+
+def _build_methodology_panel(styles: dict[str, ParagraphStyle]) -> Table:
+    method = Paragraph(
+        "Metodo de calculo: No=0, Parcial=1, Si=2. N/A cuenta como reactivo respondido para avance de captura, "
+        "pero se excluye del denominador de cumplimiento. Cumplimiento = puntos obtenidos / (reactivos aplicables x 2).",
+        styles["body"],
+    )
+    layout = Table(
+        [[method, _build_maturity_legend_table(styles)]],
+        colWidths=[4.18 * inch, 2.85 * inch],
+    )
+    layout.setStyle(
+        TableStyle(
+            [
+                ("BACKGROUND", (0, 0), (-1, -1), colors.white),
+                ("BOX", (0, 0), (-1, -1), 0.55, PDF_THEME["line"]),
+                ("INNERGRID", (0, 0), (-1, -1), 0.45, PDF_THEME["line"]),
+                ("VALIGN", (0, 0), (-1, -1), "TOP"),
+                ("LEFTPADDING", (0, 0), (-1, -1), 8),
+                ("RIGHTPADDING", (0, 0), (-1, -1), 8),
+                ("TOPPADDING", (0, 0), (-1, -1), 8),
+                ("BOTTOMPADDING", (0, 0), (-1, -1), 8),
+            ]
+        )
+    )
+    return layout
+
+
+def _build_maturity_legend_table(styles: dict[str, ParagraphStyle]) -> Table:
+    rows = [[Paragraph("Rango", styles["table_header"]), Paragraph("Nivel", styles["table_header"])]]
+    for range_label, label, slug in ISO_MATURITY_GUIDE:
+        rows.append(
+            [
+                Paragraph(_paragraph_escape(range_label), styles["small_center"]),
+                Paragraph(_paragraph_escape(label), styles["small"]),
+            ]
+        )
+    table = Table(rows, colWidths=[0.65 * inch, 1.85 * inch], repeatRows=1)
+    style_commands = [
+        ("BACKGROUND", (0, 0), (-1, 0), PDF_THEME["navy"]),
+        ("GRID", (0, 0), (-1, -1), 0.4, PDF_THEME["line"]),
+        ("VALIGN", (0, 0), (-1, -1), "MIDDLE"),
+        ("LEFTPADDING", (0, 0), (-1, -1), 4),
+        ("RIGHTPADDING", (0, 0), (-1, -1), 4),
+        ("TOPPADDING", (0, 0), (-1, -1), 3),
+        ("BOTTOMPADDING", (0, 0), (-1, -1), 3),
+    ]
+    for row_index, (_range, _label, slug) in enumerate(ISO_MATURITY_GUIDE, start=1):
+        style_commands.append(("BACKGROUND", (0, row_index), (0, row_index), PDF_THEME[slug]))
+        style_commands.append(("TEXTCOLOR", (0, row_index), (0, row_index), colors.white))
+    table.setStyle(TableStyle(style_commands))
+    return table
+
+
+def _build_chart_pair(summary: dict) -> Table:
+    table = Table(
+        [[_build_clause_bar_chart(summary), _build_response_distribution_chart(summary)]],
+        colWidths=[4.4 * inch, 2.85 * inch],
+    )
+    table.setStyle(
+        TableStyle(
+            [
+                ("VALIGN", (0, 0), (-1, -1), "TOP"),
+                ("LEFTPADDING", (0, 0), (-1, -1), 0),
+                ("RIGHTPADDING", (0, 0), (-1, -1), 0),
+                ("TOPPADDING", (0, 0), (-1, -1), 0),
+                ("BOTTOMPADDING", (0, 0), (-1, -1), 0),
+            ]
+        )
+    )
+    return table
+
+
+def _build_clause_bar_chart(summary: dict) -> Drawing:
+    drawing = Drawing(310, 188)
+    drawing.add(String(155, 172, "Cumplimiento por clausula", fontName="Helvetica-Bold", fontSize=9.5, fillColor=PDF_THEME["navy"], textAnchor="middle"))
+    plot_x = 34
+    plot_y = 32
+    plot_width = 248
+    plot_height = 108
+    drawing.add(Rect(plot_x, plot_y, plot_width, plot_height, fillColor=colors.white, strokeColor=PDF_THEME["line"], strokeWidth=0.8))
+
+    for tick in range(5):
+        value = 25 * tick
+        y = plot_y + (plot_height * value / 100)
+        drawing.add(Line(plot_x, y, plot_x + plot_width, y, strokeColor=PDF_THEME["line"], strokeWidth=0.45))
+        drawing.add(String(plot_x - 7, y - 2, str(value), fontName="Helvetica", fontSize=6.5, fillColor=PDF_THEME["muted"], textAnchor="end"))
+
+    clauses = summary["clauses"]
+    slot = plot_width / max(len(clauses), 1)
+    bar_width = min(20, slot * 0.55)
+    for index, clause in enumerate(clauses):
+        percent = clause["percent"] or 0
+        x = plot_x + slot * index + (slot - bar_width) / 2
+        height = plot_height * min(percent, 100) / 100
+        color = _maturity_color(clause["maturity_slug"])
+        drawing.add(Rect(x, plot_y, bar_width, height, fillColor=color, strokeColor=color, strokeWidth=0))
+        drawing.add(String(x + bar_width / 2, plot_y + height + 5, _format_percent(clause["percent"]), fontName="Helvetica-Bold", fontSize=6.4, fillColor=PDF_THEME["navy"], textAnchor="middle"))
+        drawing.add(String(x + bar_width / 2, plot_y - 13, clause["numero"], fontName="Helvetica-Bold", fontSize=7.2, fillColor=PDF_THEME["muted"], textAnchor="middle"))
+    drawing.add(String(plot_x + plot_width / 2, 8, "Clausulas auditables 4 a 10", fontName="Helvetica", fontSize=7, fillColor=PDF_THEME["muted"], textAnchor="middle"))
+    return drawing
+
+
+def _build_response_distribution_chart(summary: dict) -> Drawing:
+    rows = _response_distribution(summary)
+    total = sum(row["count"] for row in rows)
+    drawing = Drawing(205, 188)
+    drawing.add(String(102, 172, "Distribucion de respuestas", fontName="Helvetica-Bold", fontSize=9.5, fillColor=PDF_THEME["navy"], textAnchor="middle"))
+    bar_x = 18
+    bar_y = 136
+    bar_width = 168
+    bar_height = 16
+    drawing.add(Rect(bar_x, bar_y, bar_width, bar_height, fillColor=PDF_THEME["navy_soft"], strokeColor=PDF_THEME["line"], strokeWidth=0.7))
+    if total <= 0:
+        drawing.add(String(102, 104, "Sin respuestas registradas", fontName="Helvetica", fontSize=8.5, fillColor=PDF_THEME["muted"], textAnchor="middle"))
+        return drawing
+
+    offset = bar_x
+    for row in rows:
+        width = bar_width * row["count"] / total
+        if width > 0:
+            drawing.add(Rect(offset, bar_y, width, bar_height, fillColor=row["color"], strokeColor=row["color"], strokeWidth=0))
+        offset += width
+
+    start_y = 106
+    for index, row in enumerate(rows):
+        y = start_y - index * 23
+        drawing.add(Rect(18, y, 9, 9, fillColor=row["color"], strokeColor=row["color"]))
+        drawing.add(String(34, y + 1, row["label"], fontName="Helvetica-Bold", fontSize=7.4, fillColor=PDF_THEME["navy"]))
+        drawing.add(String(184, y + 1, f"{row['count']} | {_format_percent(row['percent'])}", fontName="Helvetica", fontSize=7.2, fillColor=PDF_THEME["muted"], textAnchor="end"))
+    return drawing
+
+
+def _build_progress_comparison_chart(summary: dict) -> Drawing:
+    drawing = Drawing(520, 72)
+    drawing.add(String(2, 58, "Avance de captura vs cumplimiento", fontName="Helvetica-Bold", fontSize=9.5, fillColor=PDF_THEME["navy"]))
+    rows = [
+        ("Avance captura", summary["completion"], PDF_THEME["sage"]),
+        ("Cumplimiento ISO", summary["percent"] or 0, _maturity_color(summary["maturity_slug"])),
+    ]
+    for index, (label, value, color) in enumerate(rows):
+        y = 35 - index * 23
+        drawing.add(String(4, y + 2, label, fontName="Helvetica", fontSize=7.8, fillColor=PDF_THEME["muted"]))
+        drawing.add(Rect(120, y, 330, 11, fillColor=PDF_THEME["navy_soft"], strokeColor=PDF_THEME["line"], strokeWidth=0.4))
+        if value > 0:
+            drawing.add(Rect(120, y, 330 * min(value, 100) / 100, 11, fillColor=color, strokeColor=color, strokeWidth=0))
+        drawing.add(String(463, y + 2, _format_percent(value if label == "Avance captura" else summary["percent"]), fontName="Helvetica-Bold", fontSize=7.6, fillColor=PDF_THEME["navy"]))
+    return drawing
+
+
+def _build_clause_heatmap_table(summary: dict, styles: dict[str, ParagraphStyle]) -> Table:
+    headers = ["Clausula", "0%", "1-20", "21-40", "41-60", "61-80", "81-100", "Cumpl."]
+    rows = [[Paragraph(header, styles["table_header"]) for header in headers]]
+    heat_styles = [
+        ("BACKGROUND", (0, 0), (-1, 0), PDF_THEME["navy"]),
+        ("GRID", (0, 0), (-1, -1), 0.45, PDF_THEME["line"]),
+        ("VALIGN", (0, 0), (-1, -1), "MIDDLE"),
+        ("ALIGN", (1, 1), (-1, -1), "CENTER"),
+        ("LEFTPADDING", (0, 0), (-1, -1), 5),
+        ("RIGHTPADDING", (0, 0), (-1, -1), 5),
+        ("TOPPADDING", (0, 0), (-1, -1), 4),
+        ("BOTTOMPADDING", (0, 0), (-1, -1), 4),
+    ]
+    for row_index, clause in enumerate(summary["clauses"], start=1):
+        bucket = _maturity_bucket(clause["percent"])
+        cells = [
+            Paragraph(f"{clause['numero']} {escape(clause['nombre'])}", styles["small"]),
+            "",
+            "",
+            "",
+            "",
+            "",
+            "",
+            Paragraph(_format_percent(clause["percent"]), styles["small_center"]),
+        ]
+        if bucket is not None:
+            cells[bucket + 1] = Paragraph("OK", styles["small_center"])
+            color = _maturity_color(clause["maturity_slug"])
+            heat_styles.extend(
                 [
-                    f"{clause['numero']} {clause['nombre']}",
-                    clause["total"],
-                    clause["answered"],
-                    clause["applicable"],
-                    f"{clause['percent']}%" if clause["percent"] is not None else "-",
-                    clause["maturity_label"],
+                    ("BACKGROUND", (bucket + 1, row_index), (bucket + 1, row_index), color),
+                    ("TEXTCOLOR", (bucket + 1, row_index), (bucket + 1, row_index), colors.white),
+                    ("FONTNAME", (bucket + 1, row_index), (bucket + 1, row_index), "Helvetica-Bold"),
                 ]
-                for clause in summary["clauses"]
-            ],
-            repeat_rows=1,
-        )
+            )
+        rows.append(cells)
+    table = Table(
+        rows,
+        colWidths=[2.45 * inch, 0.52 * inch, 0.58 * inch, 0.62 * inch, 0.62 * inch, 0.62 * inch, 0.7 * inch, 0.72 * inch],
+        repeatRows=1,
     )
-    story.append(Spacer(1, 14))
-    story.append(Paragraph("Hallazgos por apartado", styles["Heading2"]))
-    section_rows = [["Apartado", "Respondidos", "Aplicables", "% Cumpl.", "Madurez"]]
-    for section in summary["sections"]:
-        section_rows.append(
+    table.setStyle(TableStyle(heat_styles))
+    return table
+
+
+def _build_priority_sections_table(sections: list[dict], styles: dict[str, ParagraphStyle]) -> Table:
+    rows = [[
+        "Apartado",
+        "Clausula",
+        "Avance",
+        "Cumpl.",
+        "Aplicables",
+        "Evid.",
+        "Prioridad",
+    ]]
+    if not sections:
+        rows.append(["Sin apartados aplicables para priorizar", "-", "-", "-", "-", "-", "-"])
+    for section in sections[:10]:
+        rows.append(
             [
                 f"{section['codigo']} {section['nombre']}",
-                section["answered"],
-                section["applicable"],
-                f"{section['percent']}%" if section["percent"] is not None else "-",
+                section["clausula"],
+                _format_percent(section["completion"]),
+                _format_percent(section["percent"]),
+                str(section["applicable"]),
+                str(_section_evidence_count(section)),
+                _priority_label(section["percent"]),
+            ]
+        )
+    return _pdf_table(
+        rows,
+        styles,
+        col_widths=[2.55 * inch, 0.6 * inch, 0.74 * inch, 0.74 * inch, 0.75 * inch, 0.55 * inch, 1.05 * inch],
+        center_from_col=1,
+    )
+
+
+def _build_evidence_coverage_table(summary: dict, styles: dict[str, ParagraphStyle]) -> Table:
+    rows = [["Clausula", "Reactivos con evidencia", "Archivos", "Cobertura", "Lectura"]]
+    for row in _evidence_coverage(summary):
+        rows.append(
+            [
+                row["clause"],
+                str(row["questions_with_evidence"]),
+                str(row["files"]),
+                _format_percent(row["coverage"]),
+                row["label"],
+            ]
+        )
+    return _pdf_table(
+        rows,
+        styles,
+        col_widths=[2.5 * inch, 1.35 * inch, 0.8 * inch, 0.9 * inch, 1.45 * inch],
+        center_from_col=1,
+    )
+
+
+def _build_clause_story(clause: dict, styles: dict[str, ParagraphStyle]) -> list:
+    attention = [
+        section
+        for section in clause["sections"]
+        if section["applicable"] > 0 and section["percent"] is not None and section["percent"] < 80
+    ]
+    attention.sort(key=lambda item: (item["percent"], item["completion"], item["codigo"]))
+    story: list = [
+        Paragraph(f"Clausula {clause['numero']} - {_paragraph_escape(clause['nombre'])}", styles["section"]),
+        _build_clause_metrics_table(clause),
+        Spacer(1, 0.1 * inch),
+        Paragraph("Subapartados evaluados", styles["subsection"]),
+        _build_clause_sections_table(clause, styles),
+        Spacer(1, 0.12 * inch),
+        Paragraph("Areas de atencion", styles["subsection"]),
+    ]
+    if attention:
+        for section in attention[:5]:
+            story.append(
+                Paragraph(
+                    f"- {section['codigo']} {_paragraph_escape(section['nombre'])}: "
+                    f"{_format_percent(section['percent'])} de cumplimiento, "
+                    f"{_format_percent(section['completion'])} de avance y {_section_evidence_count(section)} evidencias.",
+                    styles["body"],
+                )
+            )
+    else:
+        story.append(Paragraph("Sin apartados criticos identificados con la informacion capturada.", styles["body"]))
+    return story
+
+
+def _build_clause_metrics_table(clause: dict) -> Table:
+    table = Table(
+        [
+            ["Reactivos", "Respondidos", "Aplicables", "N/A", "Cumplimiento", "Madurez"],
+            [
+                str(clause["total"]),
+                str(clause["answered"]),
+                str(clause["applicable"]),
+                str(clause["na"]),
+                _format_percent(clause["percent"]),
+                clause["maturity_label"],
+            ],
+        ],
+        colWidths=[0.9 * inch, 0.95 * inch, 0.95 * inch, 0.62 * inch, 1.1 * inch, 2.1 * inch],
+    )
+    table.setStyle(
+        TableStyle(
+            [
+                ("BACKGROUND", (0, 0), (-1, 0), PDF_THEME["navy_soft"]),
+                ("TEXTCOLOR", (0, 0), (-1, 0), PDF_THEME["navy"]),
+                ("FONTNAME", (0, 0), (-1, 0), "Helvetica-Bold"),
+                ("ALIGN", (0, 0), (-1, -1), "CENTER"),
+                ("GRID", (0, 0), (-1, -1), 0.45, PDF_THEME["line"]),
+                ("VALIGN", (0, 0), (-1, -1), "MIDDLE"),
+                ("FONTSIZE", (0, 0), (-1, -1), 8),
+                ("PADDING", (0, 0), (-1, -1), 6),
+            ]
+        )
+    )
+    return table
+
+
+def _build_clause_sections_table(clause: dict, styles: dict[str, ParagraphStyle]) -> Table:
+    rows = [["Apartado", "Reactivos", "Avance", "Aplicables", "N/A", "Cumpl.", "Evid.", "Madurez"]]
+    for section in clause["sections"]:
+        rows.append(
+            [
+                f"{section['codigo']} {section['nombre']}",
+                str(section["total"]),
+                _format_percent(section["completion"]),
+                str(section["applicable"]),
+                str(section["na"]),
+                _format_percent(section["percent"]),
+                str(_section_evidence_count(section)),
                 section["maturity_label"],
             ]
         )
-    story.append(_table(section_rows, repeat_rows=1))
-    doc.build(story)
-    buffer.seek(0)
-    return buffer
+    return _pdf_table(
+        rows,
+        styles,
+        col_widths=[2.45 * inch, 0.62 * inch, 0.72 * inch, 0.72 * inch, 0.46 * inch, 0.72 * inch, 0.46 * inch, 1.0 * inch],
+        center_from_col=1,
+    )
+
+
+def _build_findings_appendix(summary: dict, styles: dict[str, ParagraphStyle]) -> Table:
+    rows = [["Clausula", "Apartado", "Reactivo", "Respuesta", "Observacion / evidencia", "Evid."]]
+    findings = _relevant_questions(summary)
+    if not findings:
+        rows.append(["Sin hallazgos", "-", "No hay reactivos con brecha, observacion o evidencia registrada.", "-", "-", "-"])
+    for item in findings:
+        notes = item["observacion"] or "Sin observacion"
+        if item["evidence_count"]:
+            notes = f"{notes} | Evidencias cargadas: {item['evidence_count']}"
+        rows.append(
+            [
+                item["clause"],
+                item["section"],
+                item["question"],
+                item["answer"],
+                notes,
+                str(item["evidence_count"]),
+            ]
+        )
+    return _pdf_table(
+        rows,
+        styles,
+        col_widths=[0.62 * inch, 0.72 * inch, 2.35 * inch, 0.8 * inch, 2.15 * inch, 0.45 * inch],
+        center_from_col=3,
+    )
+
+
+def _pdf_table(
+    rows: list[list],
+    styles: dict[str, ParagraphStyle],
+    *,
+    col_widths: list | None = None,
+    repeat_rows: int = 1,
+    header: bool = True,
+    center_from_col: int | None = None,
+) -> Table:
+    table_rows = []
+    for row_index, row in enumerate(rows):
+        style = styles["table_header"] if header and row_index == 0 else styles["small"]
+        table_rows.append([_as_paragraph(value, style) for value in row])
+    table = Table(table_rows, colWidths=col_widths, repeatRows=repeat_rows if header else 0, hAlign="LEFT")
+    commands = [
+        ("GRID", (0, 0), (-1, -1), 0.4, PDF_THEME["line"]),
+        ("VALIGN", (0, 0), (-1, -1), "TOP"),
+        ("LEFTPADDING", (0, 0), (-1, -1), 5),
+        ("RIGHTPADDING", (0, 0), (-1, -1), 5),
+        ("TOPPADDING", (0, 0), (-1, -1), 4),
+        ("BOTTOMPADDING", (0, 0), (-1, -1), 4),
+        ("ROWBACKGROUNDS", (0, 1 if header else 0), (-1, -1), [colors.white, colors.HexColor("#F6F8FA")]),
+    ]
+    if header:
+        commands.extend(
+            [
+                ("BACKGROUND", (0, 0), (-1, 0), PDF_THEME["navy"]),
+                ("TEXTCOLOR", (0, 0), (-1, 0), colors.white),
+            ]
+        )
+    else:
+        commands.extend(
+            [
+                ("BACKGROUND", (0, 0), (0, -1), PDF_THEME["navy_soft"]),
+                ("BACKGROUND", (2, 0), (2, -1), PDF_THEME["navy_soft"]),
+            ]
+        )
+    if center_from_col is not None:
+        commands.append(("ALIGN", (center_from_col, 1 if header else 0), (-1, -1), "CENTER"))
+    table.setStyle(TableStyle(commands))
+    return table
+
+
+def _response_distribution(summary: dict) -> list[dict]:
+    counts = {key: 0 for key, _label, _color in ISO_RESPONSE_ORDER}
+    for section in summary["sections"]:
+        for row in section["questions"]:
+            selected = row["selected"]
+            if selected in counts:
+                counts[selected] += 1
+    total = sum(counts.values())
+    distribution = []
+    for key, label, color in ISO_RESPONSE_ORDER:
+        count = counts[key]
+        percent = round((count / total) * 100, 2) if total else 0.0
+        distribution.append({"key": key, "label": label, "count": count, "percent": percent, "color": color})
+    return distribution
+
+
+def _priority_sections(summary: dict, limit: int = 10) -> list[dict]:
+    sections = [
+        section
+        for section in summary["sections"]
+        if section["applicable"] > 0 and section["percent"] is not None
+    ]
+    sections.sort(key=lambda section: (section["percent"], section["completion"], section["codigo"]))
+    return sections[:limit]
+
+
+def _section_evidence_count(section: dict) -> int:
+    return sum(len(row["evidence"]) for row in section["questions"])
+
+
+def _section_questions_with_evidence(section: dict) -> int:
+    return sum(1 for row in section["questions"] if row["evidence"])
+
+
+def _evidence_coverage(summary: dict) -> list[dict]:
+    rows = []
+    for clause in summary["clauses"]:
+        files = sum(_section_evidence_count(section) for section in clause["sections"])
+        questions = sum(_section_questions_with_evidence(section) for section in clause["sections"])
+        coverage = round((questions / clause["applicable"]) * 100, 2) if clause["applicable"] else None
+        if coverage is None:
+            label = "Sin aplicables"
+        elif coverage >= 60:
+            label = "Soporte amplio"
+        elif coverage >= 25:
+            label = "Soporte parcial"
+        else:
+            label = "Reforzar evidencia"
+        rows.append(
+            {
+                "clause": f"{clause['numero']} {clause['nombre']}",
+                "questions_with_evidence": questions,
+                "files": files,
+                "coverage": coverage,
+                "label": label,
+            }
+        )
+    return rows
+
+
+def _relevant_questions(summary: dict) -> list[dict]:
+    findings = []
+    for clause in summary["clauses"]:
+        for section in clause["sections"]:
+            for row in section["questions"]:
+                evidence_count = len(row["evidence"])
+                observation = (row["observacion"] or "").strip()
+                selected = row["selected"]
+                if selected not in {"no", "parcial", "na"} and not observation and not evidence_count:
+                    continue
+                reactive = row["reactivo"]
+                findings.append(
+                    {
+                        "clause": clause["numero"],
+                        "section": section["codigo"],
+                        "question": _clip(f"{reactive.codigo} {reactive.texto}", 290),
+                        "answer": row["selected_label"],
+                        "observacion": _clip(observation, 230),
+                        "evidence_count": evidence_count,
+                    }
+                )
+    return findings
+
+
+def _priority_label(percent: float | None) -> str:
+    if percent is None:
+        return "Sin base"
+    if percent <= 40:
+        return "Alta"
+    if percent <= 70:
+        return "Media"
+    return "Seguimiento"
+
+
+def _maturity_bucket(percent: float | None) -> int | None:
+    if percent is None:
+        return None
+    if percent == 0:
+        return 0
+    if percent <= 20:
+        return 1
+    if percent <= 40:
+        return 2
+    if percent <= 60:
+        return 3
+    if percent <= 80:
+        return 4
+    return 5
+
+
+def _maturity_color(slug: str):
+    return PDF_THEME.get(slug, PDF_THEME["empty"])
+
+
+def _format_percent(value: float | int | None) -> str:
+    if value is None:
+        return "-"
+    numeric = round(float(value), 2)
+    text = f"{numeric:.2f}".rstrip("0").rstrip(".")
+    return f"{text}%"
+
+
+def _date_or_dash(value) -> str:
+    return value.strftime("%d/%m/%Y") if value else "-"
+
+
+def _paragraph_escape(value) -> str:
+    return escape(str(value or ""), quote=False)
+
+
+def _as_paragraph(value, style: ParagraphStyle):
+    if isinstance(value, Paragraph):
+        return value
+    return Paragraph(_paragraph_escape(value), style)
+
+
+def _clip(value: str, limit: int) -> str:
+    value = " ".join(str(value or "").split())
+    if len(value) <= limit:
+        return value
+    return f"{value[: max(limit - 3, 0)].rstrip()}..."
+
+
+def _draw_iso_pdf_chrome(canvas, doc) -> None:
+    canvas.saveState()
+    width, height = doc.pagesize
+    canvas.setFillColor(PDF_THEME["navy"])
+    canvas.rect(doc.leftMargin, height - 0.32 * inch, width - doc.leftMargin - doc.rightMargin, 0.1 * inch, fill=1, stroke=0)
+    canvas.setFillColor(PDF_THEME["muted"])
+    canvas.setFont("Helvetica", 7.2)
+    canvas.drawString(doc.leftMargin, 0.28 * inch, ISO_PDF_FOOTER)
+    canvas.drawRightString(width - doc.rightMargin, 0.28 * inch, f"Pagina {canvas.getPageNumber()}")
+    canvas.restoreState()
 
 
 def _write_title(sheet, title: str, subtitle: str, *, end_column: int) -> None:
