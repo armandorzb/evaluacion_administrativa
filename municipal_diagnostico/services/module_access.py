@@ -8,7 +8,7 @@ MODULE_ISO9001 = "iso9001"
 MODULE_LABELS = {
     MODULE_DIAGNOSTICO: "Diagnóstico Integral Municipal",
     MODULE_BIENESTAR: "Bienestar Policial",
-    MODULE_ISO9001: "Diagnostico ISO 9001:2015",
+    MODULE_ISO9001: "Diagnóstico ISO 9001:2015",
 }
 
 WELLBEING_ALLOWED_ROLES = {"administrador", "consulta"}

@@ -17,7 +17,7 @@ from municipal_diagnostico.timeutils import to_localtime, utcnow
 ISO9001_OPTION_LABELS = {
     "no": "No",
     "parcial": "Parcial",
-    "si": "Si",
+    "si": "Sí",
     "na": "N/A",
 }
 
@@ -31,7 +31,7 @@ ISO9001_OPTION_POINTS = {
 ISO9001_EVALUATION_STATES = {
     "borrador": "Borrador",
     "en_captura": "En captura",
-    "en_revision": "En revision",
+    "en_revision": "En revisión",
     "devuelta": "Devuelta",
     "cerrada": "Cerrada",
 }
@@ -48,6 +48,8 @@ ISO9001_FINAL_STATES = {"cerrada"}
 def ensure_iso9001_catalog() -> Iso9001CuestionarioVersion:
     version = Iso9001CuestionarioVersion.query.filter_by(slug=ISO9001_VERSION["slug"]).first()
     if version:
+        if sync_iso9001_catalog_texts(version):
+            db.session.commit()
         return version
 
     version = Iso9001CuestionarioVersion(
@@ -95,6 +97,46 @@ def ensure_iso9001_catalog() -> Iso9001CuestionarioVersion:
 
     db.session.commit()
     return version
+
+
+def sync_iso9001_catalog_texts(version: Iso9001CuestionarioVersion) -> bool:
+    changed = False
+
+    changed |= _assign_if_changed(version, "nombre", ISO9001_VERSION["nombre"])
+    changed |= _assign_if_changed(version, "descripcion", ISO9001_VERSION["descripcion"])
+    changed |= _assign_if_changed(version, "norma", ISO9001_VERSION["norma"])
+
+    clauses_by_number = {clause.numero: clause for clause in version.clausulas}
+    for clause_payload in ISO9001_VERSION["clausulas"]:
+        clause = clauses_by_number.get(clause_payload["numero"])
+        if clause is None:
+            continue
+        changed |= _assign_if_changed(clause, "nombre", clause_payload["nombre"])
+
+        sections_by_code = {section.codigo: section for section in clause.apartados}
+        for section_payload in clause_payload["apartados"]:
+            section = sections_by_code.get(section_payload["codigo"])
+            if section is None:
+                continue
+            changed |= _assign_if_changed(section, "nombre", section_payload["nombre"])
+
+            reactives_by_number = {reactive.numero: reactive for reactive in section.reactivos}
+            for reactive_payload in section_payload["reactivos"]:
+                reactive = reactives_by_number.get(reactive_payload["numero"])
+                if reactive is None:
+                    continue
+                changed |= _assign_if_changed(reactive, "texto", reactive_payload["texto"])
+                changed |= _assign_if_changed(reactive, "evidencia_sugerida", reactive_payload["evidencia_sugerida"])
+                changed |= _assign_if_changed(reactive, "criterio_idoneidad", reactive_payload["criterio_idoneidad"])
+
+    return changed
+
+
+def _assign_if_changed(model, field: str, value) -> bool:
+    if getattr(model, field) == value:
+        return False
+    setattr(model, field, value)
+    return True
 
 
 def latest_iso9001_version() -> Iso9001CuestionarioVersion:

@@ -19,7 +19,8 @@ from municipal_diagnostico.models import (
     Iso9001Respuesta,
     Usuario,
 )
-from municipal_diagnostico.services.iso9001 import ISO9001_OPTION_POINTS, summarize_iso9001_evaluation
+from municipal_diagnostico.iso9001_seed_data import ISO9001_VERSION
+from municipal_diagnostico.services.iso9001 import ISO9001_OPTION_POINTS, ensure_iso9001_catalog, summarize_iso9001_evaluation
 from municipal_diagnostico.services.iso9001_exports import (
     _priority_sections,
     _response_distribution,
@@ -193,6 +194,72 @@ def test_iso9001_seed_catalog_matches_source_workbook_counts():
         assert counts == {4: 23, 5: 27, 6: 17, 7: 62, 8: 112, 9: 36, 10: 16}
 
 
+def test_iso9001_catalog_backfill_updates_copy_without_touching_responses():
+    app, ids = build_app()
+
+    with app.app_context():
+        version = Iso9001CuestionarioVersion.query.first()
+        first_clause = version.clausulas[0]
+        first_section = first_clause.apartados[0]
+        first_reactive = first_section.reactivos[0]
+        version_id = version.id
+        clause_id = first_clause.id
+        section_id = first_section.id
+        reactive_id = first_reactive.id
+
+        evaluation_id = create_iso_evaluation(
+            ids["dependency_one_id"],
+            ids["evaluator_id"],
+            ids["reviewer_id"],
+            ids["admin_id"],
+        )
+        evaluation = db.session.get(Iso9001Evaluacion, evaluation_id)
+        response = Iso9001Respuesta(
+            evaluacion=evaluation,
+            reactivo_id=reactive_id,
+            usuario_id=ids["evaluator_id"],
+            calificacion="si",
+            valor=ISO9001_OPTION_POINTS["si"],
+            observacion="Respuesta que debe conservarse.",
+        )
+        db.session.add(response)
+        db.session.flush()
+        response_id = response.id
+
+        version.nombre = "Diagnostico de implementacion ISO 9001:2015"
+        version.descripcion = "Texto anterior del catalogo."
+        first_clause.nombre = "Contexto De La Organización"
+        first_section.nombre = "Comprension anterior"
+        first_reactive.texto = "Texto anterior del reactivo."
+        first_reactive.evidencia_sugerida = "Evidencia anterior."
+        first_reactive.criterio_idoneidad = "Criterio anterior."
+        db.session.commit()
+
+        ensure_iso9001_catalog()
+
+        expected_clause = ISO9001_VERSION["clausulas"][0]
+        expected_section = expected_clause["apartados"][0]
+        expected_reactive = expected_section["reactivos"][0]
+        restored_version = db.session.get(Iso9001CuestionarioVersion, version_id)
+        restored_clause = db.session.get(Iso9001Clausula, clause_id)
+        restored_section = db.session.get(Iso9001Apartado, section_id)
+        restored_reactive = db.session.get(Iso9001Reactivo, reactive_id)
+        restored_response = db.session.get(Iso9001Respuesta, response_id)
+
+        assert restored_version.nombre == ISO9001_VERSION["nombre"]
+        assert restored_version.descripcion == ISO9001_VERSION["descripcion"]
+        assert restored_clause.nombre == expected_clause["nombre"]
+        assert restored_section.nombre == expected_section["nombre"]
+        assert restored_reactive.texto == expected_reactive["texto"]
+        assert restored_reactive.evidencia_sugerida == expected_reactive["evidencia_sugerida"]
+        assert restored_reactive.criterio_idoneidad == expected_reactive["criterio_idoneidad"]
+        assert restored_response.calificacion == "si"
+        assert restored_response.observacion == "Respuesta que debe conservarse."
+        assert Iso9001Clausula.query.count() == 7
+        assert Iso9001Apartado.query.count() == 56
+        assert Iso9001Reactivo.query.count() == 293
+
+
 def test_iso9001_scoring_excludes_na_from_denominator():
     app, ids = build_app()
 
@@ -256,7 +323,7 @@ def test_iso9001_pdf_data_helpers_rank_gaps_and_evidence():
                 usuario=user,
                 calificacion=value,
                 valor=ISO9001_OPTION_POINTS[value],
-                observacion=f"Observacion {value}",
+                observacion=f"Observación {value}",
             )
             responses.append(response)
             db.session.add(response)
@@ -410,7 +477,7 @@ def test_iso9001_capture_can_be_assigned_to_any_active_user():
 
     submit_response = client.post(f"/iso9001/evaluaciones/{evaluation_id}/enviar", follow_redirects=True)
     assert submit_response.status_code == 200
-    assert "Evaluacion enviada a revision." in submit_response.get_data(as_text=True)
+    assert "Evaluación enviada a revisión." in submit_response.get_data(as_text=True)
 
 
 def test_iso9001_admin_can_update_existing_evaluation_assignment():
@@ -476,7 +543,7 @@ def test_iso9001_admin_can_update_existing_evaluation_assignment():
     assert updated_page.status_code == 200
     assert "Operativo Disponible" in updated_html
     assert "Revisor Alterno ISO" in updated_html
-    assert "En revision" in updated_html
+    assert "En revisión" in updated_html
 
     with app.app_context():
         evaluation = db.session.get(Iso9001Evaluacion, evaluation_id)
@@ -527,7 +594,7 @@ def test_iso9001_capture_review_close_permissions_and_exports():
         data={
             "action": "create_cycle",
             "nombre": "Ciclo ISO Integral 2026",
-            "descripcion": "Diagnostico anual",
+            "descripcion": "Diagnóstico anual",
             "estado": "activo",
             "fecha_inicio": "2026-01-01",
             "fecha_cierre": "2026-12-31",
@@ -594,7 +661,7 @@ def test_iso9001_capture_review_close_permissions_and_exports():
 
     submit_response = client.post(f"/iso9001/evaluaciones/{evaluation_id}/enviar", follow_redirects=True)
     assert submit_response.status_code == 200
-    assert "Evaluacion enviada a revision." in submit_response.get_data(as_text=True)
+    assert "Evaluación enviada a revisión." in submit_response.get_data(as_text=True)
 
     with app.app_context():
         assert db.session.get(Iso9001Evaluacion, evaluation_id).estado == "en_revision"
@@ -607,14 +674,14 @@ def test_iso9001_capture_review_close_permissions_and_exports():
         follow_redirects=True,
     )
     assert return_response.status_code == 200
-    assert "Evaluacion devuelta." in return_response.get_data(as_text=True)
+    assert "Evaluación devuelta." in return_response.get_data(as_text=True)
 
     client.get("/auth/logout", follow_redirects=True)
     login(client, "captura.iso@test.local")
     correction = MultiDict([("apartado_id", str(section_id))])
     for reactive_id in reactive_ids:
         correction.add(f"calificacion_{reactive_id}", "parcial")
-        correction.add(f"observacion_{reactive_id}", f"Correccion {reactive_id}")
+        correction.add(f"observacion_{reactive_id}", f"Corrección {reactive_id}")
     correction_response = client.post(
         f"/iso9001/evaluaciones/{evaluation_id}",
         data=correction,
@@ -626,17 +693,17 @@ def test_iso9001_capture_review_close_permissions_and_exports():
 
     submit_again = client.post(f"/iso9001/evaluaciones/{evaluation_id}/enviar", follow_redirects=True)
     assert submit_again.status_code == 200
-    assert "Evaluacion enviada a revision." in submit_again.get_data(as_text=True)
+    assert "Evaluación enviada a revisión." in submit_again.get_data(as_text=True)
 
     client.get("/auth/logout", follow_redirects=True)
     login(client, "revisor.iso@test.local")
     close_response = client.post(
         f"/iso9001/evaluaciones/{evaluation_id}/revision",
-        data={"action": "close", "comentario": "Cierre oficial del diagnostico."},
+        data={"action": "close", "comentario": "Cierre oficial del diagnóstico."},
         follow_redirects=True,
     )
     assert close_response.status_code == 200
-    assert "Evaluacion cerrada como resultado oficial." in close_response.get_data(as_text=True)
+    assert "Evaluación cerrada como resultado oficial." in close_response.get_data(as_text=True)
 
     pdf = client.get(f"/iso9001/reportes/{evaluation_id}/pdf")
     assert pdf.status_code == 200
@@ -655,7 +722,7 @@ def test_iso9001_capture_review_close_permissions_and_exports():
         for value in row
         if isinstance(value, str)
     ]
-    assert any("Correccion" in value for value in detail_values)
+    assert any("Corrección" in value for value in detail_values)
 
     with app.app_context():
         open_evaluation = Iso9001Evaluacion(

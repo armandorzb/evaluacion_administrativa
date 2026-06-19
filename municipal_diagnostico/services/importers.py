@@ -106,7 +106,7 @@ def import_usuarios(rows: list[dict]) -> dict:
             errors.append(f"Bienestar Policial solo puede asignarse a administrador o consulta: {email}")
             continue
         if requested_iso9001 is True and role not in ISO9001_ALLOWED_ROLES:
-            errors.append(f"Diagnostico ISO 9001:2015 solo puede asignarse a administrador, revisor, evaluador o consulta: {email}")
+            errors.append(f"Diagnóstico ISO 9001:2015 solo puede asignarse a administrador, revisor, evaluador o consulta: {email}")
             continue
 
         module_access = normalize_module_flags(role, requested_diagnostic, requested_wellbeing, requested_iso9001)

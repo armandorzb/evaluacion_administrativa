@@ -1,11 +1,11 @@
 {% extends "iso9001_base.html" %}
-{% block title %}Ciclos | Diagnostico ISO 9001:2015{% endblock %}
+{% block title %}Ciclos | Diagnóstico ISO 9001:2015{% endblock %}
 {% block content %}
 <section class="executive-hero">
     <div class="hero-copy">
-        <p class="eyebrow">Administracion ISO</p>
+        <p class="eyebrow">Administración ISO</p>
         <h1>Ciclos y evaluaciones por dependencia</h1>
-        <p class="lede">Crea ventanas de diagnostico, asigna dependencias, responsables de captura y revisores.</p>
+        <p class="lede">Crea ventanas de diagnóstico, asigna dependencias, responsables de captura y revisores.</p>
     </div>
     <article class="hero-card compact">
         <div class="card-kicker">Filtro</div>
@@ -28,7 +28,7 @@
         <form method="post" class="stack catalog-form">
             <input type="hidden" name="action" value="create_cycle">
             <label>Nombre<input name="nombre" required></label>
-            <label>Descripcion<textarea name="descripcion" rows="3"></textarea></label>
+            <label>Descripción<textarea name="descripcion" rows="3"></textarea></label>
             <label>Estado
                 <select name="estado">
                     {% for state, label in cycle_states.items() %}
@@ -83,7 +83,7 @@
 <section class="metric-grid">
     <article class="metric-card"><span>Evaluaciones</span><strong>{{ selected_summary.total }}</strong></article>
     <article class="metric-card"><span>Cerradas</span><strong>{{ selected_summary.closed_count }}</strong></article>
-    <article class="metric-card"><span>En revision</span><strong>{{ selected_summary.review_count }}</strong></article>
+    <article class="metric-card"><span>En revisión</span><strong>{{ selected_summary.review_count }}</strong></article>
     <article class="metric-card"><span>Avance promedio</span><strong>{{ selected_summary.avg_completion }}%</strong></article>
 </section>
 
@@ -129,7 +129,7 @@
                     <td>
                         <div class="actions wrap">
                             <a class="button button-primary" href="{{ url_for('iso9001.evaluation_detail', evaluation_id=row.evaluacion.id) }}">Abrir</a>
-                            <a class="button" href="{{ url_for('iso9001.review_evaluation', evaluation_id=row.evaluacion.id) }}">Revision</a>
+                            <a class="button" href="{{ url_for('iso9001.review_evaluation', evaluation_id=row.evaluacion.id) }}">Revisión</a>
                             <button class="button" type="button" data-dialog-open="dialog-iso-evaluation-edit-{{ row.evaluacion.id }}">Editar</button>
                         </div>
                     </td>
@@ -147,7 +147,7 @@
     <form method="dialog" class="dialog-shell">
         <div class="dialog-head">
             <div>
-                <p class="eyebrow">Editar evaluacion</p>
+                <p class="eyebrow">Editar evaluación</p>
                 <h2>{{ row.dependencia }}</h2>
             </div>
             <button class="button" type="submit">Cerrar</button>

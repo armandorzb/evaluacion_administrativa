@@ -1,9 +1,9 @@
 {% extends "iso9001_base.html" %}
-{% block title %}Reportes ISO | Diagnostico ISO 9001:2015{% endblock %}
+{% block title %}Reportes ISO | Diagnóstico ISO 9001:2015{% endblock %}
 {% block content %}
 <section class="executive-hero">
     <div class="hero-copy">
-        <p class="eyebrow">Reporteria ISO</p>
+        <p class="eyebrow">Reportería ISO</p>
         <h1>Consolidado por dependencia</h1>
         <p class="lede">
             Consulta avance, cumplimiento y madurez por ciclo. Los usuarios de consulta solo ven resultados cerrados como oficiales.
@@ -28,7 +28,7 @@
 <section class="metric-grid">
     <article class="metric-card"><span>Evaluaciones visibles</span><strong>{{ selected_summary.visible_total }}</strong></article>
     <article class="metric-card"><span>Cerradas</span><strong>{{ selected_summary.closed_count }}</strong></article>
-    <article class="metric-card"><span>En revision</span><strong>{{ selected_summary.review_count }}</strong></article>
+    <article class="metric-card"><span>En revisión</span><strong>{{ selected_summary.review_count }}</strong></article>
     <article class="metric-card"><span>Cumplimiento promedio</span><strong>{% if selected_summary.avg_percent is not none %}{{ selected_summary.avg_percent }}%{% else %}-{% endif %}</strong></article>
 </section>
 
@@ -64,7 +64,7 @@
         <div class="section-heading">
             <div>
                 <p class="eyebrow">Estados</p>
-                <h2>Distribucion</h2>
+                <h2>Distribución</h2>
             </div>
         </div>
         <div class="stack">
@@ -115,7 +115,7 @@
                         <div class="actions">
                             <a class="button" href="{{ url_for('iso9001.evaluation_detail', evaluation_id=row.evaluacion.id) }}">Abrir</a>
                             {% if current_user.rol in ['administrador', 'revisor'] %}
-                            <a class="button" href="{{ url_for('iso9001.review_evaluation', evaluation_id=row.evaluacion.id) }}">Revision</a>
+                            <a class="button" href="{{ url_for('iso9001.review_evaluation', evaluation_id=row.evaluacion.id) }}">Revisión</a>
                             {% endif %}
                             <a class="button" href="{{ url_for('iso9001.report_pdf', evaluation_id=row.evaluacion.id) }}">PDF</a>
                             <a class="button" href="{{ url_for('iso9001.report_excel', evaluation_id=row.evaluacion.id) }}">XLSX</a>
@@ -131,7 +131,7 @@
 </article>
 {% else %}
 <article class="panel">
-    <p class="muted">Aun no hay ciclos ISO para generar reportes.</p>
+    <p class="muted">Aún no hay ciclos ISO para generar reportes.</p>
 </article>
 {% endif %}
 {% endblock %}

@@ -41,7 +41,7 @@ PDF_THEME = {
 ISO_RESPONSE_ORDER = [
     ("no", "No", PDF_THEME["low"]),
     ("parcial", "Parcial", PDF_THEME["medium"]),
-    ("si", "Si", PDF_THEME["optimal"]),
+    ("si", "Sí", PDF_THEME["optimal"]),
     ("na", "N/A", PDF_THEME["muted"]),
 ]
 
@@ -54,7 +54,7 @@ ISO_MATURITY_GUIDE = [
     ("81-100%", "Nivel 5 - Optimizado", "optimal"),
 ]
 
-ISO_PDF_FOOTER = "Diagnostico ISO 9001:2015 | Autodiagnostico institucional"
+ISO_PDF_FOOTER = "Diagnóstico ISO 9001:2015 | Autodiagnóstico institucional"
 
 
 def build_iso9001_excel(evaluation) -> BytesIO:
@@ -63,14 +63,14 @@ def build_iso9001_excel(evaluation) -> BytesIO:
 
     resumen = workbook.active
     resumen.title = "Resumen"
-    _write_title(resumen, "Diagnostico ISO 9001:2015", evaluation.dependencia.nombre, end_column=7)
+    _write_title(resumen, "Diagnóstico ISO 9001:2015", evaluation.dependencia.nombre, end_column=7)
     resumen.append([])
     resumen.append(["Estado", summary["state_label"]])
     resumen.append(["Avance", summary["completion"]])
     resumen.append(["Cumplimiento", summary["percent"] if summary["percent"] is not None else "Sin aplicables"])
     resumen.append(["Madurez", summary["maturity_label"]])
     resumen.append([])
-    resumen.append(["Clausula", "Nombre", "Reactivos", "Respondidos", "Aplicables", "Pts.", "% Cumpl.", "Madurez"])
+    resumen.append(["Cláusula", "Nombre", "Reactivos", "Respondidos", "Aplicables", "Pts.", "% Cumpl.", "Madurez"])
     header_row = resumen.max_row
     for clause in summary["clauses"]:
         resumen.append(
@@ -93,13 +93,13 @@ def build_iso9001_excel(evaluation) -> BytesIO:
     detalle.append([])
     detalle.append(
         [
-            "Clausula",
+            "Cláusula",
             "Apartado",
             "N",
             "Reactivo",
-            "Calificacion",
+            "Calificación",
             "Pts.",
-            "Observacion / hallazgo",
+            "Observación / hallazgo",
             "Evidencia sugerida",
             "Criterio de idoneidad",
             "Archivos",
@@ -156,7 +156,7 @@ def build_iso9001_pdf(evaluation) -> BytesIO:
     if not summary["is_final"]:
         story.append(
             Paragraph(
-                "Resultado preliminar. El autodiagnostico puede cambiar mientras la captura o revision siga abierta.",
+                "Resultado preliminar. El autodiagnóstico puede cambiar mientras la captura o revisión siga abierta.",
                 styles["warning"],
             )
         )
@@ -166,13 +166,13 @@ def build_iso9001_pdf(evaluation) -> BytesIO:
     story.append(_build_methodology_panel(styles))
     story.append(Spacer(1, 0.16 * inch))
 
-    story.append(Paragraph("Graficas de autodiagnostico", styles["section"]))
+    story.append(Paragraph("Gráficas de autodiagnóstico", styles["section"]))
     story.append(_build_chart_pair(summary))
     story.append(Spacer(1, 0.12 * inch))
     story.append(_build_progress_comparison_chart(summary))
 
     story.append(PageBreak())
-    story.append(Paragraph("Diagnostico accionable", styles["section"]))
+    story.append(Paragraph("Diagnóstico accionable", styles["section"]))
     story.append(
         Paragraph(
             "La lectura prioriza brechas por cumplimiento, avance de captura y soporte documental disponible.",
@@ -182,10 +182,10 @@ def build_iso9001_pdf(evaluation) -> BytesIO:
     story.append(Spacer(1, 0.08 * inch))
     story.append(_build_clause_heatmap_table(summary, styles))
     story.append(Spacer(1, 0.14 * inch))
-    story.append(Paragraph("Subapartados de atencion prioritaria", styles["subsection"]))
+    story.append(Paragraph("Subapartados de atención prioritaria", styles["subsection"]))
     story.append(_build_priority_sections_table(_priority_sections(summary), styles))
     story.append(Spacer(1, 0.14 * inch))
-    story.append(Paragraph("Cobertura de evidencia por clausula", styles["subsection"]))
+    story.append(Paragraph("Cobertura de evidencia por cláusula", styles["subsection"]))
     story.append(_build_evidence_coverage_table(summary, styles))
 
     for clause in summary["clauses"]:
@@ -196,7 +196,7 @@ def build_iso9001_pdf(evaluation) -> BytesIO:
     story.append(Paragraph("Anexo consultable de hallazgos y evidencias", styles["section"]))
     story.append(
         Paragraph(
-            "Se listan reactivos con respuesta No, Parcial o N/A, asi como reactivos con observacion o evidencia cargada.",
+            "Se listan reactivos con respuesta No, Parcial o N/A, así como reactivos con observación o evidencia cargada.",
             styles["body"],
         )
     )
@@ -369,7 +369,7 @@ def _build_iso_cover_story(evaluation, summary: dict, styles: dict[str, Paragrap
         ["Dependencia", evaluation.dependencia.nombre, "Estado", summary["state_label"]],
         ["Ciclo", evaluation.ciclo.nombre, "Periodo", cycle_dates],
         ["Responsable", responsible, "Revisor", reviewer],
-        ["Fecha de descarga", generated, "Version", evaluation.ciclo.version.nombre],
+        ["Fecha de descarga", generated, "Versión", evaluation.ciclo.version.nombre],
     ]
     metadata = _pdf_table(
         metadata_rows,
@@ -380,15 +380,15 @@ def _build_iso_cover_story(evaluation, summary: dict, styles: dict[str, Paragrap
 
     story = [
         Spacer(1, 1.55 * inch),
-        Paragraph("Sistema de gestion de la calidad", styles["cover_kicker"]),
-        Paragraph("Autodiagnostico ISO 9001:2015", styles["cover_title"]),
+        Paragraph("Sistema de gestión de la calidad", styles["cover_kicker"]),
+        Paragraph("Autodiagnóstico ISO 9001:2015", styles["cover_title"]),
         Paragraph(_paragraph_escape(evaluation.dependencia.nombre), styles["cover_subject"]),
         status_badge,
         Spacer(1, 0.35 * inch),
         metadata,
         Spacer(1, 0.28 * inch),
         Paragraph(
-            "Informe ejecutivo de implementacion, evidencia documental y madurez institucional por clausula auditable.",
+            "Informe ejecutivo de implementación, evidencia documental y madurez institucional por cláusula auditable.",
             styles["body"],
         ),
         Spacer(1, 2.15 * inch),
@@ -404,7 +404,7 @@ def _build_iso_metric_cards(summary: dict, styles: dict[str, ParagraphStyle]) ->
         ("Madurez", summary["maturity_label"], "Nivel global ISO"),
         ("Evidencias", str(summary["evidence_count"]), "Archivos activos"),
         ("Aplicables", str(summary["applicable_questions"]), "Base del denominador"),
-        ("N/A", str(summary["na_questions"]), "Excluidos del calculo"),
+        ("N/A", str(summary["na_questions"]), "Excluidos del cálculo"),
         ("Puntos", str(summary["points"]), "Escala 0, 1, 2"),
         ("Estado", summary["state_label"], "Flujo formal"),
     ]
@@ -458,7 +458,7 @@ def _build_iso_metric_cards(summary: dict, styles: dict[str, ParagraphStyle]) ->
 
 def _build_methodology_panel(styles: dict[str, ParagraphStyle]) -> Table:
     method = Paragraph(
-        "Metodo de calculo: No=0, Parcial=1, Si=2. N/A cuenta como reactivo respondido para avance de captura, "
+        "Método de cálculo: No=0, Parcial=1, Sí=2. N/A cuenta como reactivo respondido para avance de captura, "
         "pero se excluye del denominador de cumplimiento. Cumplimiento = puntos obtenidos / (reactivos aplicables x 2).",
         styles["body"],
     )
@@ -530,7 +530,7 @@ def _build_chart_pair(summary: dict) -> Table:
 
 def _build_clause_bar_chart(summary: dict) -> Drawing:
     drawing = Drawing(310, 188)
-    drawing.add(String(155, 172, "Cumplimiento por clausula", fontName="Helvetica-Bold", fontSize=9.5, fillColor=PDF_THEME["navy"], textAnchor="middle"))
+    drawing.add(String(155, 172, "Cumplimiento por cláusula", fontName="Helvetica-Bold", fontSize=9.5, fillColor=PDF_THEME["navy"], textAnchor="middle"))
     plot_x = 34
     plot_y = 32
     plot_width = 248
@@ -554,7 +554,7 @@ def _build_clause_bar_chart(summary: dict) -> Drawing:
         drawing.add(Rect(x, plot_y, bar_width, height, fillColor=color, strokeColor=color, strokeWidth=0))
         drawing.add(String(x + bar_width / 2, plot_y + height + 5, _format_percent(clause["percent"]), fontName="Helvetica-Bold", fontSize=6.4, fillColor=PDF_THEME["navy"], textAnchor="middle"))
         drawing.add(String(x + bar_width / 2, plot_y - 13, clause["numero"], fontName="Helvetica-Bold", fontSize=7.2, fillColor=PDF_THEME["muted"], textAnchor="middle"))
-    drawing.add(String(plot_x + plot_width / 2, 8, "Clausulas auditables 4 a 10", fontName="Helvetica", fontSize=7, fillColor=PDF_THEME["muted"], textAnchor="middle"))
+    drawing.add(String(plot_x + plot_width / 2, 8, "Cláusulas auditables 4 a 10", fontName="Helvetica", fontSize=7, fillColor=PDF_THEME["muted"], textAnchor="middle"))
     return drawing
 
 
@@ -562,7 +562,7 @@ def _build_response_distribution_chart(summary: dict) -> Drawing:
     rows = _response_distribution(summary)
     total = sum(row["count"] for row in rows)
     drawing = Drawing(205, 188)
-    drawing.add(String(102, 172, "Distribucion de respuestas", fontName="Helvetica-Bold", fontSize=9.5, fillColor=PDF_THEME["navy"], textAnchor="middle"))
+    drawing.add(String(102, 172, "Distribución de respuestas", fontName="Helvetica-Bold", fontSize=9.5, fillColor=PDF_THEME["navy"], textAnchor="middle"))
     bar_x = 18
     bar_y = 136
     bar_width = 168
@@ -606,7 +606,7 @@ def _build_progress_comparison_chart(summary: dict) -> Drawing:
 
 
 def _build_clause_heatmap_table(summary: dict, styles: dict[str, ParagraphStyle]) -> Table:
-    headers = ["Clausula", "0%", "1-20", "21-40", "41-60", "61-80", "81-100", "Cumpl."]
+    headers = ["Cláusula", "0%", "1-20", "21-40", "41-60", "61-80", "81-100", "Cumpl."]
     rows = [[Paragraph(header, styles["table_header"]) for header in headers]]
     heat_styles = [
         ("BACKGROUND", (0, 0), (-1, 0), PDF_THEME["navy"]),
@@ -653,7 +653,7 @@ def _build_clause_heatmap_table(summary: dict, styles: dict[str, ParagraphStyle]
 def _build_priority_sections_table(sections: list[dict], styles: dict[str, ParagraphStyle]) -> Table:
     rows = [[
         "Apartado",
-        "Clausula",
+        "Cláusula",
         "Avance",
         "Cumpl.",
         "Aplicables",
@@ -683,7 +683,7 @@ def _build_priority_sections_table(sections: list[dict], styles: dict[str, Parag
 
 
 def _build_evidence_coverage_table(summary: dict, styles: dict[str, ParagraphStyle]) -> Table:
-    rows = [["Clausula", "Reactivos con evidencia", "Archivos", "Cobertura", "Lectura"]]
+    rows = [["Cláusula", "Reactivos con evidencia", "Archivos", "Cobertura", "Lectura"]]
     for row in _evidence_coverage(summary):
         rows.append(
             [
@@ -710,13 +710,13 @@ def _build_clause_story(clause: dict, styles: dict[str, ParagraphStyle]) -> list
     ]
     attention.sort(key=lambda item: (item["percent"], item["completion"], item["codigo"]))
     story: list = [
-        Paragraph(f"Clausula {clause['numero']} - {_paragraph_escape(clause['nombre'])}", styles["section"]),
+        Paragraph(f"Cláusula {clause['numero']} - {_paragraph_escape(clause['nombre'])}", styles["section"]),
         _build_clause_metrics_table(clause),
         Spacer(1, 0.1 * inch),
         Paragraph("Subapartados evaluados", styles["subsection"]),
         _build_clause_sections_table(clause, styles),
         Spacer(1, 0.12 * inch),
-        Paragraph("Areas de atencion", styles["subsection"]),
+        Paragraph("Áreas de atención", styles["subsection"]),
     ]
     if attention:
         for section in attention[:5]:
@@ -729,7 +729,7 @@ def _build_clause_story(clause: dict, styles: dict[str, ParagraphStyle]) -> list
                 )
             )
     else:
-        story.append(Paragraph("Sin apartados criticos identificados con la informacion capturada.", styles["body"]))
+        story.append(Paragraph("Sin apartados críticos identificados con la información capturada.", styles["body"]))
     return story
 
 
@@ -789,12 +789,12 @@ def _build_clause_sections_table(clause: dict, styles: dict[str, ParagraphStyle]
 
 
 def _build_findings_appendix(summary: dict, styles: dict[str, ParagraphStyle]) -> Table:
-    rows = [["Clausula", "Apartado", "Reactivo", "Respuesta", "Observacion / evidencia", "Evid."]]
+    rows = [["Cláusula", "Apartado", "Reactivo", "Respuesta", "Observación / evidencia", "Evid."]]
     findings = _relevant_questions(summary)
     if not findings:
-        rows.append(["Sin hallazgos", "-", "No hay reactivos con brecha, observacion o evidencia registrada.", "-", "-", "-"])
+        rows.append(["Sin hallazgos", "-", "No hay reactivos con brecha, observación o evidencia registrada.", "-", "-", "-"])
     for item in findings:
-        notes = item["observacion"] or "Sin observacion"
+        notes = item["observacion"] or "Sin observación"
         if item["evidence_count"]:
             notes = f"{notes} | Evidencias cargadas: {item['evidence_count']}"
         rows.append(

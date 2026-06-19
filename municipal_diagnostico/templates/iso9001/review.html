@@ -1,11 +1,11 @@
 {% extends "iso9001_base.html" %}
-{% block title %}Revision ISO | Diagnostico ISO 9001:2015{% endblock %}
+{% block title %}Revisión ISO | Diagnóstico ISO 9001:2015{% endblock %}
 {% block content %}
 <section class="executive-hero">
     <div class="hero-copy">
-        <p class="eyebrow">Revision formal</p>
+        <p class="eyebrow">Revisión formal</p>
         <h1>{{ evaluation.dependencia.nombre }}</h1>
-        <p class="lede">Valida la captura del ciclo {{ evaluation.ciclo.nombre }} y registra la decision de revision.</p>
+        <p class="lede">Valida la captura del ciclo {{ evaluation.ciclo.nombre }} y registra la decisión de revisión.</p>
         <div class="tag-row">
             <span class="tag">Estado: {{ summary.state_label }}</span>
             <span class="tag">Responsable: {{ evaluation.responsable.nombre if evaluation.responsable else "Sin responsable" }}</span>
@@ -30,14 +30,14 @@
         <div class="section-heading">
             <div>
                 <p class="eyebrow">Resultado</p>
-                <h2>Por clausula</h2>
+                <h2>Por cláusula</h2>
             </div>
         </div>
         <div class="table-wrap">
             <table class="executive-table">
                 <thead>
                     <tr>
-                        <th>Clausula</th>
+                        <th>Cláusula</th>
                         <th>Reactivos</th>
                         <th>Respondidos</th>
                         <th>Aplicables</th>
@@ -64,19 +64,19 @@
     <article class="panel">
         <div class="section-heading">
             <div>
-                <p class="eyebrow">Decision</p>
-                <h2>Observacion de revision</h2>
+                <p class="eyebrow">Decisión</p>
+                <h2>Observación de revisión</h2>
             </div>
         </div>
         {% if evaluation.estado == 'cerrada' %}
         <div class="callout callout-success">
-            <strong>Evaluacion cerrada</strong>
+            <strong>Evaluación cerrada</strong>
             <p>Este resultado ya fue marcado como oficial.</p>
         </div>
         {% endif %}
         <form method="post" class="stack compact-top">
-            <label>Observacion
-                <textarea name="comentario" rows="7" required placeholder="Registra observaciones, condiciones de devolucion o fundamento del cierre oficial."></textarea>
+            <label>Observación
+                <textarea name="comentario" rows="7" required placeholder="Registra observaciones, condiciones de devolución o fundamento del cierre oficial."></textarea>
             </label>
             <div class="actions">
                 <button class="button danger" name="action" value="return" type="submit" {% if evaluation.estado != 'en_revision' %}disabled{% endif %}>Devolver con observaciones</button>
@@ -92,7 +92,7 @@
 <article class="panel compact-top">
     <div class="section-heading">
         <div>
-            <p class="eyebrow">Bitacora</p>
+            <p class="eyebrow">Bitácora</p>
             <h2>Observaciones registradas</h2>
         </div>
     </div>
@@ -100,13 +100,13 @@
         {% for observation in evaluation.observaciones %}
         <div class="list-row data-row">
             <div>
-                <strong>{{ observation.autor.nombre }} - {{ observation.accion }}</strong>
+                <strong>{{ observation.autor.nombre }} - {{ "Devolución" if observation.accion == "return" else "Cierre oficial" }}</strong>
                 <p>{{ observation.comentario }}</p>
             </div>
             <span class="pill">{{ observation.created_at.strftime('%d/%m/%Y %H:%M') }}</span>
         </div>
         {% else %}
-        <p class="muted">Sin observaciones de revision.</p>
+        <p class="muted">Sin observaciones de revisión.</p>
         {% endfor %}
     </div>
 </article>

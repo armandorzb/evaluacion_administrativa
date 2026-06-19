@@ -64,9 +64,9 @@ def modules():
             },
             {
                 "slug": MODULE_ISO9001,
-                "title": "Diagnostico ISO 9001:2015",
-                "subtitle": "Implementacion, evidencias y madurez del Sistema de Gestion de la Calidad",
-                "description": "Evalua cumplimiento por dependencia con evidencia por reactivo, revision formal y reportes ejecutivos.",
+                "title": "Diagnóstico ISO 9001:2015",
+                "subtitle": "Implementación, evidencias y madurez del Sistema de Gestión de la Calidad",
+                "description": "Evalúa cumplimiento por dependencia con evidencia por reactivo, revisión formal y reportes ejecutivos.",
                 "url": url_for("dashboard.open_module", module_slug=MODULE_ISO9001),
                 "is_available": current_user.puede_acceder_iso9001,
             },

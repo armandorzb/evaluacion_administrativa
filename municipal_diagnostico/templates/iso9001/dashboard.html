@@ -1,12 +1,12 @@
 {% extends "iso9001_base.html" %}
-{% block title %}Tablero | Diagnostico ISO 9001:2015{% endblock %}
+{% block title %}Tablero | Diagnóstico ISO 9001:2015{% endblock %}
 {% block content %}
 <section class="executive-hero">
     <div class="hero-copy">
-        <p class="eyebrow">Modulo interno</p>
-        <h1>Diagnostico de implementacion ISO 9001:2015</h1>
+        <p class="eyebrow">Módulo interno</p>
+        <h1>Diagnóstico de implementación ISO 9001:2015</h1>
         <p class="lede">
-            Gestiona ciclos por dependencia, captura evidencia por reactivo y cierra resultados oficiales con revision formal.
+            Gestiona ciclos por dependencia, captura evidencia por reactivo y cierra resultados oficiales con revisión formal.
         </p>
     </div>
     <article class="hero-card compact">
@@ -22,7 +22,7 @@
 <section class="metric-grid">
     <article class="metric-card"><span>Ciclos</span><strong>{{ counts.ciclos }}</strong></article>
     <article class="metric-card"><span>Evaluaciones visibles</span><strong>{{ counts.evaluaciones }}</strong></article>
-    <article class="metric-card"><span>En revision</span><strong>{{ counts.en_revision }}</strong></article>
+    <article class="metric-card"><span>En revisión</span><strong>{{ counts.en_revision }}</strong></article>
     <article class="metric-card"><span>Cerradas</span><strong>{{ counts.cerradas }}</strong></article>
 </section>
 
@@ -49,7 +49,7 @@
         <div class="actions">
             <a class="button button-primary" href="{{ url_for('iso9001.evaluation_detail', evaluation_id=card.evaluacion.id) }}">Abrir</a>
             {% if current_user.rol in ['administrador', 'revisor'] %}
-            <a class="button" href="{{ url_for('iso9001.review_evaluation', evaluation_id=card.evaluacion.id) }}">Revision</a>
+            <a class="button" href="{{ url_for('iso9001.review_evaluation', evaluation_id=card.evaluacion.id) }}">Revisión</a>
             {% endif %}
             <a class="button" href="{{ url_for('iso9001.report_pdf', evaluation_id=card.evaluacion.id) }}">PDF</a>
             <a class="button" href="{{ url_for('iso9001.report_excel', evaluation_id=card.evaluacion.id) }}">XLSX</a>
@@ -57,7 +57,7 @@
     </article>
     {% else %}
     <article class="panel">
-        <p class="muted">Aun no hay evaluaciones ISO visibles.</p>
+        <p class="muted">Aún no hay evaluaciones ISO visibles.</p>
     </article>
     {% endfor %}
 </section>

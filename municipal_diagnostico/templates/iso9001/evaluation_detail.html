@@ -1,5 +1,5 @@
 {% extends "iso9001_base.html" %}
-{% block title %}Captura ISO | Diagnostico ISO 9001:2015{% endblock %}
+{% block title %}Captura ISO | Diagnóstico ISO 9001:2015{% endblock %}
 {% block content %}
 <section class="executive-hero" id="top">
     <div class="hero-copy">
@@ -22,11 +22,11 @@
         <div class="actions vertical compact-top">
             {% if can_edit %}
             <form method="post" action="{{ url_for('iso9001.submit_evaluation', evaluation_id=evaluation.id) }}">
-                <button class="button button-primary" type="submit">Enviar a revision</button>
+                <button class="button button-primary" type="submit">Enviar a revisión</button>
             </form>
             {% endif %}
             {% if current_user.rol in ['administrador', 'revisor'] %}
-            <a class="button" href="{{ url_for('iso9001.review_evaluation', evaluation_id=evaluation.id) }}">Abrir revision</a>
+            <a class="button" href="{{ url_for('iso9001.review_evaluation', evaluation_id=evaluation.id) }}">Abrir revisión</a>
             {% endif %}
             <a class="button" href="{{ url_for('iso9001.report_pdf', evaluation_id=evaluation.id) }}">PDF</a>
             <a class="button" href="{{ url_for('iso9001.report_excel', evaluation_id=evaluation.id) }}">XLSX</a>
@@ -37,7 +37,7 @@
 {% if not can_edit %}
 <div class="callout callout-warning compact">
     <strong>Captura bloqueada</strong>
-    <p>La evaluacion esta en revision, cerrada o fuera de un ciclo activo. Puedes consultar respuestas y evidencias.</p>
+    <p>La evaluación está en revisión, cerrada o fuera de un ciclo activo. Puedes consultar respuestas y evidencias.</p>
 </div>
 {% endif %}
 
@@ -46,7 +46,7 @@
         <div class="section-heading">
             <div>
                 <p class="eyebrow">Apartados</p>
-                <h2>Navegacion</h2>
+                <h2>Navegación</h2>
             </div>
         </div>
         <div class="stack">
@@ -67,7 +67,7 @@
         <article class="panel">
             <div class="section-heading">
                 <div>
-                    <p class="eyebrow">Clausula {{ clause.numero }}</p>
+                    <p class="eyebrow">Cláusula {{ clause.numero }}</p>
                     <h2>{{ clause.nombre }}</h2>
                     <p class="muted">{{ clause.answered }}/{{ clause.total }} respondidos - {% if clause.percent is not none %}{{ clause.percent }}% cumplimiento{% else %}sin reactivos aplicables{% endif %}</p>
                 </div>
@@ -109,13 +109,13 @@
                                 {% for value, label in option_labels.items() %}
                                 <label class="choice-chip {% if item.selected == value %}is-selected{% endif %}">
                                     <input type="radio" name="calificacion_{{ reactive.id }}" value="{{ value }}" {% if item.selected == value %}checked{% endif %} {% if not can_edit %}disabled{% endif %}>
-                                    <span>{{ value|upper }}</span>
+                                    <span>{{ "SÍ" if value == "si" else value|upper }}</span>
                                     <strong>{{ label }}</strong>
                                 </label>
                                 {% endfor %}
                             </div>
 
-                            <label>Observacion o hallazgo
+                            <label>Observación o hallazgo
                                 <textarea name="observacion_{{ reactive.id }}" rows="3" {% if not can_edit %}disabled{% endif %}>{{ item.observacion }}</textarea>
                             </label>
 
@@ -124,11 +124,11 @@
                                 <div class="meta-grid single-column-mobile compact-top">
                                     <div>
                                         <span class="meta-label">Evidencia sugerida</span>
-                                        <p class="muted">{{ reactive.evidencia_sugerida or "Sin sugerencia especifica." }}</p>
+                                        <p class="muted">{{ reactive.evidencia_sugerida or "Sin sugerencia específica." }}</p>
                                     </div>
                                     <div>
                                         <span class="meta-label">Criterio de idoneidad</span>
-                                        <p class="muted">{{ reactive.criterio_idoneidad or "Sin criterio especifico." }}</p>
+                                        <p class="muted">{{ reactive.criterio_idoneidad or "Sin criterio específico." }}</p>
                                     </div>
                                 </div>
                             </details>

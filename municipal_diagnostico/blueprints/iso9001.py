@@ -103,7 +103,7 @@ def cycles():
             redirect_url = url_for("iso9001.cycles", cycle_id=cycle.id)
             next_state = clean_text(request.form.get("estado"))
             if next_state not in ISO9001_CYCLE_STATES:
-                flash("Selecciona un estado valido para el ciclo.", "error")
+                flash("Selecciona un estado válido para el ciclo.", "error")
             else:
                 cycle.estado = next_state
                 db.session.commit()
@@ -131,7 +131,7 @@ def cycles():
                     evaluation.cerrada_at = utcnow()
                 db.session.commit()
                 log_activity("update_iso9001_evaluation", entity_type="iso9001_evaluacion", entity_id=evaluation.id)
-                flash("Evaluacion ISO actualizada.", "success")
+                flash("Evaluación ISO actualizada.", "success")
 
         return redirect(redirect_url)
 
@@ -168,7 +168,7 @@ def evaluation_detail(evaluation_id: int):
 
     if request.method == "POST":
         if not user_can_edit_evaluation(evaluation):
-            flash("La evaluacion ISO no esta disponible para edicion.", "error")
+            flash("La evaluación ISO no está disponible para edición.", "error")
             return redirect(url_for("iso9001.evaluation_detail", evaluation_id=evaluation.id))
         section_id = request.form.get("apartado_id", type=int)
         if section_id is None:
@@ -208,13 +208,13 @@ def submit_evaluation(evaluation_id: int):
         abort(403)
     summary = summarize_iso9001_evaluation(evaluation)
     if summary["completion"] < 100:
-        flash("Debes responder todos los reactivos antes de enviar a revision.", "error")
+        flash("Debes responder todos los reactivos antes de enviar a revisión.", "error")
         return redirect(url_for("iso9001.evaluation_detail", evaluation_id=evaluation.id))
     evaluation.estado = "en_revision"
     evaluation.enviada_revision_at = utcnow()
     db.session.commit()
     log_activity("submit_iso9001_review", entity_type="iso9001_evaluacion", entity_id=evaluation.id)
-    flash("Evaluacion enviada a revision.", "success")
+    flash("Evaluación enviada a revisión.", "success")
     return redirect(url_for("iso9001.dashboard"))
 
 
@@ -230,11 +230,11 @@ def review_evaluation(evaluation_id: int):
         comentario = clean_text(request.form.get("comentario"))
         summary = summarize_iso9001_evaluation(evaluation)
         if action not in {"return", "close"}:
-            flash("Selecciona una accion de revision valida.", "error")
+            flash("Selecciona una acción de revisión válida.", "error")
         elif not comentario:
-            flash("Captura una observacion de revision.", "error")
+            flash("Captura una observación de revisión.", "error")
         elif evaluation.estado != "en_revision":
-            flash("Solo puedes revisar evaluaciones enviadas formalmente a revision.", "error")
+            flash("Solo puedes revisar evaluaciones enviadas formalmente a revisión.", "error")
         elif action == "close" and summary["completion"] < 100:
             flash("El cierre oficial requiere 100% de reactivos respondidos.", "error")
         else:
@@ -251,7 +251,7 @@ def review_evaluation(evaluation_id: int):
             )
             db.session.commit()
             log_activity("review_iso9001_evaluation", entity_type="iso9001_evaluacion", entity_id=evaluation.id, metadata={"accion": action})
-            flash("Evaluacion devuelta." if action == "return" else "Evaluacion cerrada como resultado oficial.", "success")
+            flash("Evaluación devuelta." if action == "return" else "Evaluación cerrada como resultado oficial.", "success")
             return redirect(url_for("iso9001.review_evaluation", evaluation_id=evaluation.id))
 
     summary = summarize_iso9001_evaluation(evaluation)
@@ -321,14 +321,14 @@ def validate_cycle_payload(form_data):
     if not nombre:
         return None, "Captura el nombre del ciclo ISO."
     if estado not in ISO9001_CYCLE_STATES:
-        return None, "Selecciona un estado valido."
+        return None, "Selecciona un estado válido."
     if Iso9001Ciclo.query.filter_by(nombre=nombre).first():
         return None, "Ya existe un ciclo ISO con ese nombre."
     try:
         fecha_inicio = date.fromisoformat(form_data.get("fecha_inicio"))
         fecha_cierre = date.fromisoformat(form_data.get("fecha_cierre"))
     except Exception:
-        return None, "Captura fechas validas para el ciclo."
+        return None, "Captura fechas válidas para el ciclo."
     if fecha_cierre < fecha_inicio:
         return None, "La fecha de cierre no puede ser anterior al inicio."
     return {
@@ -374,7 +374,7 @@ def create_evaluations_from_form(cycle: Iso9001Ciclo) -> int:
 def validate_evaluation_update_payload(form_data, evaluation: Iso9001Evaluacion):
     next_state = clean_text(form_data.get("estado")) or evaluation.estado
     if next_state not in ISO9001_EVALUATION_STATES:
-        return None, "Selecciona un estado valido para la evaluacion."
+        return None, "Selecciona un estado válido para la evaluación."
 
     responsable, error = optional_active_user_from_form(form_data.get("responsable_id"), "responsable de captura")
     if error:
@@ -398,12 +398,12 @@ def optional_active_user_from_form(raw_value, field_label: str, allowed_roles: s
     try:
         user_id = int(raw_text)
     except ValueError:
-        return None, f"Selecciona un {field_label} valido."
+        return None, f"Selecciona un {field_label} válido."
     user = db.session.get(Usuario, user_id)
     if user is None or not user.activo:
         return None, f"Selecciona un {field_label} activo."
     if allowed_roles is not None and user.rol not in allowed_roles:
-        return None, f"Selecciona un {field_label} con rol valido."
+        return None, f"Selecciona un {field_label} con rol válido."
     return user, None
 
 

@@ -869,7 +869,7 @@ def validate_user_payload(form_data, *, current_user_id: int | None = None, pass
     if requested_wellbeing is not None and rol not in WELLBEING_ALLOWED_ROLES:
         return None, "Bienestar Policial solo puede asignarse a usuarios con rol administrador o consulta."
     if requested_iso9001 is not None and rol not in ISO9001_ALLOWED_ROLES:
-        return None, "Diagnostico ISO 9001:2015 puede asignarse a cualquier rol activo del sistema."
+        return None, "Diagnóstico ISO 9001:2015 puede asignarse a cualquier rol activo del sistema."
 
     dependency = db.session.get(Dependencia, dependencia_id) if dependencia_id else None
     area = db.session.get(Area, area_id) if area_id else None

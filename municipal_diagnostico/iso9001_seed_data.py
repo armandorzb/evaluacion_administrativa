@@ -5,11 +5,11 @@ from __future__ import annotations
 
 ISO9001_VERSION = {
     "slug": "iso9001_2015_diagnostico_v1",
-    "nombre": "Diagnostico de implementacion ISO 9001:2015",
-    "descripcion": "Cuestionario fijo para evaluar implementacion y madurez del Sistema de Gestion de la Calidad conforme a ISO 9001:2015.",
+    "nombre": "Diagnóstico de implementación ISO 9001:2015",
+    "descripcion": "Cuestionario fijo para evaluar implementación y madurez del Sistema de Gestión de la Calidad conforme a ISO 9001:2015.",
     "norma": "ISO 9001:2015",
     "clausulas": [{'numero': '4',
-  'nombre': 'Contexto De La Organización',
+  'nombre': 'Contexto de la organización',
   'orden': 4,
   'apartados': [{'codigo': '4.1',
                  'nombre': 'Comprensión de la organización y su contexto',
@@ -1664,7 +1664,7 @@ ISO9001_VERSION = {
                                 'criterio_idoneidad': 'No conformidad, acciones, concesiones y autoridad que '
                                                       'decide.'}]}]},
  {'numero': '9',
-  'nombre': 'Evaluación Del Desempeño',
+  'nombre': 'Evaluación del desempeño',
   'orden': 9,
   'apartados': [{'codigo': '9.1.1',
                  'nombre': 'Seguimiento, medición, análisis y evaluación - Generalidades',
