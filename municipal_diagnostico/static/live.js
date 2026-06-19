@@ -43,6 +43,29 @@
     const canControl = root.dataset.canControl === "true";
     let currentState = state;
     let socket = null;
+    let pollTimer = null;
+
+    const pollState = () => {
+      fetch(`/live/api/sessions/${sessionId}/state`)
+        .then((response) => response.json())
+        .then((json) => {
+          if (json.ok && json.session) {
+            currentState = json.session;
+            renderPresenter(root, currentState, canControl);
+          }
+        })
+        .catch(() => {});
+    };
+    const startPolling = () => {
+      if (pollTimer) return;
+      pollState();
+      pollTimer = window.setInterval(pollState, 4000);
+    };
+    const stopPolling = () => {
+      if (!pollTimer) return;
+      window.clearInterval(pollTimer);
+      pollTimer = null;
+    };
 
     renderPresenter(root, currentState, canControl);
 
@@ -66,6 +89,14 @@
         });
         renderPresenter(root, currentState, canControl);
       });
+      socket.on("connect", stopPolling);
+      socket.on("connect_error", startPolling);
+      socket.on("disconnect", startPolling);
+      window.setTimeout(() => {
+        if (!socket.connected) startPolling();
+      }, 3000);
+    } else {
+      startPolling();
     }
 
     root.querySelectorAll("[data-live-control]").forEach((button) => {
