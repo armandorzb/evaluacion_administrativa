@@ -3865,7 +3865,7 @@ body.wellbeing-body {
     top: clamp(0.7rem, 1.1vw, 1rem);
     left: clamp(0.8rem, 1.3vw, 1.15rem);
     z-index: 4;
-    max-width: min(48rem, calc(100% - min(22rem, 30vw) - 3rem));
+    max-width: min(58rem, calc(100% - 2rem));
     padding: 0.55rem 0.75rem;
     border: 1px solid rgba(47, 90, 116, 0.12);
     border-radius: 10px;
@@ -3921,6 +3921,7 @@ body.wellbeing-body {
 }
 
 .live-presentation-shell[data-live-activity-type="brainstorm"] .live-results-list {
+    display: none;
     position: absolute;
     right: clamp(0.7rem, 1.1vw, 1rem);
     bottom: clamp(0.7rem, 1.1vw, 1rem);
@@ -3946,6 +3947,7 @@ body.wellbeing-body {
 }
 
 .live-presentation-shell[data-live-activity-type="brainstorm"] .live-presentation-results.is-list-only .live-results-list {
+    display: grid;
     position: static;
     width: 100%;
     max-height: none;
