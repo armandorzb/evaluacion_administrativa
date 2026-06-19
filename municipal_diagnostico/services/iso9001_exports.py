@@ -54,6 +54,37 @@ ISO_MATURITY_GUIDE = [
     ("81-100%", "Nivel 5 - Optimizado", "optimal"),
 ]
 
+ISO_CLAUSE_GUIDANCE = {
+    "4": {
+        "focus": "contexto, partes interesadas, alcance y procesos del sistema de gestión de la calidad",
+        "evidence": "análisis de contexto, requisitos de partes interesadas, alcance documentado y mapa de procesos",
+    },
+    "5": {
+        "focus": "liderazgo, política de calidad, enfoque al cliente, roles y responsabilidades",
+        "evidence": "política vigente, objetivos comunicados, responsabilidades asignadas y evidencia de participación directiva",
+    },
+    "6": {
+        "focus": "riesgos, oportunidades, objetivos de calidad y planeación de cambios",
+        "evidence": "matriz de riesgos y oportunidades, objetivos medibles, responsables, indicadores y planes de cambio",
+    },
+    "7": {
+        "focus": "recursos, competencia, toma de conciencia, comunicación e información documentada",
+        "evidence": "planes de capacitación, perfiles, registros de competencia, comunicaciones y control documental",
+    },
+    "8": {
+        "focus": "planeación y control operacional, requisitos del servicio, proveedores y salidas no conformes",
+        "evidence": "procedimientos operativos, controles de proveedores, validaciones, liberaciones y tratamiento de no conformidades",
+    },
+    "9": {
+        "focus": "seguimiento, medición, satisfacción del usuario, auditorías internas y revisión por la dirección",
+        "evidence": "indicadores, resultados de satisfacción, programa de auditorías, hallazgos y actas de revisión directiva",
+    },
+    "10": {
+        "focus": "no conformidades, acciones correctivas y mejora continua",
+        "evidence": "acciones correctivas, análisis de causa, verificación de eficacia y cartera de mejoras",
+    },
+}
+
 ISO_PDF_FOOTER = "Diagnóstico ISO 9001:2015 | Autodiagnóstico institucional"
 
 
@@ -127,6 +158,40 @@ def build_iso9001_excel(evaluation) -> BytesIO:
     _style_table(detalle, detail_header)
     _set_widths(detalle, {"A": 10, "B": 12, "C": 8, "D": 50, "E": 15, "F": 8, "G": 36, "H": 36, "I": 44, "J": 10})
 
+    guia = workbook.create_sheet("Guia")
+    _write_title(guia, "Guia de madurez ISO 9001:2015", evaluation.dependencia.nombre, end_column=5)
+    guia.append([])
+    guia.append(["Lectura global", _global_maturity_comment(summary)])
+    guia.append([])
+    guia.append(["Clausula", "Madurez", "% Cumpl.", "Comentario guia", "Siguiente paso"])
+    guide_header = guia.max_row
+    for clause in summary["clauses"]:
+        guide_row = _clause_guidance_row(clause)
+        guia.append(
+            [
+                guide_row["clause"],
+                guide_row["maturity"],
+                clause["percent"] if clause["percent"] is not None else "",
+                guide_row["reading"],
+                guide_row["next_step"],
+            ]
+        )
+    guia.append([])
+    guia.append(["Apartado prioritario", "Clausula", "% Cumpl.", "Comentario guia"])
+    priority_header = guia.max_row
+    for section in _priority_sections(summary):
+        guia.append(
+            [
+                f"{section['codigo']} {section['nombre']}",
+                section["clausula"],
+                section["percent"] if section["percent"] is not None else "",
+                _section_maturity_comment(section),
+            ]
+        )
+    _style_table(guia, guide_header)
+    _style_table(guia, priority_header)
+    _set_widths(guia, {"A": 28, "B": 26, "C": 12, "D": 62, "E": 62})
+
     for sheet in workbook.worksheets:
         sheet.freeze_panes = "A4"
 
@@ -170,6 +235,8 @@ def build_iso9001_pdf(evaluation) -> BytesIO:
     story.append(_build_chart_pair(summary))
     story.append(Spacer(1, 0.12 * inch))
     story.append(_build_progress_comparison_chart(summary))
+    story.append(Spacer(1, 0.08 * inch))
+    story.append(Paragraph(f"<b>Lectura guía:</b> {_paragraph_escape(_global_maturity_comment(summary))}", styles["body"]))
 
     story.append(PageBreak())
     story.append(Paragraph("Diagnóstico accionable", styles["section"]))
@@ -187,6 +254,17 @@ def build_iso9001_pdf(evaluation) -> BytesIO:
     story.append(Spacer(1, 0.14 * inch))
     story.append(Paragraph("Cobertura de evidencia por cláusula", styles["subsection"]))
     story.append(_build_evidence_coverage_table(summary, styles))
+
+    story.append(PageBreak())
+    story.append(Paragraph("Guía de madurez por cláusula", styles["section"]))
+    story.append(
+        Paragraph(
+            "Los comentarios son orientativos: traducen la calificación del autodiagnóstico en señales de madurez y próximos pasos para fortalecer el SGC.",
+            styles["body"],
+        )
+    )
+    story.append(Spacer(1, 0.08 * inch))
+    story.append(_build_clause_guidance_table(summary, styles))
 
     for clause in summary["clauses"]:
         story.append(PageBreak())
@@ -702,6 +780,25 @@ def _build_evidence_coverage_table(summary: dict, styles: dict[str, ParagraphSty
     )
 
 
+def _build_clause_guidance_table(summary: dict, styles: dict[str, ParagraphStyle]) -> Table:
+    rows = [["Cláusula", "Madurez", "Comentario guía", "Siguiente paso"]]
+    for clause in summary["clauses"]:
+        guidance = _clause_guidance_row(clause)
+        rows.append(
+            [
+                guidance["clause"],
+                guidance["maturity"],
+                guidance["reading"],
+                guidance["next_step"],
+            ]
+        )
+    return _pdf_table(
+        rows,
+        styles,
+        col_widths=[0.95 * inch, 1.15 * inch, 2.95 * inch, 2.15 * inch],
+    )
+
+
 def _build_clause_story(clause: dict, styles: dict[str, ParagraphStyle]) -> list:
     attention = [
         section
@@ -709,9 +806,16 @@ def _build_clause_story(clause: dict, styles: dict[str, ParagraphStyle]) -> list
         if section["applicable"] > 0 and section["percent"] is not None and section["percent"] < 80
     ]
     attention.sort(key=lambda item: (item["percent"], item["completion"], item["codigo"]))
+    guidance = _clause_guidance_row(clause)
     story: list = [
         Paragraph(f"Cláusula {clause['numero']} - {_paragraph_escape(clause['nombre'])}", styles["section"]),
         _build_clause_metrics_table(clause),
+        Spacer(1, 0.1 * inch),
+        Paragraph("Comentario guía", styles["subsection"]),
+        Paragraph(
+            f"{_paragraph_escape(guidance['reading'])} <b>Siguiente paso:</b> {_paragraph_escape(guidance['next_step'])}",
+            styles["body"],
+        ),
         Spacer(1, 0.1 * inch),
         Paragraph("Subapartados evaluados", styles["subsection"]),
         _build_clause_sections_table(clause, styles),
@@ -723,8 +827,7 @@ def _build_clause_story(clause: dict, styles: dict[str, ParagraphStyle]) -> list
             story.append(
                 Paragraph(
                     f"- {section['codigo']} {_paragraph_escape(section['nombre'])}: "
-                    f"{_format_percent(section['percent'])} de cumplimiento, "
-                    f"{_format_percent(section['completion'])} de avance y {_section_evidence_count(section)} evidencias.",
+                    f"{_paragraph_escape(_section_maturity_comment(section))}",
                     styles["body"],
                 )
             )
@@ -872,6 +975,111 @@ def _response_distribution(summary: dict) -> list[dict]:
         percent = round((count / total) * 100, 2) if total else 0.0
         distribution.append({"key": key, "label": label, "count": count, "percent": percent, "color": color})
     return distribution
+
+
+def _global_maturity_comment(summary: dict) -> str:
+    profile = _maturity_profile(summary["percent"])
+    return (
+        f"{profile['reading']} La lectura global debe revisarse con enfoque de procesos, liderazgo, evidencia "
+        "objetiva y mejora continua; use los comentarios por cláusula para convertir brechas en acciones verificables."
+    )
+
+
+def _clause_guidance_row(clause: dict) -> dict:
+    guide = ISO_CLAUSE_GUIDANCE.get(
+        str(clause["numero"]),
+        {"focus": "requisitos del sistema de gestión de la calidad", "evidence": "evidencia objetiva del cumplimiento"},
+    )
+    profile = _maturity_profile(clause["percent"])
+    counts = _clause_response_counts(clause)
+    evidence_files = sum(_section_evidence_count(section) for section in clause["sections"])
+    reading = (
+        f"{profile['reading']} En esta cláusula el foco es {guide['focus']}. "
+        f"El corte muestra {counts['no']} No, {counts['parcial']} Parcial, {counts['si']} Sí, "
+        f"{counts['na']} N/A y {evidence_files} evidencias activas."
+    )
+    next_step = f"{profile['action']} Evidencia guía: {guide['evidence']}."
+    return {
+        "clause": f"{clause['numero']} {clause['nombre']}",
+        "maturity": clause["maturity_label"],
+        "reading": _clip(reading, 430),
+        "next_step": _clip(next_step, 300),
+    }
+
+
+def _section_maturity_comment(section: dict) -> str:
+    guide = ISO_CLAUSE_GUIDANCE.get(
+        str(section["clausula"]),
+        {"focus": "requisitos del sistema de gestión de la calidad", "evidence": "evidencia objetiva del cumplimiento"},
+    )
+    profile = _maturity_profile(section["percent"])
+    counts = _section_response_counts(section)
+    evidence_count = _section_evidence_count(section)
+    if section["completion"] < 100:
+        capture_note = f"Complete la captura: avance {_format_percent(section['completion'])}."
+    else:
+        capture_note = "Captura completa."
+    comment = (
+        f"{profile['reading']} {capture_note} Para este apartado revise {guide['focus']}; "
+        f"hay {counts['no']} No, {counts['parcial']} Parcial, {counts['na']} N/A y {evidence_count} evidencias. "
+        f"Siguiente paso: {profile['action']}"
+    )
+    return _clip(comment, 500)
+
+
+def _maturity_profile(percent: float | None) -> dict[str, str]:
+    if percent is None:
+        return {
+            "reading": "Sin base de cálculo por ausencia de reactivos aplicables.",
+            "action": "Valide la justificación de los N/A y confirme que el alcance del SGC esté correctamente delimitado.",
+        }
+    if percent == 0:
+        return {
+            "reading": "Madurez no iniciada: no se observa evidencia de implementación para los reactivos aplicables.",
+            "action": "Defina responsables, controles mínimos, registros requeridos y fecha de arranque del plan de implementación.",
+        }
+    if percent <= 20:
+        return {
+            "reading": "Madurez inicial: existen señales aisladas, pero el control todavía depende de acciones reactivas o informales.",
+            "action": "Formalice el método de trabajo, asigne responsables y capture evidencia objetiva suficiente.",
+        }
+    if percent <= 40:
+        return {
+            "reading": "Madurez en desarrollo: hay prácticas parciales, pero falta consistencia, despliegue o trazabilidad documental.",
+            "action": "Convierta las prácticas parciales en procedimientos, registros, indicadores y seguimiento periódico.",
+        }
+    if percent <= 60:
+        return {
+            "reading": "Madurez definida: el requisito está identificado y opera parcialmente, aunque aún requiere mayor evidencia y control.",
+            "action": "Cierre brechas de evidencia, verifique eficacia y conecte el apartado con riesgos, objetivos e indicadores.",
+        }
+    if percent <= 80:
+        return {
+            "reading": "Madurez gestionada: el requisito funciona con evidencia razonable, pero todavía puede fortalecerse la medición.",
+            "action": "Use auditorías internas, análisis de datos y revisión directiva para sostener y mejorar el desempeño.",
+        }
+    return {
+        "reading": "Madurez optimizada: el requisito está integrado al trabajo diario y cuenta con evidencia sólida.",
+        "action": "Mantenga seguimiento, comparta buenas prácticas y documente mejoras preventivas o innovaciones del proceso.",
+    }
+
+
+def _clause_response_counts(clause: dict) -> dict[str, int]:
+    counts = {"no": 0, "parcial": 0, "si": 0, "na": 0}
+    for section in clause["sections"]:
+        section_counts = _section_response_counts(section)
+        for key in counts:
+            counts[key] += section_counts[key]
+    return counts
+
+
+def _section_response_counts(section: dict) -> dict[str, int]:
+    counts = {"no": 0, "parcial": 0, "si": 0, "na": 0}
+    for row in section["questions"]:
+        selected = row["selected"]
+        if selected in counts:
+            counts[selected] += 1
+    return counts
 
 
 def _priority_sections(summary: dict, limit: int = 10) -> list[dict]:

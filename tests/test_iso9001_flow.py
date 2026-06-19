@@ -22,8 +22,10 @@ from municipal_diagnostico.models import (
 from municipal_diagnostico.iso9001_seed_data import ISO9001_VERSION
 from municipal_diagnostico.services.iso9001 import ISO9001_OPTION_POINTS, ensure_iso9001_catalog, summarize_iso9001_evaluation
 from municipal_diagnostico.services.iso9001_exports import (
+    _clause_guidance_row,
     _priority_sections,
     _response_distribution,
+    _section_maturity_comment,
     _section_evidence_count,
     build_iso9001_pdf,
 )
@@ -354,12 +356,17 @@ def test_iso9001_pdf_data_helpers_rank_gaps_and_evidence():
         distribution = {row["key"]: row["count"] for row in _response_distribution(summary)}
         priorities = _priority_sections(summary)
         section_map = {section["codigo"]: section for section in summary["sections"]}
+        guidance = _clause_guidance_row(summary["clauses"][0])
+        section_comment = _section_maturity_comment(priorities[0])
 
         assert distribution == {"no": 1, "parcial": 1, "si": 1, "na": 1}
         assert priorities[0]["codigo"] == sections[1].codigo
         assert priorities[1]["codigo"] == sections[0].codigo
         assert _section_evidence_count(section_map[sections[0].codigo]) == 2
         assert _section_evidence_count(section_map[sections[1].codigo]) == 0
+        assert "contexto" in guidance["reading"].lower()
+        assert "evidencia" in guidance["next_step"].lower()
+        assert "Siguiente paso" in section_comment
 
 
 def test_iso9001_pdf_generates_without_completed_capture_and_with_all_na_section():
@@ -856,6 +863,15 @@ def test_iso9001_capture_review_close_permissions_and_exports():
     workbook = load_workbook(BytesIO(xlsx.data))
     assert "Resumen" in workbook.sheetnames
     assert "Cuestionario" in workbook.sheetnames
+    assert "Guia" in workbook.sheetnames
+    guide_values = [
+        value
+        for row in workbook["Guia"].iter_rows(values_only=True)
+        for value in row
+        if isinstance(value, str)
+    ]
+    assert any("Comentario guia" in value for value in guide_values)
+    assert any("Siguiente paso" in value for value in guide_values)
     detail_values = [
         value
         for row in workbook["Cuestionario"].iter_rows(values_only=True)
