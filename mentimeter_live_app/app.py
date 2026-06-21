@@ -25,7 +25,11 @@ except ImportError:  # Allows `python app.py` from this folder.
     from models import db, Option, Participant, Question, Response, Session, utcnow
 
 
-socketio = SocketIO(async_mode="threading", cors_allowed_origins="*", manage_session=False)
+socketio = SocketIO(
+    async_mode=os.getenv("MENTI_SOCKETIO_ASYNC_MODE") or None,
+    cors_allowed_origins="*",
+    manage_session=False,
+)
 # Contract shared by backend validation and the two vanilla JS frontends.
 QUESTION_TYPES = {"multiple_choice", "word_cloud", "scale", "open_text", "ranking", "quiz"}
 SINGLE_RESPONSE_TYPES = {"multiple_choice", "scale", "ranking", "quiz"}
