@@ -1,0 +1,21 @@
+<!doctype html>
+<html lang="es">
+<head>
+    <meta charset="utf-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1">
+    <title>Unirse</title>
+    <link rel="stylesheet" href="{{ url_for('static', filename='css/app.css') }}">
+</head>
+<body class="join-shell">
+    <main class="join-card-main">
+        <p class="eyebrow">Participa en vivo</p>
+        <h1>Ingresa el codigo</h1>
+        <form method="post" class="join-form">
+            <input name="code" inputmode="numeric" pattern="[0-9]{6}" maxlength="6" placeholder="123456" value="{{ code or '' }}" autofocus>
+            <button type="submit">Entrar</button>
+        </form>
+        {% if error %}<p class="error">{{ error }}</p>{% endif %}
+        <p class="muted">Demo local: usa el codigo <strong>123456</strong>.</p>
+    </main>
+</body>
+</html>

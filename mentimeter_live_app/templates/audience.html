@@ -1,0 +1,33 @@
+<!doctype html>
+<html lang="es">
+<head>
+    <meta charset="utf-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1">
+    <title>{{ session.title }}</title>
+    <link rel="stylesheet" href="{{ url_for('static', filename='css/app.css') }}">
+</head>
+<body class="audience-shell">
+    <main class="audience-card" data-audience data-code="{{ session.code }}" data-token="{{ participant.token }}">
+        <header>
+            <p class="eyebrow">Codigo {{ session.code }}</p>
+            <h1>{{ session.title }}</h1>
+            <p data-audience-status>Conectando...</p>
+        </header>
+        <section data-question-area class="answer-area">
+            <h2>Esperando al presentador</h2>
+            <p class="muted">La pregunta activa aparecera automaticamente.</p>
+        </section>
+        <footer>
+            <span data-score>0 pts</span>
+            <span data-connected-count>0 conectados</span>
+        </footer>
+    </main>
+
+    <script>
+        window.MENTI_SESSION_CODE = {{ session.code|tojson }};
+        window.MENTI_PARTICIPANT_TOKEN = {{ participant.token|tojson }};
+    </script>
+    <script src="https://cdn.socket.io/4.7.5/socket.io.min.js"></script>
+    <script src="{{ url_for('static', filename='js/audience.js') }}"></script>
+</body>
+</html>

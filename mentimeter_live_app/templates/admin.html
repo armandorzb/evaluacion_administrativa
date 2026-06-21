@@ -1,0 +1,140 @@
+<!doctype html>
+<html lang="es">
+<head>
+    <meta charset="utf-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1">
+    <title>Live Admin</title>
+    <link rel="stylesheet" href="{{ url_for('static', filename='css/app.css') }}">
+</head>
+<body class="admin-shell{% if present_only|default(false) %} present-only{% endif %}">
+    <header class="topbar">
+        <div>
+            <p class="eyebrow">Mentimeter Flask</p>
+            <h1>Presentador</h1>
+        </div>
+        <form class="session-create" data-create-session>
+            <input name="title" placeholder="Nombre de la sesion" value="Nueva sesion live" maxlength="180">
+            <button type="submit">Crear sesion</button>
+        </form>
+    </header>
+
+    <main class="admin-grid">
+        <aside class="panel session-list" aria-label="Sesiones">
+            <h2>Sesiones</h2>
+            <div class="session-items">
+                {% for item in sessions %}
+                <a class="session-chip{% if selected and item.id == selected.id %} is-active{% endif %}" href="{{ url_for('admin', code=item.code) }}">
+                    <strong>{{ item.title }}</strong>
+                    <span>{{ item.code }} · {{ item.status }}</span>
+                </a>
+                {% else %}
+                <p class="muted">Crea una sesion para comenzar.</p>
+                {% endfor %}
+            </div>
+            {% if selected %}
+        <div class="join-card">
+            <span>Codigo</span>
+            <strong>{{ selected.code }}</strong>
+            <img src="{{ url_for('qr_png', code=selected.code) }}" alt="QR para unirse">
+            <code>{{ url_for('audience', code=selected.code, _external=True) }}</code>
+            <div class="actions">
+                <a class="export-link" href="{{ url_for('export_session_csv', code=selected.code) }}">CSV</a>
+                <a class="export-link" href="{{ url_for('export_session_xlsx', code=selected.code) }}">Excel</a>
+                <a class="export-link" href="{{ url_for('export_session_pdf', code=selected.code) }}">PDF</a>
+            </div>
+        </div>
+        {% endif %}
+        </aside>
+
+        <section class="panel builder" aria-label="Editor de preguntas">
+            <div class="section-head">
+                <div>
+                    <p class="eyebrow">Constructor</p>
+                    <h2>Preguntas</h2>
+                </div>
+                <span class="status-pill" data-session-status>Sin sesion</span>
+            </div>
+
+            <div class="template-strip" data-template-strip></div>
+
+            <form class="question-form" data-question-form>
+                <input type="hidden" name="question_id">
+                <div class="form-grid">
+                    <label>Tipo
+                        <select name="type" data-question-type>
+                            <option value="multiple_choice">Opcion multiple</option>
+                            <option value="word_cloud">Nube de palabras</option>
+                            <option value="scale">Escala</option>
+                            <option value="open_text">Pregunta abierta</option>
+                            <option value="ranking">Ranking</option>
+                            <option value="quiz">Quiz</option>
+                        </select>
+                    </label>
+                    <label>Titulo<input name="title" required maxlength="180" placeholder="Titulo visible"></label>
+                </div>
+                <label>Pregunta<textarea name="prompt" rows="2" required maxlength="1200" placeholder="Escribe la pregunta para la audiencia"></textarea></label>
+                <label data-options-field>Opciones<textarea name="options" rows="4" placeholder="Una opcion por linea"></textarea></label>
+                <div class="form-grid" data-scale-field hidden>
+                    <label>Min<input name="min" type="number" min="1" max="9" value="1"></label>
+                    <label>Max<input name="max" type="number" min="2" max="10" value="5"></label>
+                </div>
+                <div class="form-grid" data-quiz-field hidden>
+                    <label>Respuesta correcta<input name="correct" placeholder="Debe coincidir con una opcion"></label>
+                    <label>Timer seg.<input name="timer_seconds" type="number" min="5" max="600" value="30"></label>
+                    <label>Puntos<input name="points" type="number" min="1" max="1000" value="100"></label>
+                </div>
+                <label data-moderation-field hidden>Moderacion
+                    <select name="moderation">
+                        <option value="none">Sin moderacion</option>
+                        <option value="manual">Aprobar antes de mostrar</option>
+                    </select>
+                </label>
+                <div class="actions">
+                    <button type="submit" data-save-question>Agregar pregunta</button>
+                    <button type="button" class="secondary" data-cancel-edit>Cancelar edicion</button>
+                </div>
+            </form>
+
+            <div class="question-list" data-question-list></div>
+        </section>
+
+        <section class="panel stage" aria-label="Presentacion">
+            <div class="stage-toolbar">
+                <button type="button" data-control="start">Iniciar</button>
+                <button type="button" data-control="previous">Anterior</button>
+                <button type="button" data-control="next">Siguiente</button>
+                <button type="button" data-control="close_question">Cerrar voto</button>
+                <button type="button" data-control="open_question">Reabrir</button>
+                <button type="button" data-control="close">Cerrar sesion</button>
+                <button type="button" data-control="reset" class="danger">Reiniciar</button>
+                <label class="theme-control">Tema
+                    <select data-theme-select>
+                        <option value="civic">Civico</option>
+                        <option value="ocean">Azul</option>
+                        <option value="contrast">Contraste</option>
+                    </select>
+                </label>
+            </div>
+            <div class="participant-meter">
+                <span data-connected-count>0</span>
+                <small>conectados</small>
+            </div>
+            <article class="question-stage" data-stage>
+                <p class="eyebrow">Selecciona una sesion</p>
+                <h2>Resultados en vivo</h2>
+            </article>
+            <canvas class="result-chart" data-result-chart></canvas>
+            <div class="moderation-panel" data-moderation-panel></div>
+            <div class="result-alt" data-result-alt></div>
+            <pre class="insights-box" data-insights-box hidden></pre>
+        </section>
+    </main>
+
+    <script>
+        window.MENTI_SESSION_CODE = {{ selected.code|tojson if selected else 'null' }};
+    </script>
+    <script src="https://cdn.socket.io/4.7.5/socket.io.min.js"></script>
+    <script src="https://cdn.jsdelivr.net/npm/chart.js@4.4.3/dist/chart.umd.min.js"></script>
+    <script src="{{ url_for('static', filename='js/admin.js') }}"></script>
+</body>
+</html>

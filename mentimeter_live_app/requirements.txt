@@ -1,0 +1,8 @@
+Flask>=3.1
+Flask-SQLAlchemy>=3.1
+Flask-SocketIO>=5.3
+qrcode[pil]>=7.4
+openpyxl>=3.1
+reportlab>=4.4
+eventlet>=0.36
+gunicorn>=22.0; platform_system != "Windows"

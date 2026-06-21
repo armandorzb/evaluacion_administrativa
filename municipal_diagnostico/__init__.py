@@ -12,6 +12,7 @@ from municipal_diagnostico.blueprints.campaigns import bp as campaigns_bp
 from municipal_diagnostico.blueprints.dashboard import bp as dashboard_bp
 from municipal_diagnostico.blueprints.evaluation import bp as evaluation_bp
 from municipal_diagnostico.blueprints.iso9001 import bp as iso9001_bp
+from municipal_diagnostico.blueprints.menti import bp as menti_bp
 from municipal_diagnostico.blueprints.reports import bp as reports_bp
 from municipal_diagnostico.blueprints.wellbeing import bp as wellbeing_bp
 from municipal_diagnostico.extensions import db, login_manager, migrate, socketio
@@ -179,6 +180,7 @@ def register_blueprints(app: Flask) -> None:
     app.register_blueprint(iso9001_bp)
     app.register_blueprint(reports_bp)
     app.register_blueprint(wellbeing_bp)
+    app.register_blueprint(menti_bp)
     init_live_module(app, socketio, db)
 
     @app.route("/")

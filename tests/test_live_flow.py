@@ -215,6 +215,18 @@ def test_live_access_guards_allow_admin_and_consulta_only():
     assert denied.status_code == 403
 
 
+def test_menti_bridge_is_protected_by_live_access():
+    app = build_app()
+    client = app.test_client()
+
+    login(client, "admin-live@test.local")
+    assert client.get("/menti/").status_code == 200
+
+    client.get("/auth/logout", follow_redirects=True)
+    login(client, "sin-live@test.local")
+    assert client.get("/menti/").status_code == 403
+
+
 def test_admin_can_create_template_and_session_snapshot_via_api():
     app = build_app()
     client = app.test_client()

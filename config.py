@@ -44,3 +44,4 @@ class Config:
         "on",
     }
     APP_TIMEZONE = os.getenv("APP_TIMEZONE", "America/Hermosillo")
+    MENTI_PUBLIC_URL = os.getenv("MENTI_PUBLIC_URL")

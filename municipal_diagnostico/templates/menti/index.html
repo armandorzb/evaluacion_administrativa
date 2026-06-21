@@ -1,0 +1,29 @@
+{% extends "base.html" %}
+{% block title %}Mentimeter Live{% endblock %}
+{% block header_brand %}Mentimeter Live{% endblock %}
+{% block header_subtitle %}Aplicacion interactiva standalone vinculada al modulo Live{% endblock %}
+
+{% block content %}
+<section class="hero-panel">
+    <div>
+        <p class="eyebrow">Integracion segura</p>
+        <h1>App Mentimeter standalone</h1>
+        <p class="lede">
+            La app con rutas literales <code>/admin</code> y <code>/join</code> se mantiene como servicio independiente para no
+            interferir con el <code>/admin</code> del sistema municipal. Configura <code>MENTI_PUBLIC_URL</code> en produccion
+            para redirigir esta entrada al servicio publicado.
+        </p>
+    </div>
+    <div class="actions">
+        <a class="button button-primary" href="{{ url_for('live.dashboard') }}">Volver a Live</a>
+    </div>
+</section>
+
+<section class="panel stack">
+    <p class="eyebrow">Comando local</p>
+    <pre><code>cd mentimeter_live_app
+python -m pip install -r requirements.txt
+python app.py</code></pre>
+    <p class="muted">Despues abre <code>http://127.0.0.1:5000/admin</code> y usa el demo <code>123456</code>.</p>
+</section>
+{% endblock %}
