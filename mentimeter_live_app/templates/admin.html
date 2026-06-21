@@ -31,6 +31,7 @@
 
         {% if selected %}
         <nav class="top-actions" aria-label="Acciones de presentación">
+            <a class="button-link primary-link" href="{{ url_for('present', code=selected.code) }}" target="_blank" rel="noreferrer">Presentar</a>
             <a class="button-link" href="{{ url_for('audience', code=selected.code) }}" target="_blank" rel="noreferrer">Participar</a>
             <a class="button-link" href="{{ url_for('export_session_csv', code=selected.code) }}">CSV</a>
             <a class="button-link" href="{{ url_for('export_session_xlsx', code=selected.code) }}">Excel</a>
@@ -118,12 +119,22 @@
                         <div class="content-body-edit" contenteditable="true" spellcheck="true" data-config-field="body">{{ initial_config.get("body", "") }}</div>
                         {% if initial_config.get("show_qr") or initial_layout == "qr" %}
                         <div class="slide-join-card">
-                            <span>Codigo</span>
+                            <span>Código</span>
                             <strong>{{ selected.code }}</strong>
                             <img src="{{ url_for('qr_png', code=selected.code) }}" alt="QR para unirse">
                             <code>{{ url_for('audience', code=selected.code, _external=True) }}</code>
                         </div>
                         {% endif %}
+                        <section class="slide-results-stage" data-slide-results-stage aria-label="Resultados en vivo" hidden>
+                            <div class="results-head">
+                                <strong>Resultados en vivo</strong>
+                                <span data-result-summary></span>
+                            </div>
+                            <div class="slide-results-body">
+                                <canvas class="result-chart" data-result-chart hidden></canvas>
+                                <div class="result-alt" data-result-alt></div>
+                            </div>
+                        </section>
                     </div>
                     {% else %}
                     <div class="slide-canvas-inner interactive-layout">
@@ -140,28 +151,28 @@
                                 <span class="option-order">{{ loop.index }}</span>
                                 <span class="option-label" contenteditable="true" spellcheck="true">{{ option.label }}</span>
                                 {% if initial_slide.type == "quiz" %}<button type="button" data-canvas-action="toggle-correct" data-option-index="{{ loop.index0 }}">Correcta</button>{% endif %}
-                                <button type="button" data-canvas-action="remove-option" data-option-index="{{ loop.index0 }}" aria-label="Eliminar opcion">x</button>
+                                <button type="button" data-canvas-action="remove-option" data-option-index="{{ loop.index0 }}" aria-label="Eliminar opción">x</button>
                             </div>
                             {% endfor %}
-                            <button type="button" class="add-option-card" data-canvas-action="add-option">+ Agregar opcion</button>
+                            <button type="button" class="add-option-card" data-canvas-action="add-option">+ Agregar opción</button>
                         </div>
                         {% endif %}
+                        <section class="slide-results-stage" data-slide-results-stage aria-label="Resultados en vivo">
+                            <div class="results-head">
+                                <strong>Resultados en vivo</strong>
+                                <span data-result-summary></span>
+                            </div>
+                            <div class="slide-results-body">
+                                <canvas class="result-chart" data-result-chart hidden></canvas>
+                                <div class="result-alt" data-result-alt></div>
+                            </div>
+                        </section>
                     </div>
                     {% endif %}
                     {% endif %}
                 </article>
             </div>
 
-            <section class="live-results-strip" aria-label="Resultados en vivo">
-                <div class="results-head">
-                    <strong>Resultados en vivo</strong>
-                    <span data-result-summary></span>
-                </div>
-                <canvas class="result-chart" data-result-chart></canvas>
-                <div class="result-alt" data-result-alt></div>
-                <div class="moderation-panel" data-moderation-panel></div>
-                <pre class="insights-box" data-insights-box hidden></pre>
-            </section>
             {% else %}
             <div class="empty-studio">
                 <p class="eyebrow">Live Studio</p>
@@ -181,7 +192,7 @@
     {% if selected %}
     <template data-join-card-template>
         <div class="slide-join-card">
-            <span>Codigo</span>
+            <span>Código</span>
             <strong>{{ selected.code }}</strong>
             <img src="{{ url_for('qr_png', code=selected.code) }}" alt="QR para unirse">
             <code>{{ url_for('audience', code=selected.code, _external=True) }}</code>

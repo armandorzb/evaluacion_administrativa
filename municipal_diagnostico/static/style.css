@@ -4568,6 +4568,40 @@ body.wellbeing-body {
     white-space: nowrap;
 }
 
+.live-presentation-participants {
+    position: fixed;
+    right: clamp(0.8rem, 1.4vw, 1.2rem);
+    bottom: clamp(0.8rem, 1.4vw, 1.2rem);
+    z-index: 18;
+    display: inline-flex;
+    gap: 0.38rem;
+    align-items: center;
+    min-height: 2.2rem;
+    padding: 0.42rem 0.68rem;
+    border: 1px solid rgba(47, 90, 116, 0.12);
+    border-radius: 999px;
+    background: rgba(255, 255, 255, 0.7);
+    color: rgba(31, 56, 73, 0.78);
+    font-size: 0.78rem;
+    font-weight: 800;
+    line-height: 1;
+    box-shadow: 0 0.8rem 2rem rgba(31, 56, 73, 0.11);
+    backdrop-filter: blur(8px);
+}
+
+.live-presentation-participants strong {
+    color: var(--ink);
+    font-size: 0.92rem;
+}
+
+.live-presentation-participants-dot {
+    width: 0.48rem;
+    height: 0.48rem;
+    border-radius: 999px;
+    background: #728b50;
+    box-shadow: 0 0 0 0.22rem rgba(114, 139, 80, 0.16);
+}
+
 .live-presentation-body {
     display: grid;
     grid-row: 2;
@@ -4641,7 +4675,7 @@ body.wellbeing-body {
     position: fixed;
     left: auto;
     right: clamp(0.6rem, 1vw, 1rem);
-    bottom: clamp(0.6rem, 1vw, 1rem);
+    bottom: clamp(3.25rem, 4.4vw, 4rem);
     z-index: 8;
     transform: none;
     max-width: calc(100vw - 1.2rem);
@@ -4894,6 +4928,11 @@ body.wellbeing-body {
     .live-presentation-actions {
         flex-wrap: wrap;
         border-radius: 14px;
+    }
+
+    .live-presentation-participants {
+        right: 0.7rem;
+        bottom: 0.7rem;
     }
 
     .live-presentation-actions .live-control-group {

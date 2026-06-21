@@ -354,7 +354,7 @@ def test_assignment_report_exposes_downloads_and_generates_all_exports():
     assert word.mimetype == "application/vnd.openxmlformats-officedocument.wordprocessingml.document"
     with zipfile.ZipFile(BytesIO(word.data)) as archive:
         document_xml = archive.read("word/document.xml").decode("utf-8")
-    assert "Reporte ejecutivo de asignacion" in document_xml
+    assert "Reporte ejecutivo de asignación" in document_xml
     assert "Con evidencia" in document_xml
 
 

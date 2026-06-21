@@ -58,15 +58,15 @@
     clearTimer();
     const question = activeQuestion();
     if (!question) {
-      questionArea.innerHTML = "<h2>Esperando al presentador</h2><p class=\"muted\">La pregunta activa aparecera automaticamente.</p>";
+      questionArea.innerHTML = "<h2>Esperando al presentador</h2><p class=\"muted\">La pregunta activa aparecerá automáticamente.</p>";
       return;
     }
     if (state.session.status !== "active") {
-      questionArea.innerHTML = `<h2>${escapeHtml(question.title)}</h2><p class="muted">La sesion aun no esta activa.</p>`;
+      questionArea.innerHTML = `<h2>${escapeHtml(question.title)}</h2><p class="muted">La sesión aún no está activa.</p>`;
       return;
     }
     if (!question.is_open) {
-      questionArea.innerHTML = `<h2>${escapeHtml(question.title)}</h2><p class="muted">La votacion esta cerrada.</p>`;
+      questionArea.innerHTML = `<h2>${escapeHtml(question.title)}</h2><p class="muted">La votación está cerrada.</p>`;
       return;
     }
     questionArea.innerHTML = `
@@ -129,11 +129,20 @@
 
   function contentMarkup(question) {
     if (question.type !== "content_slide") return "";
-    const body = question.config?.body ? `<p class="content-body">${escapeHtml(question.config.body)}</p>` : "";
+    const bodyText = question.config?.body || contentBodyFromTextBoxes(question.config?.text_boxes || []);
+    const body = bodyText ? `<p class="content-body">${escapeHtml(bodyText)}</p>` : "";
     const qr = question.config?.show_qr
       ? `<img class="audience-qr" src="${escapeHtml(state.session.qr_url)}" alt="QR para entrar">`
       : "";
     return `<div class="audience-content-slide">${body}${qr}</div>`;
+  }
+
+  function contentBodyFromTextBoxes(boxes) {
+    if (!Array.isArray(boxes)) return "";
+    return boxes
+      .filter((box) => box?.id !== "title" && box?.text)
+      .map((box) => box.text)
+      .join("\n\n");
   }
 
   function wireAnswer(question) {
@@ -193,7 +202,7 @@
     })
       .then((response) => response.json())
       .then(handleSubmitAck)
-      .catch(() => setSubmitStatus("No se pudo enviar. Revisa tu conexion."));
+      .catch(() => setSubmitStatus("No se pudo enviar. Revisa tu conexión."));
   }
 
   function handleSubmitAck(ack) {
@@ -243,7 +252,7 @@
 
   function labelForType(type) {
     return {
-      multiple_choice: "Opcion multiple",
+      multiple_choice: "Opción múltiple",
       content_slide: "Contenido",
       word_cloud: "Nube de palabras",
       scale: "Escala",

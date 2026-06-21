@@ -412,6 +412,12 @@
         });
         renderPresenter(root, currentState, canControl);
       });
+      socket.on("live:participant_count", (payload) => {
+        currentState = { ...currentState, ...payload };
+        renderParticipantCounter(root, currentState);
+        const status = root.querySelector("[data-live-status]");
+        if (status) status.textContent = currentState.estado || "draft";
+      });
       socket.on("connect", stopPolling);
       socket.on("connect_error", startPolling);
       socket.on("disconnect", startPolling);
@@ -519,8 +525,9 @@
   function renderPresenter(root, state, canControl) {
     const status = root.querySelector("[data-live-status]");
     if (status) {
-      status.textContent = `${state.estado || "draft"} - ${state.participant_count || 0} participantes`;
+      status.textContent = state.estado || "draft";
     }
+    renderParticipantCounter(root, state);
     const list = root.querySelector("[data-live-activity-list]");
     if (list) {
       list.innerHTML =
@@ -533,6 +540,16 @@
       (state.activities || []).find((activity) => activity.estado === "open") ||
       (state.activities || [])[0];
     renderActivity(root, active);
+  }
+
+  function renderParticipantCounter(root, state) {
+    const counter = root.querySelector("[data-live-connected-count]");
+    if (!counter) return;
+    const rawCount = state.connected_count ?? state.participant_count ?? 0;
+    const connectedCount = Math.max(0, Number(rawCount) || 0);
+    counter.textContent = String(connectedCount);
+    const label = root.querySelector("[data-live-connected-label]");
+    if (label) label.textContent = connectedCount === 1 ? "conectado" : "conectados";
   }
 
   function renderActivityListItem(activity, activeActivityId, canControl) {
@@ -758,7 +775,7 @@
   function activityTypeLabel(type) {
     const labels = {
       brainstorm: "Lluvia de ideas",
-      multiple_choice: "Opcion multiple",
+      multiple_choice: "Opción múltiple",
       scale: "Escala",
       ranking: "Ranking",
       points_100: "100 puntos",
@@ -792,7 +809,7 @@
     if (!results) return;
 
     if (root.matches("[data-live-participant]") && root.dataset.liveShowResults === "false") {
-      if (list) list.innerHTML = `<p class="muted">Los resultados se mostraran cuando el presentador los revele.</p>`;
+      if (list) list.innerHTML = `<p class="muted">Los resultados se mostrarán cuando el presentador los revele.</p>`;
       return;
     }
 
@@ -952,7 +969,7 @@
             ${item.count > 1 ? `<span class="live-idea-count">${item.count} menciones</span>` : ""}
             ${statusTag(item.status)}
           </div>`)
-          .join("") || `<p class="muted">Sin ideas todavia.</p>`;
+          .join("") || `<p class="muted">Sin ideas todavía.</p>`;
     }
   }
 
@@ -1017,7 +1034,7 @@
             <span class="actions">${upvote}${controls}</span>
           </div>`;
         })
-        .join("") || `<p class="muted">Sin preguntas todavia.</p>`;
+        .join("") || `<p class="muted">Sin preguntas todavía.</p>`;
   }
 
   function currentActivityId(root) {
@@ -1038,7 +1055,7 @@
     if (!list) return;
     list.innerHTML =
       items.map((item, index) => `<div class="live-idea">${escapeHtml(formatter(item, index))}</div>`).join("") ||
-      `<p class="muted">Sin respuestas todavia.</p>`;
+      `<p class="muted">Sin respuestas todavía.</p>`;
   }
 
   function statusTag(status) {

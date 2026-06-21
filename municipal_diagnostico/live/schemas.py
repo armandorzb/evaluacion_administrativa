@@ -98,7 +98,7 @@ class ActivityPayload(BaseModel):
         if self.template_id:
             return self
         if not self.tipo or not self.titulo or not self.prompt:
-            raise ValueError("Captura template_id o tipo, titulo y prompt.")
+            raise ValueError("Captura template_id o tipo, título y prompt.")
         self.config = normalize_activity_config(self.tipo, self.config)
         return self
 
@@ -156,14 +156,14 @@ def normalize_activity_config(activity_type: str, raw_config: dict[str, Any] | N
         }
 
     if activity_type == ACTIVITY_MULTIPLE_CHOICE:
-        options = normalize_text_list(config.get("options"), minimum=2, maximum=10, item_max_length=120, label="Opcion multiple")
+        options = normalize_text_list(config.get("options"), minimum=2, maximum=10, item_max_length=120, label="Opción múltiple")
         return {**common, "options": options, "chart": str(config.get("chart") or "bar")}
 
     if activity_type == ACTIVITY_SCALE:
         minimum = clamp_float(config.get("min"), -100, 100, default=1)
         maximum = clamp_float(config.get("max"), -100, 100, default=5)
         if maximum <= minimum:
-            raise ValueError("La escala requiere un maximo mayor al minimo.")
+            raise ValueError("La escala requiere un máximo mayor al mínimo.")
         return {
             **common,
             "items": normalize_text_list(config.get("items"), minimum=1, maximum=12, item_max_length=160, label="Escala"),
@@ -199,7 +199,7 @@ def normalize_activity_config(activity_type: str, raw_config: dict[str, Any] | N
         minimum = clamp_float(config.get("min"), -100, 100, default=-5)
         maximum = clamp_float(config.get("max"), -100, 100, default=5)
         if maximum <= minimum:
-            raise ValueError("La matriz requiere un maximo mayor al minimo.")
+            raise ValueError("La matriz requiere un máximo mayor al mínimo.")
         return {
             **common,
             "items": normalize_text_list(config.get("items"), minimum=1, maximum=12, item_max_length=160, label="Matriz 2x2"),
@@ -272,7 +272,7 @@ def normalize_response_payload(activity_type: str, config: dict[str, Any], paylo
         choice = str(payload.get("choice") or "").strip()
         options = [str(option) for option in config.get("options", [])]
         if choice not in options:
-            raise ValueError("Selecciona una opcion valida.")
+            raise ValueError("Selecciona una opción válida.")
         return {"choice": choice}
 
     if activity_type == ACTIVITY_SCALE:
@@ -300,7 +300,7 @@ def normalize_response_payload(activity_type: str, config: dict[str, Any], paylo
         choice = str(payload.get("choice") or "").strip()
         options = [str(option) for option in config.get("options", [])]
         if choice not in options:
-            raise ValueError("Selecciona una opcion valida.")
+            raise ValueError("Selecciona una opción válida.")
         is_correct = choice in [str(option) for option in config.get("correct_options", [])]
         return {
             "choice": choice,
@@ -334,14 +334,14 @@ def normalize_scale_response(config: dict[str, Any], payload: dict[str, Any]) ->
     maximum = float(config.get("max", 5))
     raw_ratings = payload.get("ratings") or payload
     if not isinstance(raw_ratings, dict):
-        raise ValueError("La escala requiere calificaciones por item.")
+        raise ValueError("La escala requiere calificaciones por ítem.")
     ratings: dict[str, float] = {}
     for item in items:
         raw_value = raw_ratings.get(item)
         if raw_value in (None, ""):
             if config.get("allow_skip"):
                 continue
-            raise ValueError("Responde todos los items de la escala.")
+            raise ValueError("Responde todos los ítems de la escala.")
         value = clamp_float(raw_value, minimum, maximum, default=minimum)
         ratings[item] = value
     if not ratings:
@@ -374,7 +374,7 @@ def normalize_ranking_response(config: dict[str, Any], payload: dict[str, Any]) 
 def normalize_points_response(config: dict[str, Any], payload: dict[str, Any]) -> dict[str, int]:
     raw_points = payload.get("points") or {}
     if not isinstance(raw_points, dict):
-        raise ValueError("La dinamica 100 puntos requiere puntos por item.")
+        raise ValueError("La dinámica 100 puntos requiere puntos por ítem.")
     items = [str(item) for item in config.get("items", [])]
     total_points = int(config.get("total_points") or 100)
     step = int(config.get("step") or 10)
@@ -397,7 +397,7 @@ def normalize_points_response(config: dict[str, Any], payload: dict[str, Any]) -
 def normalize_matrix_response(config: dict[str, Any], payload: dict[str, Any]) -> dict[str, dict[str, float]]:
     raw_ratings = payload.get("ratings") or payload
     if not isinstance(raw_ratings, dict):
-        raise ValueError("La matriz requiere coordenadas por item.")
+        raise ValueError("La matriz requiere coordenadas por ítem.")
     items = [str(item) for item in config.get("items", [])]
     minimum = float(config.get("min", -5))
     maximum = float(config.get("max", 5))
@@ -412,13 +412,13 @@ def normalize_matrix_response(config: dict[str, Any], payload: dict[str, Any]) -
         elif isinstance(raw_value, (list, tuple)) and len(raw_value) >= 2:
             raw_x, raw_y = raw_value[0], raw_value[1]
         else:
-            raise ValueError("Cada item de matriz requiere coordenadas x/y.")
+            raise ValueError("Cada ítem de matriz requiere coordenadas x/y.")
         ratings[item] = {
             "x": clamp_float(raw_x, minimum, maximum, default=0),
             "y": clamp_float(raw_y, minimum, maximum, default=0),
         }
     if not ratings:
-        raise ValueError("Ubica al menos un item en la matriz.")
+        raise ValueError("Ubica al menos un ítem en la matriz.")
     return ratings
 
 

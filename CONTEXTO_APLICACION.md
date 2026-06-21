@@ -522,6 +522,10 @@ Además:
 
 ---
 
+Documentacion relacionada:
+
+- [DEPLOY_VPS.md](C:/Users/jarma/Documents/Sistema%20para%20evaluacion%20administrativa/DEPLOY_VPS.md)
+
 ## 17. Estado funcional actual
 
 ### Lo principal ya operativo
@@ -584,4 +588,3 @@ Si el sistema va a seguir evolucionando sobre el flujo simplificado, lo recomend
 - [municipal_diagnostico/services/analytics.py](C:/Users/jarma/Documents/Sistema%20para%20evaluacion%20administrativa/municipal_diagnostico/services/analytics.py)
 - [municipal_diagnostico/templates/base.html](C:/Users/jarma/Documents/Sistema%20para%20evaluacion%20administrativa/municipal_diagnostico/templates/base.html)
 - [municipal_diagnostico/static/style.css](C:/Users/jarma/Documents/Sistema%20para%20evaluacion%20administrativa/municipal_diagnostico/static/style.css)
-

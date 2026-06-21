@@ -251,7 +251,7 @@ def test_admin_report_hub_and_preliminary_report_render_without_mojibake():
     assert word.mimetype == "application/vnd.openxmlformats-officedocument.wordprocessingml.document"
     with zipfile.ZipFile(BytesIO(word.data)) as archive:
         document_xml = archive.read("word/document.xml").decode("utf-8")
-    assert "Reporte ejecutivo de evaluacion" in document_xml
+    assert "Reporte ejecutivo de evaluación" in document_xml
     assert "Avance documentado" in document_xml
 
 

@@ -494,7 +494,7 @@ class AsignacionCuestionario(TimestampMixin, db.Model):
             return self.usuario.nombre
         if self.dependencia:
             return self.dependencia.nombre
-        return "Asignacion sin objetivo"
+        return "Asignación sin objetivo"
 
     @property
     def dependencia_visible(self) -> Dependencia | None:

@@ -80,6 +80,20 @@ def test_demo_session_and_public_pages_exist():
     assert {question["type"] for question in payload["questions"]} == {"content_slide", "multiple_choice", "word_cloud", "quiz"}
 
 
+def test_presenter_surfaces_mount_results_inside_slide_canvas():
+    app = build_app()
+    client = app.test_client()
+
+    for path in ["/admin?code=123456", "/present/123456"]:
+        html = client.get(path).get_data(as_text=True)
+        canvas_index = html.index("data-slide-canvas")
+        results_index = html.index("data-slide-results-stage")
+        article_end = html.index("</article>", canvas_index)
+
+        assert "live-results-strip" not in html
+        assert canvas_index < results_index < article_end
+
+
 def test_optional_admin_pin_protects_presenter_surfaces_but_not_audience():
     app = build_protected_app()
     client = app.test_client()
@@ -235,6 +249,51 @@ def test_all_required_question_types_can_be_created():
     assert created_types == [item["type"] for item in examples]
 
 
+def test_interactive_question_config_forces_results_inside_slide():
+    app = build_app()
+    client = app.test_client()
+    session = client.post("/api/sessions", json={"title": "Contrato visual"}).get_json()["session"]
+    code = session["code"]
+
+    multiple = client.post(
+        f"/api/sessions/{code}/questions",
+        json={
+            "type": "multiple_choice",
+            "title": "Prioridad",
+            "prompt": "Elige una",
+            "options": ["A", "B"],
+            "config": {"result_placement": "below", "show_results": False, "result_layout": "list"},
+        },
+    ).get_json()["question"]
+    assert multiple["config"]["result_placement"] == "slide"
+    assert multiple["config"]["show_results"] is False
+    assert multiple["config"]["result_layout"] == "list"
+
+    cloud = client.post(
+        f"/api/sessions/{code}/questions",
+        json={
+            "type": "word_cloud",
+            "title": "Ideas",
+            "prompt": "Una palabra",
+            "config": {"result_placement": "footer", "result_layout": "footer"},
+        },
+    ).get_json()["question"]
+    assert cloud["config"]["result_placement"] == "slide"
+    assert cloud["config"]["show_results"] is True
+    assert cloud["config"]["result_layout"] == "cloud"
+
+    with app.app_context():
+        question = db.session.get(Question, multiple["id"])
+        question.config_json = {"result_placement": "below"}
+        db.session.commit()
+
+    refreshed = client.get(f"/api/sessions/{code}").get_json()["session"]
+    refreshed_multiple = next(question for question in refreshed["questions"] if question["id"] == multiple["id"])
+    assert refreshed_multiple["config"]["result_placement"] == "slide"
+    assert refreshed_multiple["config"]["show_results"] is True
+    assert refreshed_multiple["config"]["result_layout"] == "chart"
+
+
 def test_content_slide_is_saved_but_does_not_accept_responses():
     app = build_app()
     client = app.test_client()
@@ -255,6 +314,136 @@ def test_content_slide_is_saved_but_does_not_accept_responses():
     response = client.post(f"/api/sessions/{session['code']}/questions/{slide['id']}/responses", json={"text": "hola"})
     assert response.status_code == 400
     assert "no acepta respuestas" in response.get_json()["error"]
+
+
+def test_content_slide_text_boxes_are_saved_sanitized_and_synced():
+    app = build_app()
+    client = app.test_client()
+    session = client.post("/api/sessions", json={"title": "Editor visual"}).get_json()["session"]
+
+    response = client.post(
+        f"/api/sessions/{session['code']}/questions",
+        json={
+            "type": "content_slide",
+            "title": "Portada",
+            "prompt": "",
+            "config": {
+                "layout": "title",
+                "body": "Texto anterior",
+                "text_boxes": [
+                    {
+                        "id": "title",
+                        "text": "Contexto del SGC",
+                        "x": -10,
+                        "y": 120,
+                        "w": 2,
+                        "h": 140,
+                        "font_size": 160,
+                        "font_weight": "bold",
+                        "color": "#2563EB",
+                        "background": "transparent",
+                        "align": "center",
+                        "auto_fit": False,
+                        "z": 5,
+                    },
+                    {
+                        "id": "body",
+                        "text": "Partes interesadas y alcance",
+                        "x": 18.5,
+                        "y": 42,
+                        "w": 52,
+                        "h": 18,
+                        "font_size": 28,
+                        "font_weight": 400,
+                        "color": "#334155",
+                        "background": "#FFFFFF",
+                        "align": "right",
+                    },
+                ],
+            },
+        },
+    )
+
+    assert response.status_code == 201
+    config = response.get_json()["question"]["config"]
+    title_box, body_box = config["text_boxes"]
+    assert title_box["x"] == 0
+    assert title_box["y"] == 100
+    assert title_box["w"] == 5
+    assert title_box["h"] == 100
+    assert title_box["font_size"] == 120
+    assert title_box["font_weight"] == 800
+    assert title_box["color"] == "#2563eb"
+    assert title_box["auto_fit"] is False
+    assert body_box["background"] == "#ffffff"
+    assert body_box["align"] == "right"
+    assert config["body"] == "Partes interesadas y alcance"
+
+
+def test_content_slide_text_boxes_reject_invalid_color_and_text_limits():
+    app = build_app()
+    client = app.test_client()
+    session = client.post("/api/sessions", json={"title": "Validacion visual"}).get_json()["session"]
+    base_payload = {
+        "type": "content_slide",
+        "title": "Portada",
+        "prompt": "",
+        "config": {
+            "layout": "title",
+            "text_boxes": [
+                {"id": "title", "text": "Titulo", "color": "#17212f"},
+            ],
+        },
+    }
+
+    bad_color = client.post(
+        f"/api/sessions/{session['code']}/questions",
+        json={**base_payload, "config": {"layout": "title", "text_boxes": [{"text": "Titulo", "color": "blue"}]}},
+    )
+    assert bad_color.status_code == 400
+    assert "Color invalido" in bad_color.get_json()["error"]
+
+    bad_text = client.post(
+        f"/api/sessions/{session['code']}/questions",
+        json={
+            **base_payload,
+            "config": {"layout": "title", "text_boxes": [{"text": "x" * 1201, "color": "#17212f"}]},
+        },
+    )
+    assert bad_text.status_code == 400
+
+
+def test_duplicate_content_slide_preserves_text_boxes_and_drops_runtime_state():
+    app = build_app()
+    client = app.test_client()
+    session = client.post("/api/sessions", json={"title": "Duplicado visual"}).get_json()["session"]
+    created = client.post(
+        f"/api/sessions/{session['code']}/questions",
+        json={
+            "type": "content_slide",
+            "title": "Portada",
+            "prompt": "",
+            "config": {
+                "layout": "title",
+                "text_boxes": [
+                    {"id": "title", "text": "Slide editable", "color": "#17212f", "font_size": 48},
+                    {"id": "body", "text": "Cuerpo editable", "color": "#334155", "font_size": 24},
+                ],
+            },
+        },
+    ).get_json()["question"]
+
+    with app.app_context():
+        question = db.session.get(Question, created["id"])
+        config = dict(question.config_json or {})
+        config["timer_started_at"] = "2026-06-21T12:00:00"
+        question.config_json = config
+        db.session.commit()
+
+    duplicate = client.post(f"/api/sessions/{session['code']}/questions/{created['id']}/duplicate").get_json()["question"]
+    assert duplicate["config"]["text_boxes"][0]["text"] == "Slide editable"
+    assert duplicate["config"]["text_boxes"][1]["text"] == "Cuerpo editable"
+    assert "timer_started_at" not in duplicate["config"]
 
 
 def test_single_choice_vote_is_replaced_for_same_participant():

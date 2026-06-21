@@ -94,7 +94,7 @@ def build_evaluation_excel(evaluacion) -> BytesIO:
     detail = build_evaluation_report_detail(evaluacion)
     return _build_detail_excel(
         detail,
-        title="Reporte ejecutivo de evaluacion",
+        title="Reporte ejecutivo de evaluación",
         subtitle=f"{evaluacion.dependencia.nombre} | {evaluacion.periodo.nombre}",
     )
 
@@ -103,14 +103,14 @@ def build_evaluation_word(evaluacion) -> BytesIO:
     detail = build_evaluation_report_detail(evaluacion)
     return _build_detail_word(
         detail,
-        title="Reporte ejecutivo de evaluacion",
+        title="Reporte ejecutivo de evaluación",
         subtitle_lines=[
             f"Dependencia: {evaluacion.dependencia.nombre}",
             f"Periodo: {evaluacion.periodo.nombre}",
             f"Estado: {detail['summary']['state_label']}",
             f"Cuestionario: {detail['questionnaire_name']} | Ejes: {detail['total_axes']} | Evidencias activas: {detail['total_evidence']}",
         ],
-        preliminary_message="Resultado preliminar. Esta evaluacion sigue en seguimiento operativo y todavia no forma parte del universo oficial cerrado.",
+        preliminary_message="Resultado preliminar. Esta evaluación sigue en seguimiento operativo y todavía no forma parte del universo oficial cerrado.",
     )
 
 
@@ -140,7 +140,7 @@ def build_assignment_excel(asignacion) -> BytesIO:
     detail = build_assignment_report_detail(asignacion)
     return _build_detail_excel(
         detail,
-        title="Reporte ejecutivo de asignacion",
+        title="Reporte ejecutivo de asignación",
         subtitle=f"{asignacion.campana.nombre} | {asignacion.objetivo_nombre}",
     )
 
@@ -150,15 +150,15 @@ def build_assignment_word(asignacion) -> BytesIO:
     dependency_name = asignacion.dependencia_visible.nombre if asignacion.dependencia_visible else "Sin dependencia"
     return _build_detail_word(
         detail,
-        title="Reporte ejecutivo de asignacion",
+        title="Reporte ejecutivo de asignación",
         subtitle_lines=[
-            f"Campana: {asignacion.campana.nombre}",
+            f"Campaña: {asignacion.campana.nombre}",
             f"Objetivo: {asignacion.objetivo_nombre}",
             f"Dependencia: {dependency_name}",
             f"Estado: {detail['summary']['state_label']}",
             f"Cuestionario: {detail['questionnaire_name']} | Ejes: {detail['total_axes']} | Evidencias activas: {detail['total_evidence']}",
         ],
-        preliminary_message="Resultado preliminar. Esta asignacion sigue abierta y el reporte puede cambiar mientras se completa o valida el cuestionario.",
+        preliminary_message="Resultado preliminar. Esta asignación sigue abierta y el reporte puede cambiar mientras se completa o valida el cuestionario.",
     )
 
 
@@ -454,8 +454,8 @@ def _build_detail_excel(detail: dict, *, title: str, subtitle: str) -> BytesIO:
             "Reactivo",
             "Pregunta",
             "Nivel seleccionado",
-            "Opcion contestada",
-            "Area responsable",
+            "Opción contestada",
+            "Área responsable",
             "Comentario",
             "Capturado por",
             "Actualizado",
@@ -644,12 +644,12 @@ def _build_detail_word(detail: dict, *, title: str, subtitle_lines: list[str], p
                     _docx_table(
                         [
                             _docx_label_value_row("Nivel seleccionado", question["selected_level"]),
-                            _docx_label_value_row("Opcion contestada", question["selected_option"]),
-                            _docx_label_value_row("Area responsable", question["area_name"]),
+                            _docx_label_value_row("Opción contestada", question["selected_option"]),
+                            _docx_label_value_row("Área responsable", question["area_name"]),
                             _docx_label_value_row("Comentario", question["comment"]),
                             _docx_label_value_row(
                                 "Capturado por",
-                                f"{question['captured_by']} | Ultima actualizacion: {question['updated_at_label']}",
+                                f"{question['captured_by']} | Última actualización: {question['updated_at_label']}",
                             ),
                         ],
                         col_widths=[2400, 7200],
@@ -1507,8 +1507,8 @@ def _package_docx(body_xml: str, *, title: str) -> BytesIO:
         'xmlns:dcmitype="http://purl.org/dc/dcmitype/" '
         'xmlns:xsi="http://www.w3.org/2001/XMLSchema-instance">'
         f"<dc:title>{xml_escape(title)}</dc:title>"
-        "<dc:creator>Diagnostico Integral Municipal</dc:creator>"
-        "<cp:lastModifiedBy>Diagnostico Integral Municipal</cp:lastModifiedBy>"
+        "<dc:creator>Diagnóstico Integral Municipal</dc:creator>"
+        "<cp:lastModifiedBy>Diagnóstico Integral Municipal</cp:lastModifiedBy>"
         f'<dcterms:created xsi:type="dcterms:W3CDTF">{created_at}</dcterms:created>'
         f'<dcterms:modified xsi:type="dcterms:W3CDTF">{created_at}</dcterms:modified>'
         "</cp:coreProperties>"
@@ -1517,7 +1517,7 @@ def _package_docx(body_xml: str, *, title: str) -> BytesIO:
         '<?xml version="1.0" encoding="UTF-8" standalone="yes"?>'
         '<Properties xmlns="http://schemas.openxmlformats.org/officeDocument/2006/extended-properties" '
         'xmlns:vt="http://schemas.openxmlformats.org/officeDocument/2006/docPropsVTypes">'
-        "<Application>Diagnostico Integral Municipal</Application>"
+        "<Application>Diagnóstico Integral Municipal</Application>"
         "</Properties>"
     )
 

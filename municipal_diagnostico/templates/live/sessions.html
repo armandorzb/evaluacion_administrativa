@@ -1,7 +1,7 @@
 {% extends "base.html" %}
 {% block title %}Presentaciones Live{% endblock %}
 {% block header_brand %}Live en Tiempo Real{% endblock %}
-{% block header_subtitle %}Presentaciones persistentes con codigo publico{% endblock %}
+{% block header_subtitle %}Presentaciones persistentes con código público{% endblock %}
 
 {% block content %}
 <section class="section-heading">
@@ -20,12 +20,12 @@
     <div class="section-heading">
         <div>
             <p class="eyebrow">Nueva</p>
-            <h2>Anadir presentacion</h2>
+            <h2>Añadir presentación</h2>
         </div>
     </div>
     <form method="post" class="stack catalog-form">
         <div class="form-grid">
-            <label>Titulo<input name="titulo" required maxlength="180" placeholder="Ej. Taller de diagnostico"></label>
+            <label>Título<input name="titulo" required maxlength="180" placeholder="Ej. Taller de diagnóstico"></label>
             <label>Modo
                 <select name="mode">
                     <option value="guided">Guiada por presentador</option>
@@ -33,7 +33,7 @@
                 </select>
             </label>
         </div>
-        <label>Descripcion<textarea name="descripcion" rows="3" maxlength="1200" placeholder="Objetivo o contexto de la presentacion"></textarea></label>
+        <label>Descripción<textarea name="descripcion" rows="3" maxlength="1200" placeholder="Objetivo o contexto de la presentación"></textarea></label>
         <p class="muted">Puedes iniciar con reactivos del banco o crear diapositivas desde el editor.</p>
         <div class="choice-grid">
             {% for template in templates %}
@@ -45,11 +45,11 @@
                 </span>
             </label>
             {% else %}
-            <p class="muted">Crea reactivos antes de armar presentaciones con dinamicas.</p>
+            <p class="muted">Crea reactivos antes de armar presentaciones con dinámicas.</p>
             {% endfor %}
         </div>
         <div class="actions">
-            <button class="button button-primary" type="submit">Crear presentacion</button>
+            <button class="button button-primary" type="submit">Crear presentación</button>
         </div>
     </form>
 </article>
@@ -60,9 +60,9 @@
     <article class="panel live-presentation-card">
         <div class="live-presentation-card-head">
             <div>
-                <p class="eyebrow">Codigo {{ session.code }}</p>
+                <p class="eyebrow">Código {{ session.code }}</p>
                 <h2>{{ session.titulo }}</h2>
-                <p class="muted">{{ session.descripcion or "Sin descripcion" }}</p>
+                <p class="muted">{{ session.descripcion or "Sin descripción" }}</p>
             </div>
             <div class="live-mini-deck" aria-hidden="true">
                 <span></span>

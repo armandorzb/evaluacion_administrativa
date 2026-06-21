@@ -74,7 +74,7 @@ def register_socketio_events(socketio) -> None:
     def socket_upvote_response(data):
         session = resolve_session(data or {})
         if session is None:
-            return {"ok": False, "error": "Sesion no encontrada."}
+            return {"ok": False, "error": "Sesión no encontrada."}
         activity = db.session.get(LiveActivity, int((data or {}).get("activity_id") or 0))
         if activity is None or activity.session_id != session.id:
             return {"ok": False, "error": "Actividad no encontrada."}
@@ -124,7 +124,7 @@ def register_socketio_events(socketio) -> None:
 
         session = resolve_session(data or {})
         if session is None:
-            return {"ok": False, "error": "Sesion no encontrada."}
+            return {"ok": False, "error": "Sesión no encontrada."}
         activity = db.session.get(LiveActivity, int((data or {}).get("activity_id") or 0))
         if activity is None or activity.session_id != session.id:
             return {"ok": False, "error": "Actividad no encontrada."}

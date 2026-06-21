@@ -10,6 +10,7 @@ from math import ceil
 import os
 from pathlib import Path
 from random import randint
+import re
 from secrets import compare_digest, token_urlsafe
 from time import monotonic
 from typing import Any
@@ -49,6 +50,11 @@ socketio = SocketIO(
 QUESTION_TYPES = {"content_slide", "multiple_choice", "word_cloud", "scale", "open_text", "ranking", "quiz"}
 SINGLE_RESPONSE_TYPES = {"multiple_choice", "scale", "ranking", "quiz"}
 PARTICIPANT_COOKIE = "menti_participant_token"
+RESULT_LAYOUTS = {"auto", "chart", "list", "grid", "cloud", "cards", "leaderboard"}
+TEXT_BOX_HEX_RE = re.compile(r"^#[0-9a-fA-F]{6}$")
+TEXT_BOX_MAX_ITEMS = 24
+TEXT_BOX_MAX_TEXT = 1200
+TEXT_BOX_TOTAL_TEXT = 3000
 socket_participants: dict[str, tuple[int, str]] = {}
 public_rate_buckets: dict[str, deque[float]] = {}
 
@@ -244,7 +250,7 @@ def register_routes(app: Flask) -> None:
         if request.method == "POST" or code:
             session = find_session(code)
             if session is None:
-                return render_template("join.html", error="No encontramos una sesion con ese codigo.", code=code), 404
+                return render_template("join.html", error="No encontramos una sesión con ese código.", code=code), 404
             return redirect(url_for("audience", code=session.code))
         return render_template("join.html")
 
@@ -492,7 +498,7 @@ def register_socket_events() -> None:
     def socket_join_session(data):
         session = find_session((data or {}).get("code"))
         if session is None:
-            return {"ok": False, "error": "Sesion no encontrada."}
+            return {"ok": False, "error": "Sesión no encontrada."}
         refresh_session_timers(session)
         participant = get_or_create_participant(session, (data or {}).get("participant_token"))
         participant.connected = True
@@ -508,7 +514,7 @@ def register_socket_events() -> None:
             return {"ok": False, "error": "Payload demasiado grande."}
         session = find_session((data or {}).get("code"))
         if session is None:
-            return {"ok": False, "error": "Sesion no encontrada."}
+            return {"ok": False, "error": "Sesión no encontrada."}
         question = db.session.get(Question, int((data or {}).get("question_id") or 0))
         if question is None or question.session_id != session.id:
             return {"ok": False, "error": "Pregunta no encontrada."}
@@ -546,7 +552,7 @@ def register_socket_events() -> None:
             return {"ok": False, "error": "No autorizado."}
         session = find_session((data or {}).get("code"))
         if session is None:
-            return {"ok": False, "error": "Sesion no encontrada."}
+            return {"ok": False, "error": "Sesión no encontrada."}
         try:
             apply_control(session, data or {})
             refresh_session_timers(session)
@@ -564,7 +570,7 @@ def register_socket_events() -> None:
             return {"ok": False, "error": "No autorizado."}
         session = find_session((data or {}).get("code"))
         if session is None:
-            return {"ok": False, "error": "Sesion no encontrada."}
+            return {"ok": False, "error": "Sesión no encontrada."}
         question = db.session.get(Question, int((data or {}).get("question_id") or 0))
         if question is None or question.session_id != session.id:
             return {"ok": False, "error": "Pregunta no encontrada."}
@@ -648,6 +654,120 @@ def duplicate_question(session: Session, source: Question) -> Question:
     return duplicate
 
 
+def default_text_boxes(title: str, body: str) -> list[dict[str, Any]]:
+    boxes: list[dict[str, Any]] = [
+        {
+            "id": "title",
+            "text": title,
+            "x": 8,
+            "y": 14,
+            "w": 62,
+            "h": 22,
+            "font_size": 60,
+            "font_weight": 800,
+            "color": "#17212f",
+            "background": "transparent",
+            "align": "left",
+            "auto_fit": True,
+            "z": 1,
+        }
+    ]
+    if body:
+        boxes.append(
+            {
+                "id": "body",
+                "text": body,
+                "x": 8,
+                "y": 42,
+                "w": 60,
+                "h": 28,
+                "font_size": 28,
+                "font_weight": 400,
+                "color": "#334155",
+                "background": "transparent",
+                "align": "left",
+                "auto_fit": True,
+                "z": 2,
+            }
+        )
+    return boxes
+
+
+def sanitize_text_boxes(raw_boxes: Any, *, title: str, body: str) -> list[dict[str, Any]]:
+    if not isinstance(raw_boxes, list) or not raw_boxes:
+        raw_boxes = default_text_boxes(title, body)
+
+    boxes: list[dict[str, Any]] = []
+    total_text = 0
+    for index, item in enumerate(raw_boxes[:TEXT_BOX_MAX_ITEMS], start=1):
+        if not isinstance(item, dict):
+            continue
+        text = clean_text(item.get("text"), TEXT_BOX_MAX_TEXT)
+        total_text += len(text)
+        if total_text > TEXT_BOX_TOTAL_TEXT:
+            raise ValueError("El texto total de los cuadros no puede superar 3000 caracteres.")
+        box_id = sanitize_text_box_id(item.get("id"), index)
+        boxes.append(
+            {
+                "id": box_id,
+                "text": text,
+                "x": clamp_float(item.get("x"), 0, 100, 8),
+                "y": clamp_float(item.get("y"), 0, 100, 14),
+                "w": clamp_float(item.get("w"), 5, 100, 50),
+                "h": clamp_float(item.get("h"), 5, 100, 16),
+                "font_size": clamp_int(item.get("font_size", 32), 12, 120),
+                "font_weight": normalize_font_weight(item.get("font_weight")),
+                "color": sanitize_hex_color(item.get("color"), "#17212f"),
+                "background": sanitize_box_background(item.get("background")),
+                "align": normalize_choice(item.get("align"), {"left", "center", "right"}, "left"),
+                "auto_fit": as_bool(item.get("auto_fit"), True),
+                "z": clamp_int(item.get("z", index), 0, 100),
+            }
+        )
+    if not boxes:
+        boxes = default_text_boxes(title, body)
+    return boxes
+
+
+def body_from_text_boxes(boxes: list[dict[str, Any]], fallback: str) -> str:
+    for box in boxes:
+        if box.get("id") == "body" and box.get("text"):
+            return clean_text(box.get("text"), 1800)
+    for box in boxes:
+        if box.get("id") != "title" and box.get("text"):
+            return clean_text(box.get("text"), 1800)
+    return fallback
+
+
+def default_result_layout(question_type: str) -> str:
+    if question_type == "word_cloud":
+        return "cloud"
+    if question_type == "open_text":
+        return "cards"
+    if question_type == "quiz":
+        return "leaderboard"
+    return "chart"
+
+
+def normalize_result_contract(question_type: str, config: dict[str, Any]) -> dict[str, Any]:
+    return {
+        "result_placement": "slide",
+        "show_results": as_bool(config.get("show_results"), True),
+        "result_layout": normalize_choice(
+            config.get("result_layout"),
+            RESULT_LAYOUTS,
+            default_result_layout(question_type),
+        ),
+    }
+
+
+def serialized_question_config(question: Question) -> dict[str, Any]:
+    config = dict(question.config_json or {})
+    if question.type == "content_slide":
+        return config
+    return {**config, **normalize_result_contract(question.type, config)}
+
+
 def normalize_question_payload(payload: dict[str, Any]) -> dict[str, Any]:
     question_type = str(payload.get("type") or "").strip()
     if question_type not in QUESTION_TYPES:
@@ -657,13 +777,17 @@ def normalize_question_payload(payload: dict[str, Any]) -> dict[str, Any]:
     config = dict(payload.get("config") or {})
     options = parse_lines(payload.get("options"))
     correct_labels = set(parse_lines(payload.get("correct_option_labels") or config.get("correct_options")))
+    result_contract = normalize_result_contract(question_type, config) if question_type != "content_slide" else {}
 
     if question_type == "content_slide":
+        body = clean_text(config.get("body"), 1800, required=False)
+        text_boxes = sanitize_text_boxes(config.get("text_boxes"), title=title, body=body)
         config = {
             "layout": normalize_choice(config.get("layout"), {"title", "text", "instructions", "qr"}, "title"),
-            "body": clean_text(config.get("body"), 1800, required=False),
+            "body": body_from_text_boxes(text_boxes, body),
             "media_url": clean_text(config.get("media_url"), 800, required=False),
             "show_qr": as_bool(config.get("show_qr"), False),
+            "text_boxes": text_boxes,
         }
         options = []
         correct_labels = set()
@@ -677,20 +801,21 @@ def normalize_question_payload(payload: dict[str, Any]) -> dict[str, Any]:
         minimum = clamp_int(config.get("min", 1), 1, 10)
         maximum = clamp_int(config.get("max", 5), 2, 10)
         if maximum <= minimum:
-            raise ValueError("La escala requiere un maximo mayor al minimo.")
-        config = {"min": minimum, "max": maximum}
+            raise ValueError("La escala requiere un máximo mayor al mínimo.")
+        config = {**result_contract, "min": minimum, "max": maximum}
     elif question_type == "quiz":
         config = {
+            **result_contract,
             "timer_seconds": clamp_int(config.get("timer_seconds", 30), 5, 600),
             "points": clamp_int(config.get("points", 100), 1, 1000),
         }
     elif question_type in {"word_cloud", "open_text"}:
-        config = {
-            "moderation": normalize_choice(config.get("moderation"), {"none", "manual"}, "none"),
-            "show_results": as_bool(config.get("show_results"), True),
-        }
+        config = {**result_contract, "moderation": normalize_choice(config.get("moderation"), {"none", "manual"}, "none")}
     else:
-        config = {key: value for key, value in config.items() if key in {"max_entries", "show_results"}}
+        config = {
+            **result_contract,
+            **({"max_entries": config.get("max_entries")} if config.get("max_entries") is not None else {}),
+        }
 
     return {
         "type": question_type,
@@ -721,13 +846,13 @@ def replace_options(question: Question, labels: list[str], correct_labels: set[s
 def record_response(session: Session, question: Question, participant: Participant, payload: dict[str, Any]) -> Response:
     # Single-response questions reuse "default" so a participant edits/replaces the vote instead of duplicating it.
     if session.status != "active":
-        raise ValueError("La sesion no esta activa.")
+        raise ValueError("La sesión no está activa.")
     if question.type == "content_slide":
         raise ValueError("Esta diapositiva no acepta respuestas.")
     if session.active_question and session.active_question.id != question.id:
         raise ValueError("Esta no es la pregunta activa.")
     if not question.is_open:
-        raise ValueError("La votacion de esta pregunta esta cerrada.")
+        raise ValueError("La votación de esta pregunta está cerrada.")
 
     normalized = normalize_response_payload(question, payload)
     response_key = "default" if question.type in SINGLE_RESPONSE_TYPES else token_urlsafe(8)
@@ -764,7 +889,7 @@ def normalize_response_payload(question: Question, payload: dict[str, Any]) -> d
     if question.type in {"multiple_choice", "quiz"}:
         option_id = int(payload.get("option_id") or payload.get("choice") or 0)
         if option_id not in {option.id for option in question.options}:
-            raise ValueError("Selecciona una opcion valida.")
+            raise ValueError("Selecciona una opción válida.")
         return {"option_id": option_id}
     if question.type == "word_cloud":
         text = clean_text(payload.get("text"), 80, required=True)
@@ -851,7 +976,7 @@ def apply_control(session: Session, payload: dict[str, Any]) -> None:
         config["theme"] = theme
         session.config_json = config
     else:
-        raise ValueError("Accion no soportada.")
+        raise ValueError("Acción no soportada.")
 
 
 def aggregate_question(question: Question) -> dict[str, Any]:
@@ -952,7 +1077,7 @@ def serialize_question(question: Question) -> dict[str, Any]:
         "prompt": question.prompt,
         "position": question.position,
         "is_open": question.is_open,
-        "config": question.config_json or {},
+        "config": serialized_question_config(question),
         "timer": timer_state(question),
         "options": [
             {"id": option.id, "label": option.label, "position": option.position, "is_correct": option.is_correct}
@@ -979,7 +1104,7 @@ def ensure_demo_session() -> Session:
             "prompt": "",
             "config": {
                 "layout": "title",
-                "body": "Presentacion interactiva para talleres, consultas y capacitaciones.",
+                "body": "Presentación interactiva para talleres, consultas y capacitaciones.",
             },
         },
     )
@@ -1004,7 +1129,7 @@ def ensure_demo_session() -> Session:
         session,
         {
             "type": "quiz",
-            "title": "Quiz rapido",
+            "title": "Quiz rápido",
             "prompt": "Que herramienta permite actualizaciones en tiempo real?",
             "options": ["CSV", "WebSockets", "PDF", "Correo"],
             "correct_option_labels": ["WebSockets"],
@@ -1021,9 +1146,9 @@ def question_templates() -> list[dict[str, Any]]:
             "name": "Portada",
             "payload": {
                 "type": "content_slide",
-                "title": "Titulo de la presentacion",
+                "title": "Título de la presentación",
                 "prompt": "",
-                "config": {"layout": "title", "body": "Subtitulo o contexto del taller."},
+                "config": {"layout": "title", "body": "Subtítulo o contexto del taller."},
             },
         },
         {
@@ -1032,7 +1157,7 @@ def question_templates() -> list[dict[str, Any]]:
                 "type": "content_slide",
                 "title": "Participa con tu celular",
                 "prompt": "",
-                "config": {"layout": "qr", "body": "Escanea el QR o entra con el codigo de la sesion.", "show_qr": True},
+                "config": {"layout": "qr", "body": "Escanea el QR o entra con el código de la sesión.", "show_qr": True},
             },
         },
         {
@@ -1045,11 +1170,11 @@ def question_templates() -> list[dict[str, Any]]:
             },
         },
         {
-            "name": "Lluvia con moderacion",
+            "name": "Lluvia con moderación",
             "payload": {
                 "type": "word_cloud",
                 "title": "Lluvia de ideas",
-                "prompt": "Escribe una palabra clave para el diagnostico.",
+                "prompt": "Escribe una palabra clave para el diagnóstico.",
                 "config": {"moderation": "manual"},
             },
         },
@@ -1063,13 +1188,13 @@ def question_templates() -> list[dict[str, Any]]:
             },
         },
         {
-            "name": "Quiz rapido",
+            "name": "Quiz rápido",
             "payload": {
                 "type": "quiz",
-                "title": "Quiz rapido",
+                "title": "Quiz rápido",
                 "prompt": "Selecciona la respuesta correcta.",
-                "options": ["Opcion A", "Opcion B", "Opcion C"],
-                "correct_option_labels": ["Opcion B"],
+                "options": ["Opción A", "Opción B", "Opción C"],
+                "correct_option_labels": ["Opción B"],
                 "config": {"timer_seconds": 30, "points": 100},
             },
         },
@@ -1218,7 +1343,7 @@ def build_pdf_export(session: Session) -> BytesIO:
     pdf.drawString(54, y, f"Resultados {session.title}")
     y -= 24
     pdf.setFont("Helvetica", 10)
-    pdf.drawString(54, y, f"Codigo: {session.code} | Participantes: {len(session.participants)} | Respuestas: {len(session.responses)}")
+    pdf.drawString(54, y, f"Código: {session.code} | Participantes: {len(session.participants)} | Respuestas: {len(session.responses)}")
     y -= 30
     for question in sorted(session.questions, key=lambda item: item.position):
         if y < 120:
@@ -1279,7 +1404,7 @@ def generate_session_code() -> str:
         code = f"{randint(0, 999999):06d}"
         if Session.query.filter_by(code=code).first() is None:
             return code
-    raise ValueError("No se pudo generar un codigo unico.")
+    raise ValueError("No se pudo generar un código único.")
 
 
 def next_question_position(session: Session) -> int:
@@ -1296,7 +1421,7 @@ def reorder_questions(session: Session, question_ids: list[Any]) -> None:
     questions = sorted(session.questions, key=lambda item: item.position)
     existing_ids = [question.id for question in questions]
     if sorted(ordered_ids) != sorted(existing_ids):
-        raise ValueError("El orden no coincide con las preguntas de la sesion.")
+        raise ValueError("El orden no coincide con las preguntas de la sesión.")
     by_id = {question.id: question for question in questions}
     for index, question_id in enumerate(ordered_ids, start=1):
         by_id[question_id].position = -index
@@ -1382,6 +1507,14 @@ def clamp_int(value: Any, minimum: int, maximum: int) -> int:
     return min(max(number, minimum), maximum)
 
 
+def clamp_float(value: Any, minimum: float, maximum: float, default: float) -> float:
+    try:
+        number = float(value)
+    except (TypeError, ValueError):
+        number = default
+    return round(min(max(number, minimum), maximum), 2)
+
+
 def as_bool(value: Any, default: bool = False) -> bool:
     if value is None:
         return default
@@ -1391,6 +1524,38 @@ def as_bool(value: Any, default: bool = False) -> bool:
 def normalize_choice(value: Any, allowed: set[str], default: str) -> str:
     text = str(value or "").strip()
     return text if text in allowed else default
+
+
+def sanitize_text_box_id(value: Any, index: int) -> str:
+    text = re.sub(r"[^a-zA-Z0-9_-]+", "-", str(value or "")).strip("-")[:40]
+    return text or f"box-{index}"
+
+
+def sanitize_hex_color(value: Any, default: str) -> str:
+    if value in (None, ""):
+        return default
+    color = str(value).strip()
+    if not TEXT_BOX_HEX_RE.match(color):
+        raise ValueError("Color invalido en cuadro de texto.")
+    return color.lower()
+
+
+def sanitize_box_background(value: Any) -> str:
+    if value in (None, "", "transparent"):
+        return "transparent"
+    return sanitize_hex_color(value, "transparent")
+
+
+def normalize_font_weight(value: Any) -> int:
+    if isinstance(value, bool):
+        return 800 if value else 400
+    text = str(value or "").strip().lower()
+    if text in {"bold", "b", "true"}:
+        return 800
+    try:
+        return 800 if int(float(text)) >= 600 else 400
+    except (TypeError, ValueError):
+        return 400
 
 
 def parse_datetime(value: Any) -> datetime | None:

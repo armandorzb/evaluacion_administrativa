@@ -1657,7 +1657,7 @@ def _draw_iso_pdf_chrome(canvas, doc) -> None:
     canvas.setFillColor(PDF_THEME["muted"])
     canvas.setFont(PDF_FONT_REGULAR, 7.2)
     canvas.drawString(doc.leftMargin, 0.28 * inch, ISO_PDF_FOOTER)
-    canvas.drawRightString(width - doc.rightMargin, 0.28 * inch, f"Pagina {canvas.getPageNumber()}")
+    canvas.drawRightString(width - doc.rightMargin, 0.28 * inch, f"Página {canvas.getPageNumber()}")
     canvas.restoreState()
 
 

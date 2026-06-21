@@ -7,6 +7,8 @@
     chart: null,
     sortable: null,
     selectedQuestionId: null,
+    selectedTextBoxId: null,
+    textDrag: null,
     saveTimer: null,
     sessionSaveTimer: null,
     lastSaveKey: "",
@@ -25,11 +27,6 @@
   const canvas = $("[data-slide-canvas]");
   const inspector = $("[data-slide-inspector]");
   const saveState = $("[data-save-state]");
-  const summaryNode = $("[data-result-summary]");
-  const chartCanvas = $("[data-result-chart]");
-  const altNode = $("[data-result-alt]");
-  const moderationPanel = $("[data-moderation-panel]");
-  const insightsBox = $("[data-insights-box]");
   const joinCardTemplate = $("[data-join-card-template]");
 
   bindGlobalEvents();
@@ -39,28 +36,28 @@
     loadTemplates();
     loadSession();
   } else {
-    setSaveState("Sin presentacion");
+    setSaveState("Sin presentación");
   }
 
   function bindGlobalEvents() {
     createForm?.addEventListener("submit", async (event) => {
       event.preventDefault();
       const title = String(new FormData(createForm).get("title") || "").trim();
-      const json = await postJson("/api/sessions", { title: title || "Nueva presentacion live" });
+      const json = await postJson("/api/sessions", { title: title || "Nueva presentación live" });
       if (json.ok) {
         window.location.assign(`/admin?code=${json.session.code}`);
         return;
       }
-      alert(json.error || "No se pudo crear la presentacion.");
+      alert(json.error || "No se pudo crear la presentación.");
     });
 
     deckTitleInput?.addEventListener("input", () => {
       if (!state.session) return;
       state.session.title = deckTitleInput.value;
-      setSaveState("Guardando titulo...");
+      setSaveState("Guardando título...");
       window.clearTimeout(state.sessionSaveTimer);
       state.sessionSaveTimer = window.setTimeout(() => {
-        patchSession({ title: deckTitleInput.value.trim() || "Presentacion sin titulo" });
+        patchSession({ title: deckTitleInput.value.trim() || "Presentación sin título" });
       }, 450);
     });
 
@@ -108,7 +105,15 @@
       flushQuestionSave();
     }, true);
 
+    canvas?.addEventListener("pointerdown", handleCanvasPointerDown);
+
     canvas?.addEventListener("click", (event) => {
+      const textBox = event.target.closest("[data-text-box-id]");
+      if (textBox && selectedQuestion()?.type === "content_slide") {
+        selectTextBox(textBox.dataset.textBoxId);
+      } else if (!event.target.closest("button[data-canvas-action]") && !event.target.closest("[contenteditable='true']")) {
+        selectTextBox(null);
+      }
       const button = event.target.closest("button[data-canvas-action]");
       if (!button) return;
       handleCanvasAction(button.dataset.canvasAction, button);
@@ -127,6 +132,16 @@
     });
 
     inspector?.addEventListener("click", (event) => {
+      const textButton = event.target.closest("button[data-text-box-action], button[data-text-align], button[data-text-color]");
+      if (textButton) {
+        handleTextInspectorButton(textButton);
+        return;
+      }
+      const moderationButton = event.target.closest("button[data-moderate]");
+      if (moderationButton) {
+        handleModerationButton(moderationButton);
+        return;
+      }
       const button = event.target.closest("button[data-inspector-action], button[data-template-index]");
       if (!button) return;
       if (button.dataset.templateIndex) {
@@ -137,27 +152,15 @@
       handleInspectorAction(button.dataset.inspectorAction);
     });
 
-    moderationPanel?.addEventListener("click", async (event) => {
-      const button = event.target.closest("button[data-moderate]");
-      const question = selectedQuestion();
-      if (!button || !question || !state.session) return;
-      const responseId = Number(button.dataset.responseId || 0);
-      const json = await postJson(
-        `/api/sessions/${state.session.code}/questions/${question.id}/responses/${responseId}/moderate`,
-        { action: button.dataset.moderate },
-      );
-      if (!json.ok) {
-        alert(json.error || "No se pudo moderar la respuesta.");
-        return;
-      }
-      await loadSession(false);
-    });
-
     document.addEventListener("click", (event) => {
       if (!addMenu || addMenu.hidden) return;
       if (event.target.closest("[data-add-menu]") || event.target.closest("[data-add-slide]")) return;
       addMenu.hidden = true;
     });
+
+    document.addEventListener("pointermove", handleCanvasPointerMove);
+    document.addEventListener("pointerup", finishTextBoxDrag);
+    document.addEventListener("keydown", handleDocumentKeydown);
   }
 
   function connectSocket() {
@@ -204,8 +207,8 @@
     else {
       renderChrome();
       renderSlideList();
-      renderResults();
       renderInspector();
+      renderResults();
     }
   }
 
@@ -266,7 +269,7 @@
       canvas.innerHTML = `
         <div class="slide-empty">
           <h2>Agrega tu primera diapositiva</h2>
-          <p>Usa el boton Anadir para insertar una portada, pregunta o dinamica.</p>
+          <p>Usa el botón Añadir para insertar una portada, pregunta o dinámica.</p>
         </div>
       `;
       return;
@@ -276,15 +279,17 @@
     const closedClass = question.is_open ? "" : " is-closed";
     canvas.className = `slide-canvas slide-kind-${question.type}${liveClass}${closedClass}`;
     if (question.type === "content_slide") {
+      ensureTextBoxes(question);
       canvas.innerHTML = contentSlideMarkup(question);
       return;
     }
+    state.selectedTextBoxId = null;
     canvas.innerHTML = interactiveSlideMarkup(question);
   }
 
   function contentSlideMarkup(question) {
     const layout = question.config?.layout || "title";
-    const body = question.config?.body || "";
+    const boxes = ensureTextBoxes(question);
     const showQr = Boolean(question.config?.show_qr || layout === "qr");
     const joinCard = showQr ? joinCardMarkup() : "";
     const media = question.config?.media_url
@@ -296,12 +301,43 @@
           <span>${escapeHtml(labelForType(question.type))}</span>
           <strong>${escapeHtml(layoutLabel(layout))}</strong>
         </div>
-        <h2 contenteditable="true" spellcheck="false" data-edit-field="title">${escapeHtml(question.title)}</h2>
-        <div class="content-body-edit" contenteditable="true" spellcheck="true" data-config-field="body">${escapeHtml(body)}</div>
+        <div class="slide-text-layer">
+          ${boxes.map((box) => textBoxMarkup(box)).join("")}
+        </div>
         ${media}
         ${joinCard}
+        ${resultsStageMarkup(true)}
       </div>
     `;
+  }
+
+  function textBoxMarkup(box) {
+    const selected = box.id === state.selectedTextBoxId ? " is-selected" : "";
+    return `
+      <div class="slide-text-box${selected}" data-text-box-id="${escapeAttr(box.id)}" data-auto-fit="${box.auto_fit ? "true" : "false"}" style="${textBoxStyle(box)}">
+        <div class="slide-text-content" contenteditable="true" spellcheck="true" data-text-box-content>${escapeHtml(box.text)}</div>
+        <button type="button" class="slide-text-move" aria-label="Mover cuadro"></button>
+        <button type="button" class="slide-text-resize handle-nw" data-resize-handle="nw" aria-label="Redimensionar"></button>
+        <button type="button" class="slide-text-resize handle-ne" data-resize-handle="ne" aria-label="Redimensionar"></button>
+        <button type="button" class="slide-text-resize handle-sw" data-resize-handle="sw" aria-label="Redimensionar"></button>
+        <button type="button" class="slide-text-resize handle-se" data-resize-handle="se" aria-label="Redimensionar"></button>
+      </div>
+    `;
+  }
+
+  function textBoxStyle(box) {
+    return [
+      `left:${box.x}%`,
+      `top:${box.y}%`,
+      `width:${box.w}%`,
+      `height:${box.h}%`,
+      `z-index:${box.z}`,
+      `font-size:${box.font_size}px`,
+      `font-weight:${box.font_weight}`,
+      `color:${box.color}`,
+      `background:${box.background}`,
+      `text-align:${box.align}`,
+    ].join(";");
   }
 
   function interactiveSlideMarkup(question) {
@@ -314,7 +350,23 @@
         <h2 contenteditable="true" spellcheck="false" data-edit-field="title">${escapeHtml(question.title)}</h2>
         <p class="slide-prompt" contenteditable="true" spellcheck="true" data-edit-field="prompt">${escapeHtml(question.prompt)}</p>
         ${visualEditorFor(question)}
+        ${resultsStageMarkup(false)}
       </div>
+    `;
+  }
+
+  function resultsStageMarkup(hidden) {
+    return `
+      <section class="slide-results-stage" data-slide-results-stage aria-label="Resultados en vivo"${hidden ? " hidden" : ""}>
+        <div class="results-head">
+          <strong>Resultados en vivo</strong>
+          <span data-result-summary></span>
+        </div>
+        <div class="slide-results-body">
+          <canvas class="result-chart" data-result-chart hidden></canvas>
+          <div class="result-alt" data-result-alt></div>
+        </div>
+      </section>
     `;
   }
 
@@ -327,14 +379,14 @@
             <span class="option-order">${index + 1}</span>
             <span class="option-label" contenteditable="true" spellcheck="true">${escapeHtml(option.label)}</span>
             ${question.type === "quiz" ? `<button type="button" data-canvas-action="toggle-correct" data-option-index="${index}">Correcta</button>` : ""}
-            <button type="button" data-canvas-action="remove-option" data-option-index="${index}" aria-label="Eliminar opcion">x</button>
+            <button type="button" data-canvas-action="remove-option" data-option-index="${index}" aria-label="Eliminar opción">x</button>
           </div>
         `;
       }).join("");
       return `
         <div class="option-grid ${question.type === "ranking" ? "ranking-preview" : ""}">
           ${cards}
-          <button type="button" class="add-option-card" data-canvas-action="add-option">+ Agregar opcion</button>
+          <button type="button" class="add-option-card" data-canvas-action="add-option">+ Agregar opción</button>
         </div>
       `;
     }
@@ -390,9 +442,10 @@
       </section>
 
       ${typeSpecificInspector(question)}
+      ${resultPresentationInspector(question)}
 
       <section class="inspector-section">
-        <h3>Presentacion</h3>
+        <h3>Presentación</h3>
         <label>Tema
           <select data-session-theme>
             <option value="civic"${state.session.theme === "civic" ? " selected" : ""}>Institucional</option>
@@ -418,9 +471,11 @@
   function typeSpecificInspector(question) {
     if (question.type === "content_slide") {
       const layout = question.config?.layout || "title";
+      const selectedBox = selectedTextBox(question);
       return `
         <section class="inspector-section">
           <h3>Contenido</h3>
+          <button type="button" class="wide-action" data-text-box-action="add">Añadir texto</button>
           <label>Layout
             <select data-config-key="layout" data-rerender="true">
               <option value="title"${layout === "title" ? " selected" : ""}>Portada</option>
@@ -437,17 +492,18 @@
             Mostrar QR
           </label>
         </section>
+        ${textBoxInspectorMarkup(question, selectedBox)}
       `;
     }
     if (["word_cloud", "open_text"].includes(question.type)) {
       const moderation = question.config?.moderation || "none";
       return `
         <section class="inspector-section">
-          <h3>Moderacion</h3>
-          <label>Revision
+          <h3>Moderación</h3>
+          <label>Revisión
             <select data-config-key="moderation">
               <option value="none"${moderation === "none" ? " selected" : ""}>Publicar inmediato</option>
-              <option value="manual"${moderation === "manual" ? " selected" : ""}>Revision manual</option>
+              <option value="manual"${moderation === "manual" ? " selected" : ""}>Revisión manual</option>
             </select>
           </label>
         </section>
@@ -458,10 +514,10 @@
         <section class="inspector-section">
           <h3>Escala</h3>
           <div class="two-columns">
-            <label>Minimo
+            <label>Mínimo
               <input type="number" min="1" max="9" data-config-key="min" data-rerender="true" value="${Number(question.config?.min || 1)}">
             </label>
-            <label>Maximo
+            <label>Máximo
               <input type="number" min="2" max="10" data-config-key="max" data-rerender="true" value="${Number(question.config?.max || 5)}">
             </label>
           </div>
@@ -491,20 +547,125 @@
     `;
   }
 
+  function resultPresentationInspector(question) {
+    if (question.type === "content_slide") return "";
+    const layout = question.config?.result_layout || defaultResultLayout(question.type);
+    return `
+      <section class="inspector-section">
+        <h3>Resultados</h3>
+        <label class="check-row">
+          <input type="checkbox" data-config-key="show_results" data-rerender="true"${question.config?.show_results === false ? "" : " checked"}>
+          Revelar resultados
+        </label>
+        <label>Vista
+          <select data-config-key="result_layout" data-rerender="true">
+            ${resultLayoutOptions(layout)}
+          </select>
+        </label>
+      </section>
+      ${["word_cloud", "open_text"].includes(question.type) ? '<section class="inspector-section moderation-panel" data-moderation-panel hidden></section>' : ""}
+    `;
+  }
+
+  function textBoxInspectorMarkup(question, box) {
+    const totalBoxes = ensureTextBoxes(question).length;
+    if (!box) {
+      return `
+        <section class="inspector-section text-box-panel">
+          <h3>Texto seleccionado</h3>
+          <p class="muted">Selecciona un cuadro del lienzo para ajustar tamaño, color y alineación.</p>
+        </section>
+      `;
+    }
+    const swatches = ["#17212f", "#334155", "#2563eb", "#647c3d", "#b45309", "#ffffff"];
+    return `
+      <section class="inspector-section text-box-panel">
+        <h3>Texto seleccionado</h3>
+        <label>Tamaño
+          <div class="range-row">
+            <input type="range" min="12" max="120" data-text-style-key="font_size" value="${Number(box.font_size || 32)}">
+            <input type="number" min="12" max="120" data-text-style-key="font_size" value="${Number(box.font_size || 32)}">
+          </div>
+        </label>
+        <label class="check-row">
+          <input type="checkbox" data-text-style-key="font_weight"${Number(box.font_weight || 400) >= 600 ? " checked" : ""}>
+          Negritas
+        </label>
+        <div class="style-row">
+          <span>Color</span>
+          <div class="swatch-row">
+            ${swatches.map((color) => `<button type="button" class="color-swatch${box.color === color ? " is-active" : ""}" data-text-color="${color}" style="background:${color}" aria-label="Color ${color}"></button>`).join("")}
+            <input type="color" data-text-style-key="color" value="${escapeAttr(box.color || "#17212f")}">
+          </div>
+        </div>
+        <div class="style-row">
+          <span>Fondo</span>
+          <div class="swatch-row">
+            <button type="button" class="color-swatch transparent-swatch${box.background === "transparent" ? " is-active" : ""}" data-text-color="transparent" data-text-color-target="background" aria-label="Fondo transparente"></button>
+            <input type="color" data-text-style-key="background" value="${escapeAttr(box.background === "transparent" ? "#ffffff" : box.background)}">
+          </div>
+        </div>
+        <div class="style-row">
+          <span>Alineación</span>
+          <div class="segmented-controls">
+            ${["left", "center", "right"].map((align) => `<button type="button" class="${box.align === align ? "is-active" : ""}" data-text-align="${align}">${alignLabel(align)}</button>`).join("")}
+          </div>
+        </div>
+        <label class="check-row">
+          <input type="checkbox" data-text-style-key="auto_fit"${box.auto_fit ? " checked" : ""}>
+          Autoajustar fuente
+        </label>
+        <div class="inspector-actions">
+          <button type="button" data-text-box-action="duplicate">Duplicar cuadro</button>
+          <button type="button" class="danger" data-text-box-action="delete"${totalBoxes <= 1 ? " disabled" : ""}>Eliminar cuadro</button>
+        </div>
+      </section>
+    `;
+  }
+
+  function resultNodes() {
+    const root = canvas || document;
+    return {
+      stage: $("[data-slide-results-stage]", root),
+      summaryNode: $("[data-result-summary]", root),
+      chartCanvas: $("[data-result-chart]", root),
+      altNode: $("[data-result-alt]", root),
+    };
+  }
+
+  function moderationPanelNode() {
+    return $("[data-moderation-panel]");
+  }
+
+  function insightsBoxNode() {
+    return $("[data-insights-box]");
+  }
+
   function renderResults() {
     if (!state.session) return;
     const question = selectedQuestion();
     const results = question?.results;
+    const { stage, summaryNode, altNode } = resultNodes();
     if (summaryNode) summaryNode.textContent = question ? `${labelForType(question.type)} - ${results?.total || 0} respuestas` : "";
     if (altNode) altNode.innerHTML = "";
-    if (moderationPanel) moderationPanel.innerHTML = "";
+    const moderationPanel = moderationPanelNode();
+    if (moderationPanel) {
+      moderationPanel.innerHTML = "";
+      moderationPanel.hidden = true;
+    }
     hideChart();
-    if (!question || !results) return;
-
-    renderModeration(question);
+    if (!stage || !question || !results) return;
 
     if (question.type === "content_slide") {
-      if (altNode) altNode.innerHTML = `<p class="muted">Esta diapositiva no recibe respuestas.</p>`;
+      stage.hidden = true;
+      return;
+    }
+
+    stage.hidden = false;
+    renderModeration(question);
+
+    if (question.config?.show_results === false) {
+      if (altNode) altNode.innerHTML = `<p class="muted">Resultados ocultos para esta diapositiva.</p>`;
       return;
     }
     if (question.type === "multiple_choice" || question.type === "quiz") {
@@ -542,9 +703,11 @@
   }
 
   function renderModeration(question) {
+    const moderationPanel = moderationPanelNode();
     if (!moderationPanel || !question.pending_responses?.length) return;
+    moderationPanel.hidden = false;
     moderationPanel.innerHTML = `
-      <strong>Pendientes de moderacion</strong>
+      <strong>Pendientes de moderación</strong>
       ${question.pending_responses.map((response) => `
         <div class="moderation-item">
           <span>${escapeHtml(response.text)}</span>
@@ -556,6 +719,7 @@
   }
 
   function renderInsights() {
+    const insightsBox = insightsBoxNode();
     if (!insightsBox || !state.session) return;
     insightsBox.hidden = true;
   }
@@ -592,7 +756,7 @@
     const json = await patchJson(`/api/sessions/${state.session.code}`, payload);
     if (!json.ok) {
       setSaveState("Error al guardar");
-      alert(json.error || "No se pudo guardar la presentacion.");
+      alert(json.error || "No se pudo guardar la presentación.");
       return;
     }
     state.session = json.session;
@@ -655,12 +819,19 @@
   }
 
   function collectCanvasPayload(question) {
-    const title = textValue("[data-edit-field='title']", canvas) || question.title;
-    const prompt = question.type === "content_slide" ? "" : textValue("[data-edit-field='prompt']", canvas);
     const config = { ...(question.config || {}) };
     if (question.type === "content_slide") {
-      config.body = textValue("[data-config-field='body']", canvas);
+      const boxes = collectTextBoxesFromCanvas(question);
+      config.text_boxes = boxes;
+      config.body = bodyFromTextBoxes(boxes, config.body || "");
+      const title = titleFromTextBoxes(boxes, question.title);
+      return payloadForQuestion(question, { title, prompt: "", config, options: [], correct_option_labels: [] });
     }
+    const title = textValue("[data-edit-field='title']", canvas) || question.title;
+    const prompt = textValue("[data-edit-field='prompt']", canvas);
+    config.result_placement = "slide";
+    config.show_results = config.show_results !== false;
+    config.result_layout = config.result_layout || defaultResultLayout(question.type);
     const options = $$(".option-label", canvas).map((node) => node.textContent.trim()).filter(Boolean);
     const correct = $$(".option-card.is-correct .option-label", canvas).map((node) => node.textContent.trim()).filter(Boolean);
     return payloadForQuestion(question, { title, prompt, config, options, correct_option_labels: correct });
@@ -701,6 +872,308 @@
     return true;
   }
 
+  function ensureTextBoxes(question, options = {}) {
+    question.config = question.config || {};
+    const source = Array.isArray(question.config.text_boxes) && question.config.text_boxes.length
+      ? question.config.text_boxes
+      : defaultTextBoxes(question);
+    question.config.text_boxes = source.map((box, index) => normalizeTextBox(box, index, question)).filter(Boolean);
+    if (!question.config.text_boxes.length) {
+      question.config.text_boxes = defaultTextBoxes(question);
+    }
+    const hasSelected = question.config.text_boxes.some((box) => box.id === state.selectedTextBoxId);
+    if (!hasSelected) state.selectedTextBoxId = options.selectFallback ? question.config.text_boxes[0]?.id || null : null;
+    if (options.selectFallback && !state.selectedTextBoxId) {
+      state.selectedTextBoxId = question.config.text_boxes[0]?.id || null;
+    }
+    syncTitleAndBodyFromBoxes(question);
+    return question.config.text_boxes;
+  }
+
+  function defaultTextBoxes(question) {
+    const body = question.config?.body || "";
+    const boxes = [
+      normalizeTextBox({
+        id: "title",
+        text: question.title || "Título",
+        x: 8,
+        y: 14,
+        w: 64,
+        h: 24,
+        font_size: 60,
+        font_weight: 800,
+        color: "#17212f",
+        background: "transparent",
+        align: "left",
+        auto_fit: true,
+        z: 1,
+      }, 0, question),
+    ];
+    if (body) {
+      boxes.push(normalizeTextBox({
+        id: "body",
+        text: body,
+        x: 8,
+        y: 43,
+        w: 62,
+        h: 24,
+        font_size: 28,
+        font_weight: 400,
+        color: "#334155",
+        background: "transparent",
+        align: "left",
+        auto_fit: true,
+        z: 2,
+      }, 1, question));
+    }
+    return boxes;
+  }
+
+  function normalizeTextBox(box, index) {
+    const background = box.background === "transparent" ? "transparent" : normalizeHexColor(box.background, "transparent");
+    return {
+      id: sanitizeTextBoxId(box.id, index),
+      text: String(box.text ?? "").trim().slice(0, 1200),
+      x: clampNumber(box.x, 0, 100, 8),
+      y: clampNumber(box.y, 0, 100, 14),
+      w: clampNumber(box.w, 5, 100, 50),
+      h: clampNumber(box.h, 5, 100, 16),
+      font_size: Math.round(clampNumber(box.font_size, 12, 120, 32)),
+      font_weight: Number(box.font_weight || 400) >= 600 ? 800 : 400,
+      color: normalizeHexColor(box.color, "#17212f"),
+      background,
+      align: ["left", "center", "right"].includes(box.align) ? box.align : "left",
+      auto_fit: box.auto_fit !== false && box.auto_fit !== "false",
+      z: Math.round(clampNumber(box.z, 0, 100, index + 1)),
+    };
+  }
+
+  function sanitizeTextBoxId(value, index) {
+    const text = String(value || "").replace(/[^a-zA-Z0-9_-]+/g, "-").replace(/^-+|-+$/g, "").slice(0, 40);
+    return text || `box-${Date.now().toString(36)}-${index}`;
+  }
+
+  function makeTextBoxId() {
+    return `box-${Date.now().toString(36)}-${Math.random().toString(36).slice(2, 7)}`;
+  }
+
+  function selectedTextBox(question) {
+    if (!question || question.type !== "content_slide" || !state.selectedTextBoxId) return null;
+    return ensureTextBoxes(question).find((box) => box.id === state.selectedTextBoxId) || null;
+  }
+
+  function selectTextBox(id) {
+    state.selectedTextBoxId = id || null;
+    syncTextBoxSelection();
+    renderInspector();
+  }
+
+  function syncTextBoxSelection() {
+    if (!canvas) return;
+    $$(".slide-text-box", canvas).forEach((node) => {
+      node.classList.toggle("is-selected", node.dataset.textBoxId === state.selectedTextBoxId);
+    });
+  }
+
+  function collectTextBoxesFromCanvas(question) {
+    const boxes = ensureTextBoxes(question);
+    const nodes = $$(".slide-text-box", canvas);
+    if (!nodes.length) return boxes;
+    return nodes.map((node, index) => {
+      const base = boxes.find((box) => box.id === node.dataset.textBoxId) || boxes[index] || {};
+      const content = node.querySelector("[data-text-box-content]");
+      return normalizeTextBox({ ...base, text: content?.textContent || "" }, index, question);
+    });
+  }
+
+  function titleFromTextBoxes(boxes, fallback) {
+    return boxes.find((box) => box.id === "title" && box.text)?.text
+      || boxes.find((box) => box.text)?.text
+      || fallback
+      || "Diapositiva";
+  }
+
+  function bodyFromTextBoxes(boxes, fallback) {
+    return boxes.find((box) => box.id === "body" && box.text)?.text
+      || boxes.find((box) => box.id !== "title" && box.text)?.text
+      || fallback
+      || "";
+  }
+
+  function syncTitleAndBodyFromBoxes(question) {
+    const boxes = question.config?.text_boxes || [];
+    question.title = titleFromTextBoxes(boxes, question.title);
+    question.config.body = bodyFromTextBoxes(boxes, question.config.body || "");
+  }
+
+  function addTextBox(question) {
+    const boxes = ensureTextBoxes(question);
+    const topZ = Math.max(...boxes.map((box) => Number(box.z || 0)), 0);
+    const next = normalizeTextBox({
+      id: makeTextBoxId(),
+      text: "Nuevo texto",
+      x: 14,
+      y: 18 + Math.min(boxes.length * 6, 42),
+      w: 38,
+      h: 14,
+      font_size: 32,
+      font_weight: 400,
+      color: "#17212f",
+      background: "transparent",
+      align: "left",
+      auto_fit: true,
+      z: topZ + 1,
+    }, boxes.length, question);
+    question.config.text_boxes = [...boxes, next];
+    state.selectedTextBoxId = next.id;
+    renderCanvas();
+    renderInspector();
+    scheduleQuestionSave({ rerender: false });
+  }
+
+  function duplicateSelectedTextBox(question) {
+    const box = selectedTextBox(question);
+    if (!box) return;
+    const boxes = ensureTextBoxes(question);
+    const clone = normalizeTextBox({
+      ...box,
+      id: makeTextBoxId(),
+      x: Math.min(box.x + 4, 100 - box.w),
+      y: Math.min(box.y + 4, 100 - box.h),
+      z: Math.max(...boxes.map((item) => Number(item.z || 0)), 0) + 1,
+    }, boxes.length, question);
+    question.config.text_boxes = [...boxes, clone];
+    state.selectedTextBoxId = clone.id;
+    renderCanvas();
+    renderInspector();
+    scheduleQuestionSave({ rerender: false });
+  }
+
+  function deleteSelectedTextBox(question) {
+    const boxes = ensureTextBoxes(question);
+    if (!state.selectedTextBoxId || boxes.length <= 1) return;
+    const index = boxes.findIndex((box) => box.id === state.selectedTextBoxId);
+    question.config.text_boxes = boxes.filter((box) => box.id !== state.selectedTextBoxId);
+    state.selectedTextBoxId = question.config.text_boxes[Math.max(index - 1, 0)]?.id || null;
+    syncTitleAndBodyFromBoxes(question);
+    renderCanvas();
+    renderInspector();
+    renderSlideList();
+    scheduleQuestionSave({ rerender: false });
+  }
+
+  function updateSelectedTextBox(question, patch, options = {}) {
+    const boxes = ensureTextBoxes(question);
+    const index = boxes.findIndex((box) => box.id === state.selectedTextBoxId);
+    if (index < 0) return;
+    const next = normalizeTextBox({ ...boxes[index], ...patch }, index, question);
+    question.config.text_boxes[index] = next;
+    syncTitleAndBodyFromBoxes(question);
+    applyTextBoxDom(next);
+    if (options.renderList !== false) renderSlideList();
+    if (options.renderInspector) renderInspector();
+    if (options.save !== false) scheduleQuestionSave({ rerender: false });
+  }
+
+  function applyTextBoxDom(box) {
+    if (!canvas) return;
+    const node = $$(".slide-text-box", canvas).find((item) => item.dataset.textBoxId === box.id);
+    if (!node) return;
+    node.style.cssText = textBoxStyle(box);
+    node.dataset.autoFit = box.auto_fit ? "true" : "false";
+  }
+
+  function handleCanvasPointerDown(event) {
+    const question = selectedQuestion();
+    if (!question || question.type !== "content_slide") return;
+    const node = event.target.closest("[data-text-box-id]");
+    if (!node) return;
+    state.selectedTextBoxId = node.dataset.textBoxId;
+    syncTextBoxSelection();
+    renderInspector();
+    const handle = event.target.closest("[data-resize-handle]");
+    if (!handle && event.target.closest("[data-text-box-content]")) return;
+    const box = selectedTextBox(question);
+    if (!box || !canvas) return;
+    state.textDrag = {
+      id: box.id,
+      mode: handle ? "resize" : "move",
+      handle: handle?.dataset.resizeHandle || "se",
+      startX: event.clientX,
+      startY: event.clientY,
+      startBox: { ...box },
+      rect: canvas.getBoundingClientRect(),
+    };
+    event.preventDefault();
+  }
+
+  function handleCanvasPointerMove(event) {
+    if (!state.textDrag) return;
+    const question = selectedQuestion();
+    if (!question || question.type !== "content_slide") return;
+    const drag = state.textDrag;
+    const dx = ((event.clientX - drag.startX) / drag.rect.width) * 100;
+    const dy = ((event.clientY - drag.startY) / drag.rect.height) * 100;
+    const patch = drag.mode === "move"
+      ? movedTextBoxPatch(drag.startBox, dx, dy)
+      : resizedTextBoxPatch(drag.startBox, drag.handle, dx, dy);
+    updateSelectedTextBox(question, patch, { save: false, renderList: false });
+  }
+
+  function finishTextBoxDrag() {
+    if (!state.textDrag) return;
+    state.textDrag = null;
+    renderInspector();
+    scheduleQuestionSave({ rerender: false });
+  }
+
+  function movedTextBoxPatch(box, dx, dy) {
+    return {
+      x: clampNumber(box.x + dx, 0, Math.max(0, 100 - box.w), box.x),
+      y: clampNumber(box.y + dy, 0, Math.max(0, 100 - box.h), box.y),
+    };
+  }
+
+  function resizedTextBoxPatch(box, handle, dx, dy) {
+    let x = box.x;
+    let y = box.y;
+    let w = box.w;
+    let h = box.h;
+    if (handle.includes("e")) w = box.w + dx;
+    if (handle.includes("s")) h = box.h + dy;
+    if (handle.includes("w")) {
+      x = box.x + dx;
+      w = box.w - dx;
+    }
+    if (handle.includes("n")) {
+      y = box.y + dy;
+      h = box.h - dy;
+    }
+    w = clampNumber(w, 5, 100, box.w);
+    h = clampNumber(h, 5, 100, box.h);
+    x = clampNumber(x, 0, Math.max(0, 100 - w), box.x);
+    y = clampNumber(y, 0, Math.max(0, 100 - h), box.y);
+    const patch = { x, y, w, h };
+    if (box.auto_fit) {
+      const scale = Math.max(0.4, Math.min(w / box.w, h / box.h));
+      patch.font_size = Math.round(clampNumber(box.font_size * scale, 12, 120, box.font_size));
+    }
+    return patch;
+  }
+
+  function handleDocumentKeydown(event) {
+    const question = selectedQuestion();
+    if (!question || question.type !== "content_slide") return;
+    if (event.key === "Escape") {
+      document.activeElement?.blur?.();
+      selectTextBox(null);
+      return;
+    }
+    if (!["Delete", "Backspace"].includes(event.key) || isEditing()) return;
+    event.preventDefault();
+    deleteSelectedTextBox(question);
+  }
+
   async function handleSlideAction(action, id) {
     if (!state.session) return;
     if (action === "duplicate") {
@@ -721,11 +1194,66 @@
     if (action === "toggle-open") controlSession(question.is_open ? "close_question" : "open_question");
   }
 
+  async function handleModerationButton(button) {
+    const question = selectedQuestion();
+    if (!button || !question || !state.session) return;
+    const responseId = Number(button.dataset.responseId || 0);
+    const json = await postJson(
+      `/api/sessions/${state.session.code}/questions/${question.id}/responses/${responseId}/moderate`,
+      { action: button.dataset.moderate },
+    );
+    if (!json.ok) {
+      alert(json.error || "No se pudo moderar la respuesta.");
+      return;
+    }
+    await loadSession(false);
+  }
+
+  function handleTextInspectorButton(button) {
+    const question = selectedQuestion();
+    if (!question || question.type !== "content_slide") return;
+    const action = button.dataset.textBoxAction;
+    if (action === "add") {
+      addTextBox(question);
+      return;
+    }
+    if (action === "duplicate") {
+      duplicateSelectedTextBox(question);
+      return;
+    }
+    if (action === "delete") {
+      deleteSelectedTextBox(question);
+      return;
+    }
+    if (button.dataset.textAlign) {
+      updateSelectedTextBox(question, { align: button.dataset.textAlign }, { renderInspector: true });
+      return;
+    }
+    if (button.dataset.textColor) {
+      const key = button.dataset.textColorTarget || "color";
+      updateSelectedTextBox(question, { [key]: button.dataset.textColor }, { renderInspector: true });
+    }
+  }
+
+  function handleTextStyleInput(target) {
+    const question = selectedQuestion();
+    if (!question || question.type !== "content_slide") return;
+    const key = target.dataset.textStyleKey;
+    let value = target instanceof HTMLInputElement && target.type === "checkbox" ? target.checked : target.value;
+    const patch = {};
+    if (key === "font_size") patch.font_size = clampNumber(value, 12, 120);
+    if (key === "font_weight") patch.font_weight = value ? 800 : 400;
+    if (key === "color") patch.color = normalizeHexColor(value, "#17212f");
+    if (key === "background") patch.background = normalizeHexColor(value, "#ffffff");
+    if (key === "auto_fit") patch.auto_fit = Boolean(value);
+    updateSelectedTextBox(question, patch, { renderInspector: false });
+  }
+
   function handleCanvasAction(action, button) {
     const question = selectedQuestion();
     if (!question) return;
     if (action === "add-option") {
-      question.options = [...(question.options || []), { id: `tmp-${Date.now()}`, label: `Opcion ${(question.options || []).length + 1}`, is_correct: false }];
+      question.options = [...(question.options || []), { id: `tmp-${Date.now()}`, label: `Opción ${(question.options || []).length + 1}`, is_correct: false }];
       renderCanvas();
       scheduleQuestionSave({ rerender: false });
       return;
@@ -749,6 +1277,11 @@
     const question = selectedQuestion();
     if (!state.session || !question) return;
 
+    if (target.matches("[data-text-style-key]")) {
+      handleTextStyleInput(target);
+      return;
+    }
+
     if (target.matches("[data-session-theme]")) {
       patchSession({ theme: target.value });
       return;
@@ -766,7 +1299,10 @@
       : target.value;
     question.config = { ...(question.config || {}), [key]: numericConfigValue(key, value) };
     const shouldRender = target.dataset.rerender === "true";
-    if (shouldRender) renderCanvas();
+    if (shouldRender) {
+      renderCanvas();
+      renderResults();
+    }
     scheduleQuestionSave({ rerender: fromChange || shouldRender });
   }
 
@@ -799,7 +1335,7 @@
 
   async function deleteSlide(id) {
     if (!state.session) return;
-    if (!confirm("Eliminar esta diapositiva?")) return;
+    if (!confirm("¿Eliminar esta diapositiva?")) return;
     const json = await fetchJson(`/api/sessions/${state.session.code}/questions/${id}`, { method: "DELETE" });
     if (!json.ok) {
       alert(json.error || "No se pudo eliminar.");
@@ -841,7 +1377,7 @@
       ensureSelectedQuestion();
       if (fullRender) render();
     } else {
-      alert(json.error || "No se pudo controlar la presentacion.");
+      alert(json.error || "No se pudo controlar la presentación.");
     }
     return json;
   }
@@ -863,6 +1399,7 @@
   }
 
   function renderBarChart(labels, data, label) {
+    const { chartCanvas } = resultNodes();
     if (!chartCanvas || !window.Chart) return;
     chartCanvas.hidden = false;
     if (state.chart) state.chart.destroy();
@@ -892,9 +1429,10 @@
   }
 
   function renderWordResults(words) {
+    const { altNode } = resultNodes();
     if (!altNode) return;
     if (!words.length) {
-      altNode.innerHTML = `<p class="muted">Sin palabras todavia.</p>`;
+      altNode.innerHTML = `<p class="muted">Sin palabras todavía.</p>`;
       return;
     }
     const max = Math.max(...words.map((word) => word.count), 1);
@@ -909,9 +1447,10 @@
   }
 
   function renderOpenText(cards) {
+    const { altNode } = resultNodes();
     if (!altNode) return;
     if (!cards.length) {
-      altNode.innerHTML = `<p class="muted">Sin respuestas abiertas todavia.</p>`;
+      altNode.innerHTML = `<p class="muted">Sin respuestas abiertas todavía.</p>`;
       return;
     }
     altNode.innerHTML = `
@@ -922,6 +1461,7 @@
   }
 
   function renderLeaderboard(items) {
+    const { altNode } = resultNodes();
     if (!altNode) return;
     altNode.innerHTML = `
       <div class="leaderboard-panel">
@@ -934,6 +1474,7 @@
   }
 
   function hideChart() {
+    const { chartCanvas } = resultNodes();
     if (state.chart) {
       state.chart.destroy();
       state.chart = null;
@@ -976,12 +1517,40 @@
   function typeOptions(current) {
     return [
       ["content_slide", "Contenido"],
-      ["multiple_choice", "Opcion multiple"],
+      ["multiple_choice", "Opción múltiple"],
       ["word_cloud", "Nube de ideas"],
       ["scale", "Escala"],
       ["open_text", "Respuesta abierta"],
       ["ranking", "Ranking"],
       ["quiz", "Quiz"],
+    ].map(([value, label]) => `<option value="${value}"${value === current ? " selected" : ""}>${label}</option>`).join("");
+  }
+
+  function defaultResultLayout(type) {
+    if (type === "word_cloud") return "cloud";
+    if (type === "open_text") return "cards";
+    if (type === "quiz") return "leaderboard";
+    return "chart";
+  }
+
+  function resultConfig(type, overrides = {}) {
+    return {
+      show_results: true,
+      result_layout: defaultResultLayout(type),
+      ...overrides,
+      result_placement: "slide",
+    };
+  }
+
+  function resultLayoutOptions(current) {
+    return [
+      ["auto", "Automatica"],
+      ["chart", "Grafica"],
+      ["list", "Lista"],
+      ["grid", "Matriz"],
+      ["cloud", "Nube"],
+      ["cards", "Tarjetas"],
+      ["leaderboard", "Ranking"],
     ].map(([value, label]) => `<option value="${value}"${value === current ? " selected" : ""}>${label}</option>`).join("");
   }
 
@@ -995,7 +1564,7 @@
           prompt: "",
           config: {
             layout: "qr",
-            body: "Escanea el QR o entra con el codigo de la presentacion.",
+            body: "Escanea el QR o entra con el código de la presentación.",
             show_qr: true,
           },
           options: [],
@@ -1003,45 +1572,45 @@
       }
       return {
         type,
-        title: finalLayout === "instructions" ? "Instrucciones" : "Titulo de la presentacion",
+        title: finalLayout === "instructions" ? "Instrucciones" : "Título de la presentación",
         prompt: "",
         config: {
           layout: finalLayout,
-          body: finalLayout === "text" ? "Escribe aqui el contenido de la diapositiva." : "Subtitulo o contexto del taller.",
+          body: finalLayout === "text" ? "Escribe aquí el contenido de la diapositiva." : "Subtítulo o contexto del taller.",
           show_qr: false,
         },
         options: [],
       };
     }
     if (type === "word_cloud") {
-      return { type, title: "Lluvia de ideas", prompt: "Escribe una palabra o frase corta.", config: { moderation: "none" }, options: [] };
+      return { type, title: "Lluvia de ideas", prompt: "Escribe una palabra o frase corta.", config: resultConfig(type, { moderation: "none" }), options: [] };
     }
     if (type === "open_text") {
-      return { type, title: "Pregunta abierta", prompt: "Comparte tu respuesta.", config: { moderation: "none" }, options: [] };
+      return { type, title: "Pregunta abierta", prompt: "Comparte tu respuesta.", config: resultConfig(type, { moderation: "none" }), options: [] };
     }
     if (type === "scale") {
-      return { type, title: "Escala de opinion", prompt: "Califica del 1 al 5.", config: { min: 1, max: 5 }, options: [] };
+      return { type, title: "Escala de opinion", prompt: "Califica del 1 al 5.", config: resultConfig(type, { min: 1, max: 5 }), options: [] };
     }
     if (type === "ranking") {
-      return { type, title: "Prioriza opciones", prompt: "Ordena de mayor a menor prioridad.", options: ["Opcion 1", "Opcion 2", "Opcion 3"], config: {} };
+      return { type, title: "Prioriza opciones", prompt: "Ordena de mayor a menor prioridad.", options: ["Opción 1", "Opción 2", "Opción 3"], config: resultConfig(type) };
     }
     if (type === "quiz") {
       return {
         type,
-        title: "Quiz rapido",
+        title: "Quiz rápido",
         prompt: "Elige la respuesta correcta.",
         options: ["Respuesta A", "Respuesta B", "Respuesta C"],
         correct_option_labels: ["Respuesta A"],
-        config: { timer_seconds: 30, points: 100 },
+        config: resultConfig(type, { timer_seconds: 30, points: 100 }),
       };
     }
-    return { type: "multiple_choice", title: "Pregunta de opcion multiple", prompt: "Elige una opcion.", options: ["Opcion 1", "Opcion 2"], config: {} };
+    return { type: "multiple_choice", title: "Pregunta de opción múltiple", prompt: "Elige una opción.", options: ["Opción 1", "Opción 2"], config: resultConfig("multiple_choice") };
   }
 
   function labelForType(type) {
     return {
       content_slide: "Contenido",
-      multiple_choice: "Opcion multiple",
+      multiple_choice: "Opción múltiple",
       word_cloud: "Lluvia de ideas",
       scale: "Escala",
       open_text: "Pregunta abierta",
@@ -1055,8 +1624,27 @@
       title: "Portada",
       text: "Texto",
       instructions: "Instrucciones",
-      qr: "Codigo QR",
+      qr: "Código QR",
     }[layout] || "Contenido";
+  }
+
+  function alignLabel(align) {
+    return {
+      left: "Izq.",
+      center: "Centro",
+      right: "Der.",
+    }[align] || align;
+  }
+
+  function clampNumber(value, minimum, maximum, fallback = minimum) {
+    const number = Number(value);
+    if (!Number.isFinite(number)) return fallback;
+    return Math.min(Math.max(number, minimum), maximum);
+  }
+
+  function normalizeHexColor(value, fallback) {
+    const color = String(value || "").trim();
+    return /^#[0-9a-fA-F]{6}$/.test(color) ? color.toLowerCase() : fallback;
   }
 
   function numericConfigValue(key, value) {
@@ -1102,7 +1690,7 @@
       const response = await fetch(url, options);
       return await response.json();
     } catch (error) {
-      return { ok: false, error: "Error de conexion." };
+      return { ok: false, error: "Error de conexión." };
     }
   }
 

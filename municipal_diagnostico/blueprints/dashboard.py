@@ -74,8 +74,8 @@ def modules():
             {
                 "slug": MODULE_LIVE,
                 "title": "Live en Tiempo Real",
-                "subtitle": "Sesiones participativas, codigo QR y resultados al instante",
-                "description": "Crea dinamicas tipo Mentimeter para lluvia de ideas y cuestionarios en vivo con participantes anonimos.",
+                "subtitle": "Sesiones participativas, código QR y resultados al instante",
+                "description": "Crea dinámicas tipo Mentimeter para lluvia de ideas y cuestionarios en vivo con participantes anónimos.",
                 "url": url_for("dashboard.open_module", module_slug=MODULE_LIVE),
                 "is_available": current_user.puede_acceder_live,
             },

@@ -134,7 +134,7 @@ def create_session(raw_payload: dict[str, Any], user) -> LiveSession:
     for template_id in payload.template_ids:
         template = db.session.get(LiveReactivoTemplate, int(template_id))
         if template is None or not template.activo:
-            raise LiveValidationError("Uno de los reactivos seleccionados no existe o esta inactivo.")
+            raise LiveValidationError("Uno de los reactivos seleccionados no existe o está inactivo.")
         add_activity_from_template(session, template)
     return session
 
@@ -144,7 +144,7 @@ def add_activity(session: LiveSession, raw_payload: dict[str, Any]) -> LiveActiv
     if payload.template_id:
         template = db.session.get(LiveReactivoTemplate, int(payload.template_id))
         if template is None or not template.activo:
-            raise LiveValidationError("El reactivo seleccionado no existe o esta inactivo.")
+            raise LiveValidationError("El reactivo seleccionado no existe o está inactivo.")
         return add_activity_from_template(session, template)
 
     activity = LiveActivity(
@@ -251,7 +251,7 @@ def reorder_activities(session: LiveSession, ordered_ids: list[int]) -> None:
     if len(normalized_ids) != len(set(normalized_ids)):
         raise LiveValidationError("El orden contiene diapositivas repetidas.")
     if set(normalized_ids) != set(activities_by_id):
-        raise LiveValidationError("El orden debe incluir todas las diapositivas de la presentacion.")
+        raise LiveValidationError("El orden debe incluir todas las diapositivas de la presentación.")
 
     for index, activity in enumerate(session.activities, start=1):
         activity.orden = -1000 - index
@@ -340,15 +340,15 @@ def submit_response(
     raw_payload: dict[str, Any],
 ) -> LiveResponse:
     if activity.session_id != session.id:
-        raise LiveValidationError("La actividad no pertenece a esta sesion.")
+        raise LiveValidationError("La actividad no pertenece a esta sesión.")
     if session.estado != "active":
-        raise LiveValidationError("La sesion no esta abierta.")
+        raise LiveValidationError("La sesión no está abierta.")
     if activity.estado != "open":
-        raise LiveValidationError("La actividad no esta abierta.")
+        raise LiveValidationError("La actividad no está abierta.")
     if activity.tipo in QUIZ_TYPES and session.mode != "guided":
         raise LiveValidationError("Los quizzes competitivos requieren modo guiado.")
     if session.mode == "guided" and session.active_activity_id != activity.id:
-        raise LiveValidationError("Esta actividad no esta activa en este momento.")
+        raise LiveValidationError("Esta actividad no está activa en este momento.")
 
     payload = normalize_response_payload(activity.tipo, activity.config_json or {}, raw_payload)
     participant.ultima_actividad_at = utcnow()
@@ -433,7 +433,7 @@ def upsert_response(
 def apply_presenter_control(session: LiveSession, raw_payload: dict[str, Any]) -> LiveSession:
     payload = PresenterControlPayload.model_validate(raw_payload)
     if payload.session_id != session.id:
-        raise LiveValidationError("La sesion no coincide con el control solicitado.")
+        raise LiveValidationError("La sesión no coincide con el control solicitado.")
 
     if payload.action == "open_session":
         open_session(session)
@@ -457,7 +457,7 @@ def apply_presenter_control(session: LiveSession, raw_payload: dict[str, Any]) -
         close_activity(session, payload.activity_id)
     elif payload.action == "set_mode":
         if not payload.mode:
-            raise LiveValidationError("Selecciona un modo de sesion.")
+            raise LiveValidationError("Selecciona un modo de sesión.")
         session.mode = payload.mode
         if session.estado == "active":
             configure_open_activities_for_mode(session)
@@ -575,12 +575,12 @@ def set_activity_payload(activity: LiveActivity, values: dict[str, Any]) -> None
 
 def moderate_response(session: LiveSession, activity: LiveActivity, response_id: int, action: str) -> LiveResponse:
     if activity.session_id != session.id:
-        raise LiveValidationError("La actividad no pertenece a esta sesion.")
+        raise LiveValidationError("La actividad no pertenece a esta sesión.")
     response = db.session.get(LiveResponse, int(response_id))
     if response is None or response.activity_id != activity.id:
         raise LiveValidationError("La respuesta solicitada no existe.")
     if activity.tipo not in {ACTIVITY_QA, ACTIVITY_BRAINSTORM}:
-        raise LiveValidationError("Esta actividad no admite moderacion.")
+        raise LiveValidationError("Esta actividad no admite moderación.")
 
     payload = dict(response.payload_json or {})
     if action == "approve":
@@ -595,18 +595,18 @@ def moderate_response(session: LiveSession, activity: LiveActivity, response_id:
         payload["shown"] = True
         set_activity_payload(activity, {"shown_response_id": response.id})
     else:
-        raise LiveValidationError("Accion de moderacion no soportada.")
+        raise LiveValidationError("Acción de moderación no soportada.")
     response.payload_json = payload
     return response
 
 
 def upvote_response(session: LiveSession, activity: LiveActivity, response_id: int, participant: LiveParticipant) -> LiveResponse:
     if activity.session_id != session.id:
-        raise LiveValidationError("La actividad no pertenece a esta sesion.")
+        raise LiveValidationError("La actividad no pertenece a esta sesión.")
     if activity.tipo != ACTIVITY_QA:
         raise LiveValidationError("Solo Q&A admite votos a favor.")
     if not (activity.config_json or {}).get("allow_upvotes", True):
-        raise LiveValidationError("Los votos estan desactivados para esta actividad.")
+        raise LiveValidationError("Los votos están desactivados para esta actividad.")
     response = db.session.get(LiveResponse, int(response_id))
     if response is None or response.activity_id != activity.id:
         raise LiveValidationError("La pregunta solicitada no existe.")
@@ -901,14 +901,14 @@ def build_live_excel(session: LiveSession) -> BytesIO:
     workbook = Workbook()
     summary = workbook.active
     summary.title = "Resumen"
-    summary.append(["Sesion", session.titulo])
-    summary.append(["Codigo", session.code])
+    summary.append(["Sesión", session.titulo])
+    summary.append(["Código", session.code])
     summary.append(["Modo", session.mode])
     summary.append(["Estado", session.estado])
     summary.append(["Participantes", len(session.participants)])
 
     activities = workbook.create_sheet("Actividades")
-    activities.append(["Orden", "Titulo", "Tipo", "Estado", "Respuestas", "Agregado JSON"])
+    activities.append(["Orden", "Título", "Tipo", "Estado", "Respuestas", "Agregado JSON"])
     for activity in session.activities:
         results = aggregate_results(activity)
         activities.append(
@@ -923,7 +923,7 @@ def build_live_excel(session: LiveSession) -> BytesIO:
         )
 
     responses = workbook.create_sheet("Respuestas")
-    responses.append(["Actividad", "Tipo", "Participante anonimo", "Llave", "Activa", "Payload JSON", "Creada"])
+    responses.append(["Actividad", "Tipo", "Participante anónimo", "Llave", "Activa", "Payload JSON", "Creada"])
     for response in session.responses:
         responses.append(
             [
@@ -956,8 +956,8 @@ def build_live_pdf(session: LiveSession) -> BytesIO:
     doc = SimpleDocTemplate(buffer, pagesize=letter, title=f"Live {session.code}")
     styles = getSampleStyleSheet()
     story = [
-        Paragraph(f"Sesion Live: {session.titulo}", styles["Title"]),
-        Paragraph(f"Codigo: {session.code} | Modo: {session.mode} | Estado: {session.estado}", styles["Normal"]),
+        Paragraph(f"Sesión Live: {session.titulo}", styles["Title"]),
+        Paragraph(f"Código: {session.code} | Modo: {session.mode} | Estado: {session.estado}", styles["Normal"]),
         Spacer(1, 12),
     ]
     data = [["Orden", "Actividad", "Tipo", "Respuestas"]]

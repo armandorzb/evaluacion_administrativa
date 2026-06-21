@@ -41,13 +41,13 @@ bp = Blueprint("live", __name__, url_prefix="/live")
 
 ACTIVITY_TYPE_LABELS = {
     "brainstorm": "Lluvia de ideas",
-    "multiple_choice": "Opcion multiple",
+    "multiple_choice": "Opción múltiple",
     "scale": "Escala",
     "ranking": "Ranking",
     "points_100": "100 puntos",
     "matrix_2x2": "Matriz 2x2",
     "qa": "Q&A",
-    "quiz_choice": "Quiz opcion",
+    "quiz_choice": "Quiz opción",
     "quiz_text": "Quiz texto",
     "content_slide": "Diapositiva",
 }
@@ -166,7 +166,7 @@ def session_detail(session_id: int):
                 else:
                     activity = add_activity(session, activity_payload_from_form(request.form))
                     log_activity("add_live_slide", entity_type="live_activity", entity_id=activity.id)
-                    flash("Diapositiva agregada a la presentacion.", "success")
+                    flash("Diapositiva agregada a la presentación.", "success")
                 db.session.commit()
                 broadcast_session(session)
                 return redirect(url_for("live.session_detail", session_id=session.id))

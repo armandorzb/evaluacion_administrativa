@@ -186,7 +186,7 @@ def review(evaluation_id: int):
 
     if request.method == "POST":
         flash(
-            "La revision formal quedo archivada en modo interno de solo lectura.",
+            "La revisión formal quedó archivada en modo interno de solo lectura.",
             "error",
         )
         return redirect(url_for("evaluation.review", evaluation_id=evaluation.id))

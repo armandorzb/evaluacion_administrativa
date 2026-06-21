@@ -100,33 +100,33 @@ ACTIVITY_LABELS = {
     "delete_user": "Eliminación de usuario",
     "bulk_import": "Carga masiva",
     "view_campaigns": "Consulta de campanas",
-    "create_campaign": "Alta de campana",
-    "update_campaign": "Actualizacion de campana",
-    "change_campaign_state": "Cambio de estado de campana",
+    "create_campaign": "Alta de campaña",
+    "update_campaign": "Actualización de campaña",
+    "change_campaign_state": "Cambio de estado de campaña",
     "view_assignments": "Consulta de asignaciones",
     "create_assignment": "Alta de asignaciones",
-    "update_assignment": "Actualizacion de asignacion",
-    "delete_assignment": "Eliminacion de asignacion",
+    "update_assignment": "Actualización de asignación",
+    "delete_assignment": "Eliminación de asignación",
     "view_assignment_capture": "Apertura de cuestionario asignado",
-    "autosave_assignment": "Autoguardado de asignacion",
+    "autosave_assignment": "Autoguardado de asignación",
     "save_assignment_section": "Guardado de seccion",
     "submit_assignment": "Envio de cuestionario",
     "download_section_support": "Descarga de soporte por seccion",
-    "view_campaign_reports": "Consulta de reportes de campana",
-    "view_assignment_report": "Consulta de reporte de asignacion",
+    "view_campaign_reports": "Consulta de reportes de campaña",
+    "view_assignment_report": "Consulta de reporte de asignación",
     "view_wellbeing_survey": "Apertura de encuesta de bienestar",
     "start_wellbeing_survey": "Inicio de encuesta de bienestar",
     "save_wellbeing_survey": "Guardado de encuesta de bienestar",
     "view_wellbeing_dashboard": "Consulta de tablero de bienestar",
     "view_wellbeing_questions": "Consulta de preguntas de bienestar",
     "create_wellbeing_question": "Alta de pregunta de bienestar",
-    "update_wellbeing_question": "Actualizacion de pregunta de bienestar",
+    "update_wellbeing_question": "Actualización de pregunta de bienestar",
     "toggle_wellbeing_question": "Cambio de estado de pregunta de bienestar",
     "delete_wellbeing_question": "Eliminacion de pregunta de bienestar",
     "export_wellbeing_csv": "Exportacion CSV de bienestar",
     "view_module_selector": "Consulta del selector de modulos",
-    "select_module": "Cambio de modulo",
-    "module_access_denied": "Acceso denegado por modulo",
+    "select_module": "Cambio de módulo",
+    "module_access_denied": "Acceso denegado por módulo",
     "login_denied_no_modules": "Inicio sin modulos asignados",
     "clone_questionnaire": "Clonado de cuestionario",
     "publish_questionnaire": "Publicación de cuestionario",
@@ -607,7 +607,7 @@ def questionnaire_fill_preview(version_id: int):
 def periods():
     if request.method == "POST":
         flash(
-            "El flujo historico por periodos quedo archivado en modo de solo lectura. Usa Campanas para nuevos despliegues.",
+            "El flujo histórico por periodos quedó archivado en modo de solo lectura. Usa Campañas para nuevos despliegues.",
             "error",
         )
         return redirect(url_for("admin.periods"))
@@ -624,7 +624,7 @@ def evaluation_detail(evaluation_id: int):
     evaluation = Evaluacion.query.get_or_404(evaluation_id)
     if request.method == "POST":
         flash(
-            "La gestion del flujo legado quedo archivada en modo de solo lectura. Usa Campanas y Asignaciones para nuevas operaciones.",
+            "La gestión del flujo legado quedó archivada en modo de solo lectura. Usa Campañas y Asignaciones para nuevas operaciones.",
             "error",
         )
         return redirect(url_for("admin.evaluation_detail", evaluation_id=evaluation.id))

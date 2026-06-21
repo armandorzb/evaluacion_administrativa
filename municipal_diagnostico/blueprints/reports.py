@@ -135,7 +135,7 @@ def index():
     periods = PeriodoEvaluacion.query.order_by(PeriodoEvaluacion.created_at.desc()).all()
     if not periods and Evaluacion.query.count() == 0 and AsignacionCuestionario.query.count() > 0:
         flash(
-            "Esta instancia opera actualmente con campanas y asignaciones. Te redirigimos al hub disponible para generar reportes.",
+            "Esta instancia opera actualmente con campañas y asignaciones. Te redirigimos al hub disponible para generar reportes.",
             "info",
         )
         return redirect(url_for("campaigns.reports"))

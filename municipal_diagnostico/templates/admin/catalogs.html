@@ -372,7 +372,7 @@
                 >
                 <span>
                     <strong>Acceso a ISO 9001</strong>
-                    <small>Diagnostico de implementacion, evidencias y revision formal.</small>
+                    <small>Diagnóstico de implementación, evidencias y revisión formal.</small>
                 </span>
             </label>
             <label class="checkbox-card">
@@ -584,7 +584,7 @@
                 <input type="checkbox" name="acceso_iso9001" {% if usuario.acceso_iso9001 %}checked{% endif %}>
                 <span>
                     <strong>Acceso a ISO 9001</strong>
-                    <small>Modulo independiente para diagnostico de implementacion y evidencias.</small>
+                    <small>Módulo independiente para diagnóstico de implementación y evidencias.</small>
                 </span>
             </label>
             <label class="checkbox-card">
@@ -702,7 +702,7 @@
         "optional": ["password", "dependencia", "area", "acceso_diagnostico", "acceso_bienestar", "acceso_iso9001", "acceso_live"],
         "example": "nombre,correo,rol,password,dependencia,area,acceso_diagnostico,acceso_bienestar,acceso_iso9001,acceso_live",
         "note_title": "Consideraciones importantes",
-        "note": "Los roles válidos son administrador, revisor, evaluador, respondente y consulta. Si omites acceso_bienestar, acceso_iso9001 o acceso_live, solo administrador los conserva por default. Live y Bienestar se asignan a administrador o consulta. Si incluyes dependencia o area, deben existir previamente en catálogos."
+        "note": "Los roles válidos son administrador, revisor, evaluador, respondente y consulta. Si omites acceso_bienestar, acceso_iso9001 o acceso_live, solo administrador los conserva por default. Live y Bienestar se asignan a administrador o consulta. Si incluyes dependencia o área, deben existir previamente en catálogos."
     }
 } %}
 <script id="role-definitions-data" type="application/json">{{ role_definitions|tojson }}</script>

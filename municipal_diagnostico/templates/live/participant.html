@@ -16,7 +16,7 @@
         data-activity-id="{{ activity.id if activity else '' }}"
     >
         <section class="live-public-head">
-            <p class="eyebrow">Codigo {{ session.code }}</p>
+            <p class="eyebrow">Código {{ session.code }}</p>
             <h1>{{ session.titulo }}</h1>
             <span class="status status-{{ 'opportune' if session.estado == 'active' else 'low' }}">{{ session.estado }}</span>
         </section>
@@ -30,7 +30,7 @@
             <div class="live-content-slide live-content-slide-{{ activity.config_json.layout|default('text') }}">
                 {% if activity.config_json.body %}<div class="live-content-slide-body">{{ activity.config_json.body }}</div>{% endif %}
                 {% if activity.config_json.media_url %}<img class="live-content-slide-media" src="{{ activity.config_json.media_url }}" alt="">{% endif %}
-                {% if activity.config_json.layout == "qr" %}<p class="tag">Codigo {{ session.code }}</p>{% endif %}
+                {% if activity.config_json.layout == "qr" %}<p class="tag">Código {{ session.code }}</p>{% endif %}
             </div>
             {% else %}
             <form data-live-response-form>
@@ -138,7 +138,7 @@
                 {% endfor %}
             </div>
             {% else %}
-            <h2>La actividad aparecera aqui.</h2>
+            <h2>La actividad aparecerá aquí.</h2>
             {% endif %}
         </article>
         {% endif %}

@@ -122,10 +122,10 @@ def ensure_schema_compatibility(app: Flask) -> None:
                 app.logger.info("Columna usuario.acceso_bienestar agregada automáticamente.")
             if needs_iso9001_backfill:
                 connection.execute(text("ALTER TABLE usuario ADD COLUMN acceso_iso9001 BOOLEAN NOT NULL DEFAULT 0"))
-                app.logger.info("Columna usuario.acceso_iso9001 agregada automaticamente.")
+                app.logger.info("Columna usuario.acceso_iso9001 agregada automáticamente.")
             if needs_live_backfill:
                 connection.execute(text("ALTER TABLE usuario ADD COLUMN acceso_live BOOLEAN NOT NULL DEFAULT 0"))
-                app.logger.info("Columna usuario.acceso_live agregada automaticamente.")
+                app.logger.info("Columna usuario.acceso_live agregada automáticamente.")
             if needs_diagnostic_backfill or needs_wellbeing_backfill or needs_iso9001_backfill or needs_live_backfill:
                 connection.execute(
                     text(

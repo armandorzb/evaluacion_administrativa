@@ -97,6 +97,17 @@ button.secondary:hover,
     background: #e9eef5;
 }
 
+.button-link.primary-link {
+    border-color: var(--primary);
+    background: var(--primary);
+    color: #fff;
+}
+
+.button-link.primary-link:hover {
+    border-color: var(--primary-dark);
+    background: var(--primary-dark);
+}
+
 button.danger,
 .danger {
     background: var(--danger-soft);
@@ -481,7 +492,7 @@ p {
 .canvas-workbench {
     position: relative;
     display: grid;
-    grid-template-rows: auto minmax(0, 1fr) minmax(154px, 24vh);
+    grid-template-rows: auto minmax(0, 1fr);
     min-width: 0;
     min-height: 0;
     overflow: hidden;
@@ -551,6 +562,16 @@ p {
     padding: clamp(2rem, 5vw, 4.4rem);
 }
 
+.interactive-layout {
+    grid-template-columns: minmax(0, 0.95fr) minmax(18rem, 1.05fr);
+    grid-template-rows: auto auto minmax(0, 1fr);
+    align-content: stretch;
+    column-gap: clamp(1rem, 3vw, 2.4rem);
+    row-gap: clamp(0.7rem, 1.4vw, 1.1rem);
+    padding-top: clamp(2.8rem, 5vw, 4.4rem);
+    padding-bottom: clamp(1.4rem, 3vw, 2.6rem);
+}
+
 .slide-type-row {
     position: absolute;
     top: clamp(1rem, 2vw, 1.4rem);
@@ -575,6 +596,16 @@ p {
     letter-spacing: 0;
 }
 
+.interactive-layout h2,
+.interactive-layout .slide-prompt {
+    grid-column: 1 / -1;
+    max-width: 100%;
+}
+
+.interactive-layout h2 {
+    font-size: clamp(1.9rem, 4.2vw, 4.2rem);
+}
+
 .slide-prompt,
 .content-body-edit {
     max-width: 82%;
@@ -588,6 +619,108 @@ p {
 .content-layout-instructions .content-body-edit {
     max-width: 90%;
     font-size: clamp(1.05rem, 1.9vw, 1.8rem);
+}
+
+.slide-text-layer {
+    position: absolute;
+    inset: 0;
+}
+
+.slide-text-box {
+    position: absolute;
+    display: flex;
+    min-width: 2rem;
+    min-height: 2rem;
+    border: 1px solid transparent;
+    border-radius: 6px;
+    padding: 0.35rem 0.45rem;
+    line-height: 1.08;
+    overflow: hidden;
+    cursor: move;
+    transition: border-color 120ms ease, box-shadow 120ms ease;
+}
+
+.slide-text-box:hover {
+    border-color: rgba(37, 99, 235, 0.32);
+}
+
+.slide-text-box.is-selected {
+    border-color: rgba(37, 99, 235, 0.88);
+    box-shadow: 0 0 0 2px rgba(37, 99, 235, 0.14);
+}
+
+.slide-text-content {
+    width: 100%;
+    height: 100%;
+    overflow: hidden;
+    white-space: pre-wrap;
+    overflow-wrap: anywhere;
+    cursor: text;
+}
+
+.slide-text-content:focus {
+    outline-offset: 2px;
+}
+
+.slide-text-resize {
+    position: absolute;
+    display: none;
+    width: 0.72rem;
+    height: 0.72rem;
+    min-height: 0;
+    border: 2px solid #fff;
+    border-radius: 999px;
+    padding: 0;
+    background: var(--primary);
+    box-shadow: 0 1px 4px rgba(15, 23, 42, 0.22);
+}
+
+.slide-text-move {
+    position: absolute;
+    top: -0.7rem;
+    left: 50%;
+    display: none;
+    width: 2.1rem;
+    height: 0.78rem;
+    min-height: 0;
+    transform: translateX(-50%);
+    border: 1px solid rgba(37, 99, 235, 0.32);
+    border-radius: 999px;
+    padding: 0;
+    background:
+        radial-gradient(circle, var(--primary) 1.5px, transparent 2px) 0.28rem 50% / 0.42rem 0.42rem repeat-x,
+        #fff;
+    box-shadow: 0 1px 4px rgba(15, 23, 42, 0.14);
+    cursor: move;
+}
+
+.slide-text-box.is-selected .slide-text-move,
+.slide-text-box.is-selected .slide-text-resize {
+    display: block;
+}
+
+.slide-text-resize.handle-nw {
+    top: -0.38rem;
+    left: -0.38rem;
+    cursor: nwse-resize;
+}
+
+.slide-text-resize.handle-ne {
+    top: -0.38rem;
+    right: -0.38rem;
+    cursor: nesw-resize;
+}
+
+.slide-text-resize.handle-sw {
+    bottom: -0.38rem;
+    left: -0.38rem;
+    cursor: nesw-resize;
+}
+
+.slide-text-resize.handle-se {
+    right: -0.38rem;
+    bottom: -0.38rem;
+    cursor: nwse-resize;
 }
 
 [contenteditable="true"] {
@@ -672,6 +805,15 @@ p {
     grid-template-columns: repeat(2, minmax(0, 1fr));
     gap: 0.7rem;
     max-width: 88%;
+}
+
+.interactive-layout .option-grid,
+.interactive-layout .scale-preview,
+.interactive-layout .live-placeholder {
+    grid-column: 1;
+    grid-row: 3;
+    align-self: start;
+    max-width: 100%;
 }
 
 .option-card,
@@ -773,12 +915,31 @@ p {
     text-align: center;
 }
 
-.live-results-strip {
+.slide-results-stage {
+    grid-column: 2;
+    grid-row: 3;
+    display: grid;
+    grid-template-rows: auto minmax(0, 1fr);
     min-height: 0;
-    overflow: auto;
-    border-top: 1px solid var(--line);
-    padding: 0.7rem 0.85rem;
-    background: #fff;
+    height: 100%;
+    border: 1px solid var(--line);
+    border-radius: 8px;
+    padding: clamp(0.65rem, 1.4vw, 1rem);
+    background: #f8fafc;
+    overflow: hidden;
+}
+
+.slide-results-stage[hidden] {
+    display: none;
+}
+
+.slide-results-body {
+    position: relative;
+    display: grid;
+    grid-template-rows: minmax(0, 1fr) auto;
+    gap: 0.55rem;
+    min-height: 0;
+    overflow: hidden;
 }
 
 .results-head {
@@ -797,11 +958,14 @@ p {
 
 .result-chart {
     width: 100% !important;
-    height: 132px !important;
+    height: 100% !important;
+    min-height: 0;
 }
 
 .result-alt {
     min-height: 0;
+    max-height: 100%;
+    overflow: auto;
 }
 
 .word-cloud-preview {
@@ -922,13 +1086,79 @@ p {
 }
 
 .inspector-actions button,
-.inspector-chip {
+.inspector-chip,
+.wide-action {
     min-height: 2rem;
     padding: 0.35rem 0.55rem;
     border-color: var(--line);
     background: var(--surface-soft);
     color: var(--ink);
     font-size: 0.74rem;
+}
+
+.wide-action {
+    width: 100%;
+}
+
+.text-box-panel {
+    gap: 0.75rem;
+}
+
+.range-row {
+    display: grid;
+    grid-template-columns: 1fr 4.6rem;
+    gap: 0.5rem;
+    align-items: center;
+}
+
+.style-row {
+    display: grid;
+    gap: 0.45rem;
+    color: var(--muted);
+    font-size: 0.78rem;
+    font-weight: 800;
+}
+
+.swatch-row,
+.segmented-controls {
+    display: flex;
+    flex-wrap: wrap;
+    gap: 0.35rem;
+    align-items: center;
+}
+
+.color-swatch {
+    width: 1.8rem;
+    height: 1.8rem;
+    min-height: 0;
+    border: 1px solid var(--line-strong);
+    border-radius: 999px;
+    padding: 0;
+    box-shadow: inset 0 0 0 2px rgba(255, 255, 255, 0.72);
+}
+
+.color-swatch.is-active,
+.segmented-controls button.is-active {
+    border-color: var(--primary);
+    box-shadow: 0 0 0 2px rgba(37, 99, 235, 0.16);
+}
+
+.transparent-swatch {
+    background:
+        linear-gradient(45deg, #e5e7eb 25%, transparent 25% 75%, #e5e7eb 75%),
+        linear-gradient(45deg, #e5e7eb 25%, transparent 25% 75%, #e5e7eb 75%);
+    background-color: #fff;
+    background-position: 0 0, 6px 6px;
+    background-size: 12px 12px;
+}
+
+.segmented-controls button {
+    min-height: 2rem;
+    padding: 0.35rem 0.55rem;
+    border-color: var(--line);
+    background: var(--surface-soft);
+    color: var(--ink);
+    font-size: 0.76rem;
 }
 
 .template-buttons {
@@ -955,8 +1185,7 @@ p {
 
 .present-only .deck-topbar,
 .present-only .slide-rail,
-.present-only .slide-inspector,
-.present-only .live-results-strip {
+.present-only .slide-inspector {
     display: none;
 }
 
@@ -1006,6 +1235,21 @@ p {
 .present-only .slide-canvas {
     width: min(96vw, calc(96vh * 16 / 9));
     max-height: 96vh;
+}
+
+.present-only .slide-text-box {
+    border-color: transparent;
+    box-shadow: none;
+    pointer-events: none;
+}
+
+.present-only .slide-text-resize,
+.present-only .slide-text-move {
+    display: none;
+}
+
+.present-only .slide-text-content {
+    outline: 0;
 }
 
 /* Join, login and audience */
@@ -1211,7 +1455,7 @@ p {
     }
 
     .canvas-workbench {
-        grid-template-rows: auto auto auto;
+        grid-template-rows: auto auto;
         min-height: auto;
     }
 
@@ -1226,6 +1470,23 @@ p {
 
     .slide-canvas-inner {
         padding: 1.8rem;
+    }
+
+    .interactive-layout {
+        grid-template-columns: 1fr;
+        grid-template-rows: auto auto auto auto;
+    }
+
+    .interactive-layout .option-grid,
+    .interactive-layout .scale-preview,
+    .interactive-layout .live-placeholder,
+    .slide-results-stage {
+        grid-column: 1;
+        grid-row: auto;
+    }
+
+    .slide-results-stage {
+        min-height: 13rem;
     }
 
     .slide-canvas h2 {

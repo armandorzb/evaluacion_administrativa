@@ -13,7 +13,7 @@
         <form method="post">
             {% if auth_mode == "password" %}
             <input name="username" autocomplete="username" placeholder="Usuario" required>
-            <input name="password" type="password" autocomplete="current-password" placeholder="Contrasena" required>
+            <input name="password" type="password" autocomplete="current-password" placeholder="Contraseña" required>
             {% else %}
             <input name="pin" type="password" inputmode="numeric" autocomplete="current-password" placeholder="PIN" required>
             {% endif %}

@@ -494,7 +494,7 @@ def build_evaluation_report_detail(evaluacion: Evaluacion) -> dict:
                     "selected_value": selected_value,
                     "selected_level": f"Nivel {selected_value}" if response else "Sin respuesta",
                     "selected_option": reactive.opciones.get(str(selected_value), "Sin respuesta") if response else "Sin respuesta",
-                    "area_name": response.area.nombre if response and response.area else "Sin area asignada",
+                    "area_name": response.area.nombre if response and response.area else "Sin área asignada",
                     "comment": response.comentario if response and response.comentario else "Sin comentario",
                     "captured_by": response.usuario_captura.nombre if response and response.usuario_captura else "Sin capturista",
                     "updated_at_label": _format_datetime_label(response.updated_at if response else None),

@@ -71,7 +71,7 @@ def index():
                 db.session.add(campaign)
                 db.session.commit()
                 log_activity("create_campaign", entity_type="campana", entity_id=campaign.id)
-                flash("Campana registrada.", "success")
+                flash("Campaña registrada.", "success")
 
         elif action == "update_campaign":
             campaign = CampanaCuestionario.query.get_or_404(request.form.get("campaign_id", type=int))
@@ -87,13 +87,13 @@ def index():
                 campaign.estado = data["estado"]
                 db.session.commit()
                 log_activity("update_campaign", entity_type="campana", entity_id=campaign.id)
-                flash("Campana actualizada.", "success")
+                flash("Campaña actualizada.", "success")
 
         elif action == "change_campaign_state":
             campaign = CampanaCuestionario.query.get_or_404(request.form.get("campaign_id", type=int))
             next_state = clean_text(request.form.get("next_state"))
             if next_state not in CAMPAIGN_STATE_LABELS:
-                flash("Selecciona un estado valido.", "error")
+                flash("Selecciona un estado válido.", "error")
             else:
                 campaign.estado = next_state
                 db.session.commit()
@@ -103,7 +103,7 @@ def index():
                     entity_id=campaign.id,
                     metadata={"estado": next_state},
                 )
-                flash("Estado de la campana actualizado.", "success")
+                flash("Estado de la campaña actualizado.", "success")
 
         return redirect(url_for("campaigns.index"))
 
@@ -149,9 +149,9 @@ def assignments():
             next_state = clean_text(request.form.get("estado")) or assignment.estado
             respondente = Usuario.query.get(respondente_id) if respondente_id else None
             if respondente and not respondente.activo:
-                flash("El respondente seleccionado esta inactivo.", "error")
+                flash("El respondente seleccionado está inactivo.", "error")
             elif next_state not in ASSIGNMENT_STATE_LABELS:
-                flash("Selecciona un estado valido.", "error")
+                flash("Selecciona un estado válido.", "error")
             else:
                 assignment.respondente = respondente
                 assignment.estado = next_state
@@ -164,18 +164,18 @@ def assignments():
                     entity_id=assignment.id,
                     metadata={"estado": next_state, "respondente_id": respondente_id},
                 )
-                flash("Asignacion actualizada.", "success")
+                flash("Asignación actualizada.", "success")
 
         elif action == "delete_assignment":
             assignment = AsignacionCuestionario.query.get_or_404(request.form.get("assignment_id", type=int))
             if assignment.respuestas or assignment.soportes:
-                flash("No se puede eliminar una asignacion con respuestas o soportes registrados.", "error")
+                flash("No se puede eliminar una asignación con respuestas o soportes registrados.", "error")
             else:
                 assignment_id = assignment.id
                 db.session.delete(assignment)
                 db.session.commit()
                 log_activity("delete_assignment", entity_type="asignacion", entity_id=assignment_id)
-                flash("Asignacion eliminada.", "success")
+                flash("Asignación eliminada.", "success")
 
         return redirect(url_for("campaigns.assignments", campana_id=request.form.get("campana_id")))
 
@@ -224,7 +224,7 @@ def respond(assignment_id: int):
 
     if request.method == "POST":
         if not user_can_edit_assignment(assignment):
-            flash("La asignacion no esta disponible para edicion.", "error")
+            flash("La asignación no está disponible para edición.", "error")
             return redirect(url_for("campaigns.respond", assignment_id=assignment.id))
 
         axis_id = request.form.get("eje_id", type=int)
@@ -451,16 +451,16 @@ def validate_campaign_payload(form_data, current_campaign: CampanaCuestionario |
     fecha_limite = form_data.get("fecha_limite")
 
     if not nombre:
-        return None, "Captura el nombre de la campana."
+        return None, "Captura el nombre de la campaña."
     if estado not in CAMPAIGN_STATE_LABELS:
-        return None, "Selecciona un estado valido."
+        return None, "Selecciona un estado válido."
     cuestionario = CuestionarioVersion.query.get(cuestionario_version_id) if cuestionario_version_id else None
     if cuestionario is None:
-        return None, "Selecciona una version de cuestionario."
+        return None, "Selecciona una versión de cuestionario."
 
     existing = CampanaCuestionario.query.filter_by(nombre=nombre).first()
     if existing and (current_campaign is None or existing.id != current_campaign.id):
-        return None, "Ya existe una campana con ese nombre."
+        return None, "Ya existe una campaña con ese nombre."
 
     try:
         opening = date.fromisoformat(fecha_apertura)
@@ -469,9 +469,9 @@ def validate_campaign_payload(form_data, current_campaign: CampanaCuestionario |
         return None, "Captura fechas validas para apertura y limite."
 
     if deadline < opening:
-        return None, "La fecha limite no puede ser anterior a la apertura."
+        return None, "La fecha límite no puede ser anterior a la apertura."
     if current_campaign and current_campaign.asignaciones and current_campaign.cuestionario_version_id != cuestionario.id:
-        return None, "No puedes cambiar el cuestionario de una campana que ya tiene asignaciones."
+        return None, "No puedes cambiar el cuestionario de una campaña que ya tiene asignaciones."
 
     return {
         "nombre": nombre,
