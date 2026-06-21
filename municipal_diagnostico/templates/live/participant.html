@@ -26,6 +26,13 @@
             <p class="eyebrow">{{ live_type_label(activity.tipo) }}</p>
             <h2>{{ activity.titulo }}</h2>
             <p class="lede">{{ activity.prompt }}</p>
+            {% if activity.tipo == "content_slide" %}
+            <div class="live-content-slide live-content-slide-{{ activity.config_json.layout|default('text') }}">
+                {% if activity.config_json.body %}<div class="live-content-slide-body">{{ activity.config_json.body }}</div>{% endif %}
+                {% if activity.config_json.media_url %}<img class="live-content-slide-media" src="{{ activity.config_json.media_url }}" alt="">{% endif %}
+                {% if activity.config_json.layout == "qr" %}<p class="tag">Codigo {{ session.code }}</p>{% endif %}
+            </div>
+            {% else %}
             <form data-live-response-form>
                 {% if activity.tipo == "brainstorm" %}
                 <label>Idea<textarea name="idea" rows="4" maxlength="{{ activity.config_json.max_length if activity.config_json.max_length else 160 }}" required></textarea></label>
@@ -105,13 +112,16 @@
                 <button class="button button-primary" type="submit">Enviar</button>
                 <p class="muted" data-live-response-status></p>
             </form>
+            {% endif %}
         </article>
 
+        {% if activity.tipo != "content_slide" %}
         <article class="panel live-results-panel">
             <div class="live-chart-wrap"><canvas data-live-chart></canvas></div>
             <div data-live-wordcloud class="live-wordcloud"></div>
             <div data-live-results-list class="live-results-list"></div>
         </article>
+        {% endif %}
         {% else %}
         <article class="panel">
             <p class="eyebrow">{{ "Actividades abiertas" if activities else "En espera" }}</p>

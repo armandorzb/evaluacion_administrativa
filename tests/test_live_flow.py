@@ -7,11 +7,15 @@ from municipal_diagnostico import create_app
 from municipal_diagnostico.extensions import db, socketio
 from municipal_diagnostico.live.schemas import TemplatePayload, normalize_response_payload
 from municipal_diagnostico.live.services import (
+    add_activity,
     add_activity_from_template,
     aggregate_results,
+    apply_presenter_control,
     create_session,
     create_template,
+    duplicate_activity,
     open_session,
+    reorder_activities,
 )
 from municipal_diagnostico.models import LiveActivity, LiveParticipant, LiveResponse, LiveSession, Usuario
 
@@ -165,6 +169,19 @@ def test_live_pydantic_validation_normalizes_supported_types():
     )
     assert normalize_response_payload("quiz_text", quiz_text.config, {"answer": "hermosillo"})["is_correct"] is True
 
+    content = TemplatePayload.model_validate(
+        {
+            "tipo": "content_slide",
+            "titulo": "Bienvenida",
+            "prompt": "Instrucciones iniciales",
+            "config": {"layout": "qr", "body": "Escanea y espera al presentador.", "timer_seconds": "45"},
+        }
+    )
+    assert content.config["layout"] == "qr"
+    assert content.config["timer_seconds"] == 45
+    with pytest.raises(ValueError):
+        normalize_response_payload("content_slide", content.config, {})
+
     with pytest.raises(ValidationError):
         TemplatePayload.model_validate(
             {
@@ -228,6 +245,108 @@ def test_admin_can_create_template_and_session_snapshot_via_api():
         activity = LiveActivity.query.first()
         assert activity.template_id == template_id
         assert activity.config_json["options"] == ["Alta", "Media", "Baja"]
+
+
+def test_presentation_slides_support_content_navigation_reorder_and_duplicate():
+    app = build_app()
+    with app.app_context():
+        admin = Usuario.query.filter_by(correo="admin-live@test.local").first()
+        template = create_template(
+            {
+                "tipo": "multiple_choice",
+                "titulo": "Pulso",
+                "prompt": "Elige",
+                "config": {"options": ["A", "B"]},
+            },
+            admin,
+        )
+        db.session.flush()
+        session = create_session({"titulo": "Presentacion", "mode": "guided", "template_ids": [template.id]}, admin)
+        content = add_activity(
+            session,
+            {
+                "tipo": "content_slide",
+                "titulo": "Bienvenida",
+                "prompt": "Escanea el codigo",
+                "config": {"layout": "qr", "body": "Usa tu telefono.", "timer_seconds": 30},
+            },
+        )
+        closing = add_activity(
+            session,
+            {
+                "tipo": "content_slide",
+                "titulo": "Cierre",
+                "prompt": "Gracias",
+                "config": {"layout": "title", "body": "Siguientes pasos"},
+            },
+        )
+        db.session.flush()
+        open_session(session)
+        first_id = session.activities[0].id
+        content_id = content.id
+        closing_id = closing.id
+
+        apply_presenter_control(session, {"session_id": session.id, "action": "next_slide"})
+        assert session.active_activity_id == content_id
+        apply_presenter_control(session, {"session_id": session.id, "action": "set_timer", "activity_id": content_id, "timer_seconds": 15})
+        assert session.active_activity_id == content_id
+        assert content.payload_json["timer_seconds"] == 15
+        apply_presenter_control(session, {"session_id": session.id, "action": "previous_slide"})
+        assert session.active_activity_id == first_id
+        apply_presenter_control(session, {"session_id": session.id, "action": "go_to_slide", "activity_id": closing_id})
+        assert session.active_activity_id == closing_id
+
+        reorder_activities(session, [closing_id, first_id, content_id])
+        assert [activity.id for activity in sorted(session.activities, key=lambda item: item.orden)] == [closing_id, first_id, content_id]
+        duplicate = duplicate_activity(session, first_id)
+        assert duplicate.responses == []
+        assert duplicate.tipo == "multiple_choice"
+        db.session.commit()
+
+
+def test_admin_can_manage_slides_via_flask_api():
+    app = build_app()
+    client = app.test_client()
+    login(client, "admin-live@test.local")
+
+    session_response = client.post("/live/api/sessions", json={"titulo": "Deck API", "mode": "guided"})
+    assert session_response.status_code == 201
+    session_id = session_response.get_json()["session"]["id"]
+
+    created = client.post(
+        f"/live/api/sessions/{session_id}/activities",
+        json={
+            "tipo": "content_slide",
+            "titulo": "Intro",
+            "prompt": "Bienvenida",
+            "config": {"layout": "text", "body": "Arranque"},
+        },
+    )
+    assert created.status_code == 201
+    slide_id = created.get_json()["activity"]["id"]
+
+    updated = client.patch(
+        f"/live/api/sessions/{session_id}/activities/{slide_id}",
+        json={
+            "titulo": "Intro editada",
+            "prompt": "Nueva bienvenida",
+            "config": {"layout": "instructions", "body": "Paso 1"},
+        },
+    )
+    assert updated.status_code == 200
+    assert updated.get_json()["activity"]["config"]["layout"] == "instructions"
+
+    duplicated = client.post(f"/live/api/sessions/{session_id}/activities/{slide_id}/duplicate")
+    assert duplicated.status_code == 201
+    duplicate_id = duplicated.get_json()["activity"]["id"]
+
+    reordered = client.post(f"/live/api/sessions/{session_id}/activities/reorder", json={"activity_ids": [duplicate_id, slide_id]})
+    assert reordered.status_code == 200
+    assert [item["id"] for item in reordered.get_json()["session"]["activities"]] == [duplicate_id, slide_id]
+
+    deleted = client.delete(f"/live/api/sessions/{session_id}/activities/{slide_id}")
+    assert deleted.status_code == 200
+    assert [item["id"] for item in deleted.get_json()["session"]["activities"]] == [duplicate_id]
 
 
 def test_public_participant_cookie_and_multiple_choice_replacement():
@@ -557,9 +676,19 @@ def test_socketio_join_submit_and_presenter_control_emit_updates():
         db.session.add(session)
         db.session.flush()
         activity = add_activity_from_template(session, template)
+        content = add_activity(
+            session,
+            {
+                "tipo": "content_slide",
+                "titulo": "Instrucciones",
+                "prompt": "Siguiente paso",
+                "config": {"layout": "text", "body": "Continua con la dinamica."},
+            },
+        )
         db.session.commit()
         session_id = session.id
         activity_id = activity.id
+        content_id = content.id
 
     flask_client = app.test_client()
     login(flask_client, "admin-live@test.local")
@@ -590,3 +719,14 @@ def test_socketio_join_submit_and_presenter_control_emit_updates():
     assert submit_ack["ok"] is True
     received = admin_socket.get_received()
     assert any(item["name"] == "live:results_updated" for item in received)
+
+    slide_ack = admin_socket.emit(
+        "live:presenter_control",
+        {"session_id": session_id, "action": "go_to_slide", "activity_id": content_id},
+        callback=True,
+    )
+    assert slide_ack["ok"] is True
+    assert slide_ack["session"]["active_activity_id"] == content_id
+    slide_events = admin_socket.get_received()
+    assert any(item["name"] == "live:session_state" for item in slide_events)
+    assert any(item["name"] == "live:activity_state" for item in slide_events)

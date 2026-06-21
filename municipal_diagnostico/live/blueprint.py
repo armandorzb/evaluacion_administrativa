@@ -19,13 +19,17 @@ from municipal_diagnostico.live.services import (
     build_qr_png,
     create_session,
     create_template,
+    delete_activity,
+    duplicate_activity,
     find_session_by_code,
     get_or_create_participant,
     moderate_response,
+    reorder_activities,
     room_name,
     serialize_activity,
     serialize_session,
     submit_response,
+    update_activity,
     update_template,
     upvote_response,
 )
@@ -45,6 +49,7 @@ ACTIVITY_TYPE_LABELS = {
     "qa": "Q&A",
     "quiz_choice": "Quiz opcion",
     "quiz_text": "Quiz texto",
+    "content_slide": "Diapositiva",
 }
 
 
@@ -135,7 +140,36 @@ def session_detail(session_id: int):
     session = LiveSession.query.get_or_404(session_id)
     if request.method == "POST":
         require_live_admin()
+        action = request.form.get("action") or "add_slide"
         try:
+            if action:
+                if action == "update_slide":
+                    activity = db.session.get(LiveActivity, request.form.get("activity_id", type=int) or 0)
+                    if activity is None or activity.session_id != session.id:
+                        abort(404)
+                    update_activity(activity, activity_update_payload_from_form(request.form, activity))
+                    log_activity("update_live_slide", entity_type="live_activity", entity_id=activity.id)
+                    flash("Diapositiva actualizada.", "success")
+                elif action == "duplicate_slide":
+                    activity = duplicate_activity(session, request.form.get("activity_id", type=int) or 0)
+                    log_activity("duplicate_live_slide", entity_type="live_activity", entity_id=activity.id)
+                    flash("Diapositiva duplicada.", "success")
+                elif action == "delete_slide":
+                    activity_id = request.form.get("activity_id", type=int) or 0
+                    delete_activity(session, activity_id)
+                    log_activity("delete_live_slide", entity_type="live_activity", entity_id=activity_id)
+                    flash("Diapositiva eliminada.", "success")
+                elif action == "reorder_slides":
+                    reorder_activities(session, [int(value) for value in request.form.getlist("slide_ids") if str(value).isdigit()])
+                    log_activity("reorder_live_slides", entity_type="live_session", entity_id=session.id)
+                    flash("Orden de diapositivas actualizado.", "success")
+                else:
+                    activity = add_activity(session, activity_payload_from_form(request.form))
+                    log_activity("add_live_slide", entity_type="live_activity", entity_id=activity.id)
+                    flash("Diapositiva agregada a la presentacion.", "success")
+                db.session.commit()
+                broadcast_session(session)
+                return redirect(url_for("live.session_detail", session_id=session.id))
             activity = add_activity(session, activity_payload_from_form(request.form))
             db.session.commit()
             log_activity("add_live_activity", entity_type="live_activity", entity_id=activity.id)
@@ -343,6 +377,66 @@ def api_add_activity(session_id: int):
         return json_error(exc)
 
 
+@bp.route("/api/sessions/<int:session_id>/activities/<int:activity_id>", methods=["PATCH", "PUT"])
+@live_role_required("administrador")
+def api_update_activity(session_id: int, activity_id: int):
+    session = LiveSession.query.get_or_404(session_id)
+    activity = db.session.get(LiveActivity, activity_id)
+    if activity is None or activity.session_id != session.id:
+        abort(404)
+    try:
+        update_activity(activity, request.get_json(silent=True) or {})
+        db.session.commit()
+        broadcast_session(session)
+        return jsonify({"ok": True, "activity": serialize_activity(activity)})
+    except (ValidationError, ValueError, LiveValidationError) as exc:
+        db.session.rollback()
+        return json_error(exc)
+
+
+@bp.route("/api/sessions/<int:session_id>/activities/<int:activity_id>/duplicate", methods=["POST"])
+@live_role_required("administrador")
+def api_duplicate_activity(session_id: int, activity_id: int):
+    session = LiveSession.query.get_or_404(session_id)
+    try:
+        activity = duplicate_activity(session, activity_id)
+        db.session.commit()
+        broadcast_session(session)
+        return jsonify({"ok": True, "activity": serialize_activity(activity)}), 201
+    except (ValidationError, ValueError, LiveValidationError) as exc:
+        db.session.rollback()
+        return json_error(exc)
+
+
+@bp.route("/api/sessions/<int:session_id>/activities/<int:activity_id>", methods=["DELETE"])
+@live_role_required("administrador")
+def api_delete_activity(session_id: int, activity_id: int):
+    session = LiveSession.query.get_or_404(session_id)
+    try:
+        delete_activity(session, activity_id)
+        db.session.commit()
+        broadcast_session(session)
+        return jsonify({"ok": True, "session": serialize_session(session)})
+    except (ValidationError, ValueError, LiveValidationError) as exc:
+        db.session.rollback()
+        return json_error(exc)
+
+
+@bp.route("/api/sessions/<int:session_id>/activities/reorder", methods=["POST"])
+@live_role_required("administrador")
+def api_reorder_activities(session_id: int):
+    session = LiveSession.query.get_or_404(session_id)
+    payload = request.get_json(silent=True) or {}
+    try:
+        reorder_activities(session, [int(value) for value in payload.get("activity_ids") or []])
+        db.session.commit()
+        broadcast_session(session)
+        return jsonify({"ok": True, "session": serialize_session(session)})
+    except (ValidationError, ValueError, LiveValidationError) as exc:
+        db.session.rollback()
+        return json_error(exc)
+
+
 @bp.route("/api/sessions/<int:session_id>/control", methods=["POST"])
 @live_role_required("administrador")
 def api_control_session(session_id: int):
@@ -542,6 +636,15 @@ def template_payload_from_form(form) -> dict[str, object]:
                 "case_sensitive": form_bool(form, "case_sensitive"),
             }
         )
+    elif tipo == "content_slide":
+        config.update(
+            {
+                "layout": form.get("layout") or "text",
+                "body": form.get("body") or "",
+                "media_url": form.get("media_url") or None,
+                "timer_seconds": form.get("timer_seconds"),
+            }
+        )
     return {
         "tipo": tipo,
         "titulo": form.get("titulo") or "",
@@ -566,10 +669,34 @@ def activity_payload_from_form(form) -> dict[str, object]:
     return template_payload_from_form(form)
 
 
+def activity_update_payload_from_form(form, activity: LiveActivity) -> dict[str, object]:
+    config = dict(activity.config_json or {})
+    if "show_results" in form:
+        config["show_results"] = form_bool(form, "show_results", default=True)
+    if form.get("result_layout"):
+        config["result_layout"] = form.get("result_layout")
+    if activity.tipo == "content_slide":
+        config.update(
+            {
+                "layout": form.get("layout") or config.get("layout") or "text",
+                "body": form.get("body") or "",
+                "media_url": form.get("media_url") or None,
+                "timer_seconds": form.get("timer_seconds"),
+            }
+        )
+    return {
+        "tipo": activity.tipo,
+        "titulo": form.get("titulo") or activity.titulo,
+        "prompt": form.get("prompt") or activity.prompt,
+        "config": config,
+    }
+
+
 def form_bool(form, name: str, *, default: bool = False) -> bool:
     if name not in form:
         return default
-    return str(form.get(name) or "").lower() in {"1", "true", "on", "yes", "si"}
+    values = form.getlist(name) if hasattr(form, "getlist") else [form.get(name)]
+    return any(str(value or "").lower() in {"1", "true", "on", "yes", "si"} for value in values)
 
 
 def serialize_template(template: LiveReactivoTemplate) -> dict[str, object]:

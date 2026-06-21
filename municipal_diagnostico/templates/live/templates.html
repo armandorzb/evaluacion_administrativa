@@ -29,6 +29,7 @@
                     <option value="qa">Q&A</option>
                     <option value="quiz_choice">Quiz opcion</option>
                     <option value="quiz_text">Quiz texto</option>
+                    <option value="content_slide">Diapositiva informativa</option>
                 </select>
             </label>
         </div>
@@ -144,6 +145,22 @@
                     <span>Distinguir mayusculas</span>
                 </label>
             </div>
+        </div>
+
+        <div class="stack" data-live-config="content_slide" hidden>
+            <div class="form-grid">
+                <label>Layout
+                    <select name="layout">
+                        <option value="text">Texto</option>
+                        <option value="title">Titulo</option>
+                        <option value="instructions">Instrucciones</option>
+                        <option value="qr">QR de acceso</option>
+                    </select>
+                </label>
+                <label>Temporizador (segundos)<input name="timer_seconds" type="number" min="0" max="3600" value="0"></label>
+            </div>
+            <label>Contenido<textarea name="body" rows="5" maxlength="2400" placeholder="Texto de la diapositiva"></textarea></label>
+            <label>URL de imagen o recurso<input name="media_url" maxlength="512" placeholder="https://..."></label>
         </div>
 
         <div class="actions">

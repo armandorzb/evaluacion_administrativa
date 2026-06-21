@@ -1,117 +1,261 @@
 {% extends "base.html" %}
 {% block title %}{{ session.titulo }} | Live{% endblock %}
 {% block header_brand %}Live en Tiempo Real{% endblock %}
-{% block header_subtitle %}Detalle de sesión y actividades{% endblock %}
+{% block header_subtitle %}Editor de presentacion interactiva{% endblock %}
 
 {% block content %}
-<section class="hero-panel live-session-head">
-    <div>
-        <p class="eyebrow">Código {{ session.code }}</p>
+{% set activity_ids = session.activities|map(attribute='id')|list %}
+{% set selected_id = session.active_activity_id if session.active_activity_id in activity_ids else (activity_ids[0] if activity_ids else None) %}
+
+<section class="live-menti-appbar" aria-label="Editor de presentacion Live">
+    <a class="live-back-link" href="{{ url_for('live.sessions') }}">Presentaciones</a>
+    <div class="live-menti-title">
+        <p class="eyebrow">Codigo {{ session.code }}</p>
         <h1>{{ session.titulo }}</h1>
-        <p class="lede">{{ session.descripcion or "Sesión live" }}</p>
-        <div class="tag-row">
-            <span class="tag">{{ "Guiada" if session.mode == "guided" else "Libre" }}</span>
-            <span class="tag">{{ session.estado }}</span>
-        </div>
+        <p>{{ session.descripcion or "Presentacion interactiva con diapositivas y dinamicas en vivo." }}</p>
     </div>
-    <div class="live-qr-block">
+    <div class="live-menti-status">
+        <span class="tag">{{ "Guiada" if session.mode == "guided" else "Libre" }}</span>
+        <span class="tag">{{ session.estado }}</span>
+        <span class="tag">{{ session.activities|length }} slides</span>
+    </div>
+    <a class="live-menti-access" href="{{ qr_access_url }}" target="_blank" rel="noopener">
         <img src="{{ qr_image_url }}" alt="QR de acceso a {{ session.code }}">
-        <small>Escanea para entrar</small>
-        <code>{{ join_url }}</code>
-        <code>{{ qr_access_url }}</code>
+        <span>
+            <small>Participa</small>
+            <strong>{{ session.code }}</strong>
+        </span>
+    </a>
+    <div class="live-menti-actions">
+        <a class="button" href="{{ url_for('live.instructions', session_id=session.id) }}">QR</a>
+        <a class="button" href="{{ url_for('live.export_session_xlsx', session_id=session.id) }}">Excel</a>
+        <a class="button" href="{{ url_for('live.export_session_pdf', session_id=session.id) }}">PDF</a>
+        {% if current_user.rol == "administrador" %}
+        <form method="post" action="{{ url_for('live.control_session', session_id=session.id) }}">
+            <input type="hidden" name="action" value="open_session">
+            <button class="button" type="submit">Abrir</button>
+        </form>
+        <form method="post" action="{{ url_for('live.control_session', session_id=session.id) }}">
+            <input type="hidden" name="action" value="close_session">
+            <button class="button danger" type="submit">Cerrar</button>
+        </form>
+        {% endif %}
+        <a class="button button-primary" href="{{ url_for('live.present', session_id=session.id) }}">Presentar</a>
     </div>
 </section>
 
-<section class="actions">
-    <a class="button" href="{{ url_for('live.sessions') }}">Sesiones</a>
-    <a class="button button-primary" href="{{ url_for('live.present', session_id=session.id) }}">Pantalla presentador</a>
-    <a class="button" href="{{ url_for('live.instructions', session_id=session.id) }}">Pantalla QR</a>
-    <a class="button" href="{{ url_for('live.export_session_xlsx', session_id=session.id) }}">Excel</a>
-    <a class="button" href="{{ url_for('live.export_session_pdf', session_id=session.id) }}">PDF</a>
-    {% if current_user.rol == "administrador" %}
-    <form method="post" action="{{ url_for('live.control_session', session_id=session.id) }}">
-        <input type="hidden" name="action" value="open_session">
-        <button class="button" type="submit">Abrir</button>
+<section class="live-editor" data-live-editor>
+    <form class="live-slide-rail" method="post" data-live-reorder-form>
+        <input type="hidden" name="action" value="reorder_slides">
+        <div class="live-slide-rail-head">
+            <span>
+                <p class="eyebrow">Diapositivas</p>
+                <strong>{{ session.activities|length }} slides</strong>
+            </span>
+            {% if current_user.rol == "administrador" %}
+            <span class="actions">
+                <a class="button" href="#live-add-slide">Agregar</a>
+                <button class="button" type="submit">Guardar orden</button>
+            </span>
+            {% endif %}
+        </div>
+        <div class="live-slide-thumbs" data-live-slide-order>
+            {% for activity in session.activities %}
+            <div class="live-slide-thumb-wrap" data-live-slide-order-item>
+                <input type="hidden" name="slide_ids" value="{{ activity.id }}">
+                <button
+                    class="live-slide-thumb{% if activity.id == selected_id %} is-selected{% endif %}"
+                    type="button"
+                    data-live-editor-slide="{{ activity.id }}"
+                >
+                    <span class="live-slide-thumb-meta">
+                        <span>{{ "%02d"|format(loop.index) }}</span>
+                        <em>{{ activity.estado }}</em>
+                    </span>
+                    <strong>{{ activity.titulo }}</strong>
+                    <small>{{ live_type_label(activity.tipo) }}</small>
+                </button>
+                {% if current_user.rol == "administrador" %}
+                <span class="live-slide-move">
+                    <button class="button" type="button" data-live-move-slide="up">Subir</button>
+                    <button class="button" type="button" data-live-move-slide="down">Bajar</button>
+                </span>
+                {% endif %}
+            </div>
+            {% else %}
+            <p class="muted">Agrega una diapositiva para empezar.</p>
+            {% endfor %}
+        </div>
     </form>
-    <form method="post" action="{{ url_for('live.control_session', session_id=session.id) }}">
-        <input type="hidden" name="action" value="close_session">
-        <button class="button danger" type="submit">Cerrar</button>
-    </form>
-    {% endif %}
+
+    <main class="live-slide-workbench">
+        {% for activity in session.activities %}
+        <article class="live-slide-canvas" data-live-editor-canvas="{{ activity.id }}" {% if activity.id != selected_id %}hidden{% endif %}>
+            <div class="live-slide-frame live-slide-layout-{{ activity.config_json.layout if activity.tipo == 'content_slide' else 'interactive' }}">
+                <div class="live-slide-frame-meta">
+                    <span>Slide {{ loop.index }} / {{ session.activities|length }}</span>
+                    <span>{{ live_type_label(activity.tipo) }}</span>
+                </div>
+                {% if activity.tipo == "content_slide" %}
+                <p class="eyebrow">{{ activity.config_json.layout|default("text") }}</p>
+                <h2>{{ activity.titulo }}</h2>
+                <p class="lede">{{ activity.prompt }}</p>
+                {% if activity.config_json.body %}<div class="live-slide-body">{{ activity.config_json.body }}</div>{% endif %}
+                {% if activity.config_json.layout == "qr" %}
+                <div class="live-slide-qr">
+                    <img src="{{ qr_image_url }}" alt="QR de acceso a {{ session.code }}">
+                    <strong>{{ session.code }}</strong>
+                    <code>{{ qr_access_url }}</code>
+                </div>
+                {% elif activity.config_json.media_url %}
+                <img class="live-slide-media" src="{{ activity.config_json.media_url }}" alt="">
+                {% endif %}
+                {% else %}
+                <p class="eyebrow">{{ live_type_label(activity.tipo) }}</p>
+                <h2>{{ activity.titulo }}</h2>
+                <p class="lede">{{ activity.prompt }}</p>
+                <div class="live-slide-placeholder">
+                    <span>{{ live_type_label(activity.tipo) }}</span>
+                    <small>Los resultados se muestran en vivo durante la presentacion.</small>
+                </div>
+                {% endif %}
+            </div>
+        </article>
+        {% else %}
+        <article class="live-slide-canvas">
+            <div class="live-slide-frame">
+                <p class="eyebrow">Presentacion vacia</p>
+                <h2>Agrega contenido o una dinamica</h2>
+                <p class="lede">Usa los paneles superiores para comenzar a construir el flujo.</p>
+            </div>
+        </article>
+        {% endfor %}
+    </main>
+
+    <aside class="live-slide-properties">
+        {% for activity in session.activities %}
+        <div data-live-editor-properties="{{ activity.id }}" {% if activity.id != selected_id %}hidden{% endif %}>
+            <div class="live-properties-head">
+                <span>
+                    <p class="eyebrow">Propiedades</p>
+                    <h2>{{ activity.titulo }}</h2>
+                </span>
+                <span class="tag">{{ live_type_label(activity.tipo) }}</span>
+            </div>
+            {% if current_user.rol == "administrador" %}
+            <form method="post" class="stack live-properties-form">
+                <input type="hidden" name="action" value="update_slide">
+                <input type="hidden" name="activity_id" value="{{ activity.id }}">
+                <input type="hidden" name="tipo" value="{{ activity.tipo }}">
+                <label>Titulo<input name="titulo" value="{{ activity.titulo }}" required maxlength="180"></label>
+                <label>Prompt<textarea name="prompt" rows="3" required maxlength="1200">{{ activity.prompt }}</textarea></label>
+                <div class="form-grid">
+                    <label>Resultados
+                        <select name="result_layout">
+                            <option value="chart" {% if activity.config_json.result_layout == "chart" %}selected{% endif %}>Grafica</option>
+                            <option value="list" {% if activity.config_json.result_layout == "list" %}selected{% endif %}>Lista</option>
+                            <option value="grid" {% if activity.config_json.result_layout == "grid" %}selected{% endif %}>Matriz</option>
+                        </select>
+                    </label>
+                    <label class="checkbox-inline">
+                        <input type="hidden" name="show_results" value="false">
+                        <input type="checkbox" name="show_results" {% if activity.config_json.show_results != false %}checked{% endif %}>
+                        <span>Revelar resultados</span>
+                    </label>
+                </div>
+                {% if activity.tipo == "content_slide" %}
+                <div class="form-grid">
+                    <label>Layout
+                        <select name="layout">
+                            <option value="text" {% if activity.config_json.layout == "text" %}selected{% endif %}>Texto</option>
+                            <option value="title" {% if activity.config_json.layout == "title" %}selected{% endif %}>Titulo</option>
+                            <option value="instructions" {% if activity.config_json.layout == "instructions" %}selected{% endif %}>Instrucciones</option>
+                            <option value="qr" {% if activity.config_json.layout == "qr" %}selected{% endif %}>QR</option>
+                        </select>
+                    </label>
+                    <label>Timer<input name="timer_seconds" type="number" min="0" max="3600" value="{{ activity.config_json.timer_seconds or 0 }}"></label>
+                </div>
+                <label>Contenido<textarea name="body" rows="5" maxlength="2400">{{ activity.config_json.body or "" }}</textarea></label>
+                <label>URL de imagen o recurso<input name="media_url" maxlength="512" value="{{ activity.config_json.media_url or "" }}"></label>
+                {% endif %}
+                <div class="live-sticky-save">
+                    <button class="button button-primary" type="submit">Guardar cambios</button>
+                </div>
+            </form>
+            <div class="actions live-properties-actions">
+                <form method="post">
+                    <input type="hidden" name="action" value="duplicate_slide">
+                    <input type="hidden" name="activity_id" value="{{ activity.id }}">
+                    <button class="button" type="submit">Duplicar</button>
+                </form>
+                <form method="post">
+                    <input type="hidden" name="action" value="delete_slide">
+                    <input type="hidden" name="activity_id" value="{{ activity.id }}">
+                    <button class="button danger" type="submit">Eliminar</button>
+                </form>
+            </div>
+            {% endif %}
+        </div>
+        {% else %}
+        <p class="muted">Selecciona una diapositiva para editar.</p>
+        {% endfor %}
+    </aside>
 </section>
 
 {% if current_user.rol == "administrador" %}
-<article class="panel">
-    <div class="section-heading">
-        <div>
-            <p class="eyebrow">Actividades</p>
-            <h2>Agregar desde banco</h2>
-        </div>
-    </div>
-    <form method="post" class="actions">
-        <label class="compact-field">Reactivo
-            <select name="template_id" required>
-                {% for template in templates %}
-                <option value="{{ template.id }}">{{ template.titulo }}</option>
-                {% endfor %}
-            </select>
-        </label>
-        <button class="button button-primary" type="submit">Agregar</button>
-    </form>
-</article>
+<section class="live-editor-create" id="live-add-slide">
+    <details class="panel live-add-slide" {% if not session.activities %}open{% endif %}>
+        <summary>
+            <span>
+                <small class="eyebrow">Nueva diapositiva</small>
+                <strong>Agregar contenido</strong>
+            </span>
+        </summary>
+        <form method="post" class="stack">
+            <input type="hidden" name="action" value="add_slide">
+            <input type="hidden" name="tipo" value="content_slide">
+            <div class="form-grid">
+                <label>Titulo<input name="titulo" required maxlength="180" placeholder="Titulo de la diapositiva"></label>
+                <label>Layout
+                    <select name="layout">
+                        <option value="text">Texto</option>
+                        <option value="title">Titulo</option>
+                        <option value="instructions">Instrucciones</option>
+                        <option value="qr">QR de acceso</option>
+                    </select>
+                </label>
+            </div>
+            <label>Subtitulo o instruccion<textarea name="prompt" rows="2" required maxlength="1200" placeholder="Texto corto bajo el titulo"></textarea></label>
+            <label>Contenido<textarea name="body" rows="4" maxlength="2400" placeholder="Texto principal de la diapositiva"></textarea></label>
+            <div class="form-grid">
+                <label>URL de imagen o recurso<input name="media_url" maxlength="512" placeholder="https://..."></label>
+                <label>Timer (segundos)<input name="timer_seconds" type="number" min="0" max="3600" value="0"></label>
+            </div>
+            <button class="button button-primary" type="submit">Agregar diapositiva</button>
+        </form>
+    </details>
+
+    <details class="panel live-add-slide">
+        <summary>
+            <span>
+                <small class="eyebrow">Dinamica reusable</small>
+                <strong>Insertar desde banco</strong>
+            </span>
+        </summary>
+        <form method="post" class="stack">
+            <input type="hidden" name="action" value="add_slide">
+            <label>Reactivo
+                <select name="template_id" required>
+                    {% for template in templates %}
+                    <option value="{{ template.id }}">{{ template.titulo }} - {{ live_type_label(template.tipo) }}</option>
+                    {% endfor %}
+                </select>
+            </label>
+            <button class="button button-primary" type="submit">Agregar dinamica</button>
+        </form>
+    </details>
+</section>
 {% endif %}
 
-<section class="panel">
-    <div class="table-wrap">
-        <table class="executive-table">
-            <thead>
-                <tr>
-                    <th>Orden</th>
-                    <th>Actividad</th>
-                    <th>Tipo</th>
-                    <th>Estado</th>
-                    <th>Respuestas</th>
-                    {% if current_user.rol == "administrador" %}<th>Control</th>{% endif %}
-                </tr>
-            </thead>
-            <tbody>
-                {% for activity in session.activities %}
-                <tr>
-                    <td>{{ activity.orden }}</td>
-                    <td><strong>{{ activity.titulo }}</strong><div class="muted">{{ activity.prompt }}</div></td>
-                    <td>{{ live_type_label(activity.tipo) }}</td>
-                    <td><span class="status status-{{ 'opportune' if activity.estado == 'open' else 'low' }}">{{ activity.estado }}</span></td>
-                    <td>{{ activity.responses|length }}</td>
-                    {% if current_user.rol == "administrador" %}
-                    <td class="actions">
-                        <form method="post" action="{{ url_for('live.control_session', session_id=session.id) }}">
-                            <input type="hidden" name="action" value="open_activity">
-                            <input type="hidden" name="activity_id" value="{{ activity.id }}">
-                            <button class="button" type="submit">Abrir</button>
-                        </form>
-                        <form method="post" action="{{ url_for('live.control_session', session_id=session.id) }}">
-                            <input type="hidden" name="action" value="close_activity">
-                            <input type="hidden" name="activity_id" value="{{ activity.id }}">
-                            <button class="button" type="submit">Cerrar</button>
-                        </form>
-                        <form method="post" action="{{ url_for('live.control_session', session_id=session.id) }}">
-                            <input type="hidden" name="action" value="hide_results">
-                            <input type="hidden" name="activity_id" value="{{ activity.id }}">
-                            <button class="button" type="submit">Ocultar</button>
-                        </form>
-                        <form method="post" action="{{ url_for('live.control_session', session_id=session.id) }}">
-                            <input type="hidden" name="action" value="reveal_results">
-                            <input type="hidden" name="activity_id" value="{{ activity.id }}">
-                            <button class="button" type="submit">Revelar</button>
-                        </form>
-                    </td>
-                    {% endif %}
-                </tr>
-                {% else %}
-                <tr><td colspan="6" class="muted">Sin actividades.</td></tr>
-                {% endfor %}
-            </tbody>
-        </table>
-    </div>
-</section>
+<script defer src="{{ url_for('static', filename='live.js') }}"></script>
 {% endblock %}

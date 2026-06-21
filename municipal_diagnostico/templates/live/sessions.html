@@ -1,30 +1,40 @@
 {% extends "base.html" %}
-{% block title %}Sesiones Live{% endblock %}
+{% block title %}Presentaciones Live{% endblock %}
 {% block header_brand %}Live en Tiempo Real{% endblock %}
-{% block header_subtitle %}Sesiones persistentes con código público{% endblock %}
+{% block header_subtitle %}Presentaciones persistentes con codigo publico{% endblock %}
 
 {% block content %}
 <section class="section-heading">
     <div>
-        <p class="eyebrow">Sesiones</p>
-        <h1>Administración Live</h1>
+        <p class="eyebrow">Presentaciones</p>
+        <h1>Biblioteca Live</h1>
     </div>
-    <a class="button" href="{{ url_for('live.dashboard') }}">Panel Live</a>
+    <div class="actions">
+        <a class="button" href="{{ url_for('live.templates') }}">Banco de reactivos</a>
+        <a class="button" href="{{ url_for('live.dashboard') }}">Panel Live</a>
+    </div>
 </section>
 
 {% if current_user.rol == "administrador" %}
-<article class="panel">
+<article class="panel live-create-presentation">
+    <div class="section-heading">
+        <div>
+            <p class="eyebrow">Nueva</p>
+            <h2>Anadir presentacion</h2>
+        </div>
+    </div>
     <form method="post" class="stack catalog-form">
         <div class="form-grid">
-            <label>Título<input name="titulo" required maxlength="180"></label>
+            <label>Titulo<input name="titulo" required maxlength="180" placeholder="Ej. Taller de diagnostico"></label>
             <label>Modo
                 <select name="mode">
-                    <option value="guided">Guiada</option>
-                    <option value="self_paced">Libre</option>
+                    <option value="guided">Guiada por presentador</option>
+                    <option value="self_paced">Libre para participantes</option>
                 </select>
             </label>
         </div>
-        <label>Descripción<textarea name="descripcion" rows="3" maxlength="1200"></textarea></label>
+        <label>Descripcion<textarea name="descripcion" rows="3" maxlength="1200" placeholder="Objetivo o contexto de la presentacion"></textarea></label>
+        <p class="muted">Puedes iniciar con reactivos del banco o crear diapositivas desde el editor.</p>
         <div class="choice-grid">
             {% for template in templates %}
             <label class="checkbox-card">
@@ -35,48 +45,60 @@
                 </span>
             </label>
             {% else %}
-            <p class="muted">Crea reactivos antes de armar sesiones.</p>
+            <p class="muted">Crea reactivos antes de armar presentaciones con dinamicas.</p>
             {% endfor %}
         </div>
         <div class="actions">
-            <button class="button button-primary" type="submit">Crear sesión</button>
+            <button class="button button-primary" type="submit">Crear presentacion</button>
         </div>
     </form>
 </article>
 {% endif %}
 
-<section class="panel">
-    <div class="table-wrap">
-        <table class="executive-table">
-            <thead>
-                <tr>
-                    <th>Sesión</th>
-                    <th>Código</th>
-                    <th>Modo</th>
-                    <th>Estado</th>
-                    <th>Actividades</th>
-                    <th>Acciones</th>
-                </tr>
-            </thead>
-            <tbody>
-                {% for session in sessions %}
-                <tr>
-                    <td><strong>{{ session.titulo }}</strong><div class="muted">{{ session.descripcion or "Sin descripción" }}</div></td>
-                    <td><code>{{ session.code }}</code></td>
-                    <td>{{ "Guiada" if session.mode == "guided" else "Libre" }}</td>
-                    <td><span class="status status-{{ 'opportune' if session.estado == 'active' else 'low' }}">{{ session.estado }}</span></td>
-                    <td>{{ session.activities|length }}</td>
-                    <td class="actions">
-                        <a class="button" href="{{ url_for('live.session_detail', session_id=session.id) }}">Detalle</a>
-                        <a class="button button-primary" href="{{ url_for('live.present', session_id=session.id) }}">Presentar</a>
-                        <a class="button" href="{{ url_for('live.instructions', session_id=session.id) }}">QR</a>
-                    </td>
-                </tr>
-                {% else %}
-                <tr><td colspan="6" class="muted">Sin sesiones live.</td></tr>
-                {% endfor %}
-            </tbody>
-        </table>
-    </div>
+<section class="live-presentation-cards">
+    {% for session in sessions %}
+    <article class="panel live-presentation-card">
+        <div class="live-presentation-card-head">
+            <div>
+                <p class="eyebrow">Codigo {{ session.code }}</p>
+                <h2>{{ session.titulo }}</h2>
+                <p class="muted">{{ session.descripcion or "Sin descripcion" }}</p>
+            </div>
+            <div class="live-mini-deck" aria-hidden="true">
+                <span></span>
+                <span></span>
+                <span></span>
+            </div>
+        </div>
+        <div class="live-presentation-card-meta">
+            <div>
+                <small>Modo</small>
+                <strong>{{ "Guiada" if session.mode == "guided" else "Libre" }}</strong>
+            </div>
+            <div>
+                <small>Slides</small>
+                <strong>{{ session.activities|length }}</strong>
+            </div>
+            <div>
+                <small>Participantes</small>
+                <strong>{{ session.participants|length }}</strong>
+            </div>
+        </div>
+        <div>
+            <div class="tag-row">
+                <span class="status status-{{ 'opportune' if session.estado == 'active' else 'low' }}">{{ session.estado }}</span>
+            </div>
+        </div>
+        <div class="actions">
+            <a class="button" href="{{ url_for('live.session_detail', session_id=session.id) }}">Editar</a>
+            <a class="button button-primary" href="{{ url_for('live.present', session_id=session.id) }}">Presentar</a>
+            <a class="button" href="{{ url_for('live.instructions', session_id=session.id) }}">QR</a>
+        </div>
+    </article>
+    {% else %}
+    <article class="panel">
+        <p class="muted">Sin presentaciones live.</p>
+    </article>
+    {% endfor %}
 </section>
 {% endblock %}

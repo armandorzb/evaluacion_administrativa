@@ -14,6 +14,7 @@ ACTIVITY_MATRIX_2X2 = "matrix_2x2"
 ACTIVITY_QA = "qa"
 ACTIVITY_QUIZ_CHOICE = "quiz_choice"
 ACTIVITY_QUIZ_TEXT = "quiz_text"
+ACTIVITY_CONTENT_SLIDE = "content_slide"
 
 ACTIVITY_TYPES = {
     ACTIVITY_BRAINSTORM,
@@ -25,6 +26,7 @@ ACTIVITY_TYPES = {
     ACTIVITY_QA,
     ACTIVITY_QUIZ_CHOICE,
     ACTIVITY_QUIZ_TEXT,
+    ACTIVITY_CONTENT_SLIDE,
 }
 SESSION_MODES = {"guided", "self_paced"}
 ActivityTypeLiteral = Literal[
@@ -37,6 +39,7 @@ ActivityTypeLiteral = Literal[
     "qa",
     "quiz_choice",
     "quiz_text",
+    "content_slide",
 ]
 
 
@@ -112,6 +115,9 @@ class PresenterControlPayload(BaseModel):
         "hide_results",
         "show_question",
         "set_timer",
+        "next_slide",
+        "previous_slide",
+        "go_to_slide",
     ]
     activity_id: int | None = None
     response_id: int | None = None
@@ -138,6 +144,15 @@ def normalize_activity_config(activity_type: str, raw_config: dict[str, Any] | N
             "max_ideas_per_participant": clamp_int(config.get("max_ideas_per_participant"), 1, 20, default=5),
             "max_length": clamp_int(config.get("max_length"), 20, 500, default=160),
             "moderation": normalize_choice(config.get("moderation"), {"none", "manual"}, default="none"),
+        }
+
+    if activity_type == ACTIVITY_CONTENT_SLIDE:
+        return {
+            **common,
+            "layout": normalize_choice(config.get("layout"), {"title", "text", "instructions", "qr"}, default="text"),
+            "body": normalize_optional_text(config.get("body"), 2400) or "",
+            "media_url": normalize_optional_text(config.get("media_url"), 512),
+            "timer_seconds": clamp_int(config.get("timer_seconds"), 0, 3600, default=0),
         }
 
     if activity_type == ACTIVITY_MULTIPLE_CHOICE:
@@ -241,6 +256,9 @@ def normalize_activity_config(activity_type: str, raw_config: dict[str, Any] | N
 
 
 def normalize_response_payload(activity_type: str, config: dict[str, Any], payload: dict[str, Any]) -> dict[str, Any]:
+    if activity_type == ACTIVITY_CONTENT_SLIDE:
+        raise ValueError("Esta diapositiva es informativa y no acepta respuestas.")
+
     if activity_type == ACTIVITY_BRAINSTORM:
         idea = str(payload.get("idea") or payload.get("text") or "").strip()
         max_length = int(config.get("max_length") or 160)

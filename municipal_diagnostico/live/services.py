@@ -20,6 +20,7 @@ from reportlab.platypus import Paragraph, SimpleDocTemplate, Spacer, Table, Tabl
 from municipal_diagnostico.extensions import db
 from municipal_diagnostico.live.schemas import (
     ACTIVITY_BRAINSTORM,
+    ACTIVITY_CONTENT_SLIDE,
     ACTIVITY_MATRIX_2X2,
     ACTIVITY_MULTIPLE_CHOICE,
     ACTIVITY_POINTS_100,
@@ -177,6 +178,123 @@ def add_activity_from_template(session: LiveSession, template: LiveReactivoTempl
     return activity
 
 
+def update_activity(activity: LiveActivity, raw_payload: dict[str, Any]) -> LiveActivity:
+    payload = ActivityPayload.model_validate(
+        {
+            "tipo": raw_payload.get("tipo") or activity.tipo,
+            "titulo": raw_payload.get("titulo") or activity.titulo,
+            "prompt": raw_payload.get("prompt") or activity.prompt,
+            "config": raw_payload.get("config") if raw_payload.get("config") is not None else activity.config_json,
+        }
+    )
+    activity.tipo = payload.tipo
+    activity.titulo = payload.titulo
+    activity.prompt = payload.prompt
+    activity.config_json = payload.config
+    return activity
+
+
+def duplicate_activity(session: LiveSession, activity_id: int) -> LiveActivity:
+    source = get_session_activity(session, activity_id)
+    duplicate = LiveActivity(
+        session=session,
+        template=source.template,
+        orden=next_activity_order(session),
+        tipo=source.tipo,
+        titulo=f"{source.titulo} (copia)"[:180],
+        prompt=source.prompt,
+        config_json=dict(source.config_json or {}),
+        payload_json=dict(source.payload_json or {}),
+        estado=initial_activity_state(session, source.tipo),
+    )
+    duplicate.payload_json.pop("timer_started_at", None)
+    duplicate.payload_json.pop("visited", None)
+    db.session.add(duplicate)
+    db.session.flush()
+
+    ordered_ids = [activity.id for activity in sorted(session.activities, key=lambda item: item.orden)]
+    ordered_ids.remove(duplicate.id)
+    source_index = ordered_ids.index(source.id)
+    ordered_ids.insert(source_index + 1, duplicate.id)
+    reorder_activities(session, ordered_ids)
+    return duplicate
+
+
+def delete_activity(session: LiveSession, activity_id: int) -> None:
+    activity = get_session_activity(session, activity_id)
+    ordered = [item for item in sorted(session.activities, key=lambda item: item.orden) if item.id != activity.id]
+    was_active = session.active_activity_id == activity.id
+    next_active_id = None
+    if was_active and ordered:
+        later = [item for item in ordered if item.orden > activity.orden]
+        next_active_id = (later[0] if later else ordered[-1]).id
+
+    db.session.delete(activity)
+    db.session.flush()
+    db.session.expire(session, ["activities"])
+    remaining = sorted(session.activities, key=lambda item: item.orden)
+    if remaining:
+        for index, item in enumerate(remaining, start=1):
+            item.orden = -1000 - index
+        db.session.flush()
+        for index, item in enumerate(remaining, start=1):
+            item.orden = index
+    if was_active:
+        session.active_activity_id = None
+        if next_active_id:
+            open_activity(session, next_active_id)
+
+
+def reorder_activities(session: LiveSession, ordered_ids: list[int]) -> None:
+    activities_by_id = {activity.id: activity for activity in session.activities}
+    normalized_ids = [int(activity_id) for activity_id in ordered_ids]
+    if len(normalized_ids) != len(set(normalized_ids)):
+        raise LiveValidationError("El orden contiene diapositivas repetidas.")
+    if set(normalized_ids) != set(activities_by_id):
+        raise LiveValidationError("El orden debe incluir todas las diapositivas de la presentacion.")
+
+    for index, activity in enumerate(session.activities, start=1):
+        activity.orden = -1000 - index
+    db.session.flush()
+    for index, activity_id in enumerate(normalized_ids, start=1):
+        activities_by_id[activity_id].orden = index
+
+
+def go_to_slide(session: LiveSession, activity_id: int) -> LiveActivity:
+    activity = open_activity(session, activity_id)
+    set_activity_payload(activity, {"visited": True})
+    return activity
+
+
+def next_slide(session: LiveSession) -> LiveActivity:
+    ordered = sorted(session.activities, key=lambda item: item.orden)
+    if not ordered:
+        raise LiveValidationError("Agrega al menos una diapositiva para presentar.")
+    current_index = current_slide_index(session, ordered)
+    next_index = min(current_index + 1, len(ordered) - 1)
+    return go_to_slide(session, ordered[next_index].id)
+
+
+def previous_slide(session: LiveSession) -> LiveActivity:
+    ordered = sorted(session.activities, key=lambda item: item.orden)
+    if not ordered:
+        raise LiveValidationError("Agrega al menos una diapositiva para presentar.")
+    current_index = current_slide_index(session, ordered)
+    previous_index = max(current_index - 1, 0)
+    return go_to_slide(session, ordered[previous_index].id)
+
+
+def current_slide_index(session: LiveSession, ordered: list[LiveActivity]) -> int:
+    if session.active_activity_id:
+        for index, activity in enumerate(ordered):
+            if activity.id == session.active_activity_id:
+                return index
+    for index, activity in enumerate(ordered):
+        if activity.estado == "open":
+            return index
+    return 0
+
+
 def initial_activity_state(session: LiveSession, activity_type: str | None) -> str:
     if session.estado == "active" and session.mode == "self_paced" and activity_type not in QUIZ_TYPES:
         return "open"
@@ -321,10 +439,18 @@ def apply_presenter_control(session: LiveSession, raw_payload: dict[str, Any]) -
         open_session(session)
     elif payload.action == "close_session":
         close_session(session)
+    elif payload.action == "next_slide":
+        next_slide(session)
+    elif payload.action == "previous_slide":
+        previous_slide(session)
+    elif payload.action == "go_to_slide":
+        if not payload.activity_id:
+            raise LiveValidationError("Selecciona una diapositiva para presentar.")
+        go_to_slide(session, payload.activity_id)
     elif payload.action == "open_activity":
         if not payload.activity_id:
             raise LiveValidationError("Selecciona una actividad para abrir.")
-        open_activity(session, payload.activity_id)
+        go_to_slide(session, payload.activity_id)
     elif payload.action == "close_activity":
         if not payload.activity_id:
             raise LiveValidationError("Selecciona una actividad para cerrar.")
@@ -414,7 +540,7 @@ def open_activity(session: LiveSession, activity_id: int) -> LiveActivity:
         for current in session.activities:
             if current.id != activity.id and current.estado == "open":
                 current.estado = "draft"
-        session.active_activity_id = activity.id
+    session.active_activity_id = activity.id
     activity.estado = "open"
     activity.opened_at = activity.opened_at or utcnow()
     activity.closed_at = None
@@ -539,6 +665,8 @@ def activity_runtime_payload(activity: LiveActivity) -> dict[str, Any]:
 
 def aggregate_results(activity: LiveActivity) -> dict[str, Any]:
     responses = [response for response in activity.responses if response.is_active]
+    if activity.tipo == ACTIVITY_CONTENT_SLIDE:
+        return {"type": ACTIVITY_CONTENT_SLIDE, "total": 0}
     if activity.tipo == ACTIVITY_MULTIPLE_CHOICE:
         options = list((activity.config_json or {}).get("options", []))
         counts = Counter(str(response.payload_json.get("choice")) for response in responses)

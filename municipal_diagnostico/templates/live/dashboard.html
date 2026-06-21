@@ -1,18 +1,18 @@
 {% extends "base.html" %}
-{% block title %}Live en Tiempo Real{% endblock %}
+{% block title %}Presentaciones Live{% endblock %}
 {% block header_brand %}Live en Tiempo Real{% endblock %}
-{% block header_subtitle %}Sesiones participativas con resultados al instante{% endblock %}
+{% block header_subtitle %}Presentaciones interactivas con resultados al instante{% endblock %}
 
 {% block content %}
 <section class="hero-panel live-hero">
     <div>
-        <p class="eyebrow">Módulo independiente</p>
-        <h1>Live en Tiempo Real</h1>
-        <p class="lede">Banco de reactivos, sesiones con código público y resultados por WebSocket.</p>
+        <p class="eyebrow">Modulo independiente</p>
+        <h1>Presentaciones Live</h1>
+        <p class="lede">Construye flujos tipo PowerPoint con diapositivas, dinamicas participativas, codigo publico y resultados por WebSocket.</p>
     </div>
     <div class="actions">
-        <a class="button" href="{{ url_for('live.templates') }}">Reactivos</a>
-        <a class="button button-primary" href="{{ url_for('live.sessions') }}">Sesiones</a>
+        <a class="button" href="{{ url_for('live.templates') }}">Banco de reactivos</a>
+        <a class="button button-primary" href="{{ url_for('live.sessions') }}">Anadir presentacion</a>
     </div>
 </section>
 
@@ -22,7 +22,7 @@
         <strong>{{ counts.templates }}</strong>
     </article>
     <article class="metric-card">
-        <span>Sesiones</span>
+        <span>Presentaciones</span>
         <strong>{{ counts.sessions }}</strong>
     </article>
     <article class="metric-card">
@@ -35,8 +35,8 @@
     <article class="panel">
         <div class="section-heading">
             <div>
-                <p class="eyebrow">Sesiones</p>
-                <h2>Actividad reciente</h2>
+                <p class="eyebrow">Presentaciones</p>
+                <h2>Recientes</h2>
             </div>
             <a class="button" href="{{ url_for('live.sessions') }}">Ver todas</a>
         </div>
@@ -45,12 +45,12 @@
             <a class="list-row" href="{{ url_for('live.session_detail', session_id=session.id) }}">
                 <span>
                     <strong>{{ session.titulo }}</strong>
-                    <small>{{ session.code }} · {{ session.mode }}</small>
+                    <small>{{ session.code }} - {{ session.activities|length }} diapositivas - {{ session.mode }}</small>
                 </span>
                 <span class="status status-{{ 'opportune' if session.estado == 'active' else 'low' }}">{{ session.estado }}</span>
             </a>
             {% else %}
-            <p class="muted">Sin sesiones registradas.</p>
+            <p class="muted">Sin presentaciones registradas.</p>
             {% endfor %}
         </div>
     </article>

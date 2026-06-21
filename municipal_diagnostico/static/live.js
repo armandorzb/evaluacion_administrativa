@@ -6,6 +6,7 @@
   let liveChart = null;
 
   initializeTemplateForms();
+  initializeSlideEditor();
   initializePresenter(initialSession);
   initializeParticipant(initialSession, initialActivity);
 
@@ -33,6 +34,40 @@
       };
       select.addEventListener("change", sync);
       sync();
+    });
+  }
+
+  function initializeSlideEditor() {
+    document.querySelectorAll("[data-live-editor]").forEach((editor) => {
+      const activate = (activityId) => {
+        editor.querySelectorAll("[data-live-editor-slide]").forEach((button) => {
+          button.classList.toggle("is-selected", button.dataset.liveEditorSlide === activityId);
+        });
+        editor.querySelectorAll("[data-live-editor-canvas]").forEach((panel) => {
+          panel.hidden = panel.dataset.liveEditorCanvas !== activityId;
+        });
+        editor.querySelectorAll("[data-live-editor-properties]").forEach((panel) => {
+          panel.hidden = panel.dataset.liveEditorProperties !== activityId;
+        });
+      };
+
+      editor.addEventListener("click", (event) => {
+        const slideButton = event.target.closest("[data-live-editor-slide]");
+        if (slideButton) {
+          activate(slideButton.dataset.liveEditorSlide);
+          return;
+        }
+        const moveButton = event.target.closest("[data-live-move-slide]");
+        if (!moveButton) return;
+        const item = moveButton.closest("[data-live-slide-order-item]");
+        if (!item) return;
+        if (moveButton.dataset.liveMoveSlide === "up" && item.previousElementSibling) {
+          item.parentNode.insertBefore(item, item.previousElementSibling);
+        }
+        if (moveButton.dataset.liveMoveSlide === "down" && item.nextElementSibling) {
+          item.parentNode.insertBefore(item.nextElementSibling, item);
+        }
+      });
     });
   }
 
@@ -218,9 +253,10 @@
     const timerButton = timerSeconds
       ? `<button class="button" type="button" data-live-activity-control="set_timer" data-activity-id="${activity.id}" data-timer-seconds="${timerSeconds}">Timer</button>`
       : "";
+    const typeLabel = activityTypeLabel(activity.tipo);
     const controls = canControl
       ? `<span class="actions">
-          <button class="button" type="button" data-live-activity-control="open_activity" data-activity-id="${activity.id}">Abrir</button>
+          <button class="button button-primary" type="button" data-live-activity-control="go_to_slide" data-activity-id="${activity.id}">Ir</button>
           <button class="button" type="button" data-live-activity-control="close_activity" data-activity-id="${activity.id}">Cerrar</button>
           <button class="button" type="button" data-live-activity-control="hide_results" data-activity-id="${activity.id}">Ocultar</button>
           <button class="button" type="button" data-live-activity-control="reveal_results" data-activity-id="${activity.id}">Revelar</button>
@@ -228,7 +264,11 @@
         </span>`
       : "";
     return `<div class="live-activity-item${activeClass}">
-      <span><strong>${escapeHtml(activity.titulo)}</strong><small>${escapeHtml(activity.estado)} - ${escapeHtml(activity.tipo)}</small></span>
+      <span class="live-activity-item-main">
+        <span class="live-activity-kicker">Slide ${Number(activity.orden || 0)} - ${escapeHtml(typeLabel)}</span>
+        <strong>${escapeHtml(activity.titulo)}</strong>
+        <small>${escapeHtml(activity.estado || "draft")}</small>
+      </span>
       ${controls}
     </div>`;
   }
@@ -383,15 +423,64 @@
     if (target) {
       const timer = renderTimer(activity);
       target.innerHTML = activity
-        ? `<p class="eyebrow">${escapeHtml(activity.tipo)}</p><h2>${escapeHtml(activity.titulo)}</h2><p>${escapeHtml(activity.prompt)}</p>${timer}`
+        ? `<p class="eyebrow">${escapeHtml(activityTypeLabel(activity.tipo))} - Slide ${Number(activity.orden || 0)}</p><h2>${escapeHtml(activity.titulo)}</h2><p>${escapeHtml(activity.prompt)}</p>${timer}`
         : `<p class="muted">Sin actividad seleccionada.</p>`;
     }
+    if (activity?.tipo === "content_slide") {
+      renderContentSlide(root, activity);
+      return;
+    }
     renderResults(root, activity?.results);
+  }
+
+  function renderContentSlide(root, activity) {
+    if (liveChart) {
+      liveChart.destroy();
+      liveChart = null;
+    }
+    const chartCanvas = root.querySelector("[data-live-chart]");
+    const chartWrap = chartCanvas?.closest(".live-chart-wrap");
+    const wordCloud = root.querySelector("[data-live-wordcloud]");
+    const list = root.querySelector("[data-live-results-list]");
+    if (chartCanvas) chartCanvas.hidden = true;
+    if (chartWrap) chartWrap.hidden = true;
+    if (wordCloud) {
+      wordCloud.innerHTML = "";
+      wordCloud.hidden = true;
+    }
+    if (!list) return;
+    const config = activity.config || {};
+    const body = config.body ? `<div class="live-content-slide-body">${escapeHtml(config.body)}</div>` : "";
+    const media = config.media_url ? `<img class="live-content-slide-media" src="${escapeHtml(config.media_url)}" alt="">` : "";
+    const qr = config.layout === "qr"
+      ? `<div class="live-content-slide-qr">
+          ${root.dataset.sessionQrUrl ? `<img src="${escapeHtml(root.dataset.sessionQrUrl)}" alt="">` : ""}
+          <strong>${escapeHtml(root.dataset.sessionCode || "")}</strong>
+          ${root.dataset.sessionJoinUrl ? `<code>${escapeHtml(root.dataset.sessionJoinUrl)}</code>` : ""}
+        </div>`
+      : "";
+    list.innerHTML = `<article class="live-content-slide live-content-slide-${escapeHtml(config.layout || "text")}">${body}${media}${qr}</article>`;
   }
 
   function renderTimer(activity) {
     if (!activity?.payload?.timer_seconds) return "";
     return `<p class="tag">Timer: ${Number(activity.payload.timer_seconds)}s</p>`;
+  }
+
+  function activityTypeLabel(type) {
+    const labels = {
+      brainstorm: "Lluvia de ideas",
+      multiple_choice: "Opcion multiple",
+      scale: "Escala",
+      ranking: "Ranking",
+      points_100: "100 puntos",
+      matrix_2x2: "Matriz 2x2",
+      qa: "Q&A",
+      quiz_choice: "Quiz",
+      quiz_text: "Quiz texto",
+      content_slide: "Diapositiva",
+    };
+    return labels[type] || String(type || "Slide");
   }
 
   function renderResults(root, results) {
