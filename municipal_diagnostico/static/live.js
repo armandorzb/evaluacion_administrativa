@@ -44,6 +44,7 @@
       let draggedItem = null;
       let pointerDrag = null;
       let saveTimer = null;
+      const inlineTimers = new Map();
 
       const activate = (activityId) => {
         editor.querySelectorAll("[data-live-editor-slide]").forEach((button) => {
@@ -105,6 +106,179 @@
           saveOrder();
         }
       };
+      const findActivityConfigNode = (activityId) =>
+        Array.from(editor.querySelectorAll("[data-live-activity-config]")).find(
+          (node) => node.dataset.liveActivityConfig === String(activityId),
+        );
+      const readActivityConfig = (activityId) => {
+        const node = findActivityConfigNode(activityId);
+        return { node, config: parseJsonNode(node) || {} };
+      };
+      const setInlineStatus = (activityId, message, state = "") => {
+        editor.querySelectorAll(`[data-live-inline-status="${activityId}"]`).forEach((node) => {
+          node.textContent = message;
+          node.dataset.state = state;
+        });
+      };
+      const textFromEditable = (node) =>
+        (node.innerText || "")
+          .replace(/\u00a0/g, " ")
+          .replace(/\r/g, "")
+          .replace(/\n{3,}/g, "\n\n")
+          .trim();
+      const updateEndpoint = (activityId) =>
+        (editor.dataset.liveUpdateEndpointTemplate || "").replace("__ACTIVITY_ID__", activityId);
+      const syncEditorFields = (activityId, field, value) => {
+        const properties = editor.querySelector(`[data-live-editor-properties="${activityId}"]`);
+        const form = properties?.querySelector("form.live-properties-form");
+        if (field === "titulo") {
+          const titleInput = form?.querySelector("[name='titulo']");
+          const titleHeading = properties?.querySelector(`[data-live-properties-title="${activityId}"]`);
+          const thumbTitle = editor
+            .querySelector(`[data-live-editor-slide="${activityId}"]`)
+            ?.querySelector("strong");
+          if (titleInput) titleInput.value = value;
+          if (titleHeading) titleHeading.textContent = value;
+          if (thumbTitle) thumbTitle.textContent = value;
+        }
+        if (field === "prompt") {
+          const promptInput = form?.querySelector("[name='prompt']");
+          if (promptInput) promptInput.value = value;
+        }
+        if (field === "body") {
+          const bodyInput = form?.querySelector("[name='body']");
+          if (bodyInput) bodyInput.value = value;
+        }
+      };
+      const currentTextValue = (activityId, field) => {
+        const node = editor.querySelector(
+          `[data-live-inline-edit][data-activity-id="${activityId}"][data-live-edit-field="${field}"]`,
+        );
+        return node ? textFromEditable(node) : "";
+      };
+      const buildActivityPayload = (activityId, field, value) => {
+        const properties = editor.querySelector(`[data-live-editor-properties="${activityId}"]`);
+        const form = properties?.querySelector("form.live-properties-form");
+        const { node: configNode, config: baseConfig } = readActivityConfig(activityId);
+        const config = { ...baseConfig };
+        const tipo = form?.querySelector("[name='tipo']")?.value || "";
+        const titulo =
+          field === "titulo"
+            ? value
+            : form?.querySelector("[name='titulo']")?.value || currentTextValue(activityId, "titulo");
+        const prompt =
+          field === "prompt"
+            ? value
+            : form?.querySelector("[name='prompt']")?.value || currentTextValue(activityId, "prompt");
+
+        const resultLayout = form?.querySelector("[name='result_layout']")?.value;
+        if (resultLayout) config.result_layout = resultLayout;
+        const showResults = form?.querySelector("input[type='checkbox'][name='show_results']");
+        if (showResults) config.show_results = showResults.checked;
+
+        if (tipo === "content_slide") {
+          const layout = form?.querySelector("[name='layout']")?.value;
+          if (layout) config.layout = layout;
+          const timerSeconds = Number(form?.querySelector("[name='timer_seconds']")?.value || 0);
+          config.timer_seconds = Number.isFinite(timerSeconds) ? timerSeconds : 0;
+          config.body =
+            field === "body" ? value : form?.querySelector("[name='body']")?.value ?? config.body ?? "";
+          config.media_url = form?.querySelector("[name='media_url']")?.value || null;
+        }
+
+        return { configNode, payload: { tipo, titulo, prompt, config } };
+      };
+      const saveInlineEdit = (activityId, field, value) => {
+        const endpoint = updateEndpoint(activityId);
+        if (!endpoint) return;
+        if ((field === "titulo" || field === "prompt") && value.length < 3) {
+          setInlineStatus(activityId, "Faltan caracteres para guardar", "error");
+          return;
+        }
+        const { configNode, payload } = buildActivityPayload(activityId, field, value);
+        setInlineStatus(activityId, "Guardando...", "saving");
+        fetch(endpoint, {
+          method: "PATCH",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify(payload),
+        })
+          .then((response) => response.json())
+          .then((json) => {
+            if (!json.ok) throw new Error(json.error || "No se pudo guardar.");
+            if (configNode) configNode.textContent = JSON.stringify(json.activity?.config || payload.config || {});
+            if (json.activity?.titulo) syncEditorFields(activityId, "titulo", json.activity.titulo);
+            if (json.activity?.prompt) syncEditorFields(activityId, "prompt", json.activity.prompt);
+            if (json.activity?.config?.body !== undefined) {
+              syncEditorFields(activityId, "body", json.activity.config.body || "");
+            }
+            setInlineStatus(activityId, "Guardado", "saved");
+          })
+          .catch(() => setInlineStatus(activityId, "No se pudo guardar", "error"));
+      };
+      const scheduleInlineSave = (editable) => {
+        const activityId = editable.dataset.activityId;
+        const field = editable.dataset.liveEditField;
+        const value = textFromEditable(editable);
+        const key = `${activityId}:${field}`;
+        syncEditorFields(activityId, field, value);
+        setInlineStatus(activityId, "Cambios pendientes", "dirty");
+        window.clearTimeout(inlineTimers.get(key));
+        inlineTimers.set(
+          key,
+          window.setTimeout(() => saveInlineEdit(activityId, field, value), 650),
+        );
+      };
+
+      editor.querySelectorAll("[data-live-inline-edit]").forEach((editable) => {
+        if (editable.getAttribute("contenteditable") !== "true") return;
+        editable.addEventListener("keydown", (event) => {
+          if (editable.dataset.liveEditField === "titulo" && event.key === "Enter") {
+            event.preventDefault();
+            editable.blur();
+          }
+        });
+        editable.addEventListener("input", () => scheduleInlineSave(editable));
+        editable.addEventListener("blur", () => {
+          const activityId = editable.dataset.activityId;
+          const field = editable.dataset.liveEditField;
+          const key = `${activityId}:${field}`;
+          window.clearTimeout(inlineTimers.get(key));
+          saveInlineEdit(activityId, field, textFromEditable(editable));
+        });
+      });
+
+      editor.querySelector("[data-live-quick-add-slide]")?.addEventListener("click", (event) => {
+        const endpoint = editor.dataset.liveAddEndpoint;
+        if (!endpoint) return;
+        const button = event.currentTarget;
+        button.disabled = true;
+        setReorderStatus("Creando diapositiva...", "saving");
+        fetch(endpoint, {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({
+            tipo: "content_slide",
+            titulo: "Nueva diapositiva",
+            prompt: "Haz clic para editar este texto.",
+            config: {
+              layout: "text",
+              body: "Escribe el contenido principal.",
+              timer_seconds: 0,
+              show_results: true,
+              result_layout: "chart",
+            },
+          }),
+        })
+          .then((response) => response.json())
+          .then((json) => {
+            if (!json.ok) throw new Error(json.error || "No se pudo crear.");
+            window.location.assign(`${window.location.pathname}?slide=${json.activity.id}`);
+          })
+          .catch(() => {
+            button.disabled = false;
+            setReorderStatus("No se pudo crear la diapositiva", "error");
+          });
+      });
 
       editor.addEventListener("click", (event) => {
         const slideButton = event.target.closest("[data-live-editor-slide]");

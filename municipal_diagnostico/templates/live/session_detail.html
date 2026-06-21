@@ -5,7 +5,9 @@
 
 {% block content %}
 {% set activity_ids = session.activities|map(attribute='id')|list %}
-{% set selected_id = session.active_activity_id if session.active_activity_id in activity_ids else (activity_ids[0] if activity_ids else None) %}
+{% set requested_selected_id = request.args.get('slide')|int if request.args.get('slide') else None %}
+{% set selected_id = requested_selected_id if requested_selected_id in activity_ids else (session.active_activity_id if session.active_activity_id in activity_ids else (activity_ids[0] if activity_ids else None)) %}
+{% set can_edit_live = current_user.rol == "administrador" %}
 
 <section class="live-menti-appbar" aria-label="Editor de presentacion Live">
     <a class="live-back-link" href="{{ url_for('live.sessions') }}">Presentaciones</a>
@@ -48,6 +50,8 @@
     class="live-editor"
     data-live-editor
     data-live-reorder-endpoint="/live/api/sessions/{{ session.id }}/activities/reorder"
+    data-live-add-endpoint="/live/api/sessions/{{ session.id }}/activities"
+    data-live-update-endpoint-template="/live/api/sessions/{{ session.id }}/activities/__ACTIVITY_ID__"
 >
     <form class="live-slide-rail" method="post" data-live-reorder-form>
         <input type="hidden" name="action" value="reorder_slides">
@@ -59,7 +63,8 @@
             </span>
             {% if current_user.rol == "administrador" %}
             <span class="actions">
-                <a class="button" href="#live-add-slide">Agregar</a>
+                <button class="button button-primary" type="button" data-live-quick-add-slide>Nueva</button>
+                <a class="button" href="#live-add-slide">Banco</a>
                 <button class="button" type="submit">Guardar orden</button>
             </span>
             {% endif %}
@@ -102,16 +107,17 @@
     <main class="live-slide-workbench">
         {% for activity in session.activities %}
         <article class="live-slide-canvas" data-live-editor-canvas="{{ activity.id }}" {% if activity.id != selected_id %}hidden{% endif %}>
-            <div class="live-slide-frame live-slide-layout-{{ activity.config_json.layout if activity.tipo == 'content_slide' else 'interactive' }}">
+            <div class="live-slide-frame live-slide-layout-{{ activity.config_json.layout if activity.tipo == 'content_slide' else 'interactive' }}" data-live-slide-frame="{{ activity.id }}">
                 <div class="live-slide-frame-meta">
                     <span>Slide {{ loop.index }} / {{ session.activities|length }}</span>
                     <span>{{ live_type_label(activity.tipo) }}</span>
+                    {% if can_edit_live %}<span data-live-inline-status="{{ activity.id }}">Editable</span>{% endif %}
                 </div>
                 {% if activity.tipo == "content_slide" %}
                 <p class="eyebrow">{{ activity.config_json.layout|default("text") }}</p>
-                <h2>{{ activity.titulo }}</h2>
-                <p class="lede">{{ activity.prompt }}</p>
-                {% if activity.config_json.body %}<div class="live-slide-body">{{ activity.config_json.body }}</div>{% endif %}
+                <h2 data-live-inline-edit data-live-edit-field="titulo" data-activity-id="{{ activity.id }}" contenteditable="{{ 'true' if can_edit_live else 'false' }}" spellcheck="true">{{ activity.titulo }}</h2>
+                <p class="lede" data-live-inline-edit data-live-edit-field="prompt" data-activity-id="{{ activity.id }}" contenteditable="{{ 'true' if can_edit_live else 'false' }}" spellcheck="true">{{ activity.prompt }}</p>
+                <div class="live-slide-body" data-live-inline-edit data-live-edit-field="body" data-activity-id="{{ activity.id }}" data-placeholder="Haz clic para escribir contenido" contenteditable="{{ 'true' if can_edit_live else 'false' }}" spellcheck="true">{{ activity.config_json.body or "" }}</div>
                 {% if activity.config_json.layout == "qr" %}
                 <div class="live-slide-qr">
                     <img src="{{ qr_image_url }}" alt="QR de acceso a {{ session.code }}">
@@ -123,8 +129,8 @@
                 {% endif %}
                 {% else %}
                 <p class="eyebrow">{{ live_type_label(activity.tipo) }}</p>
-                <h2>{{ activity.titulo }}</h2>
-                <p class="lede">{{ activity.prompt }}</p>
+                <h2 data-live-inline-edit data-live-edit-field="titulo" data-activity-id="{{ activity.id }}" contenteditable="{{ 'true' if can_edit_live else 'false' }}" spellcheck="true">{{ activity.titulo }}</h2>
+                <p class="lede" data-live-inline-edit data-live-edit-field="prompt" data-activity-id="{{ activity.id }}" contenteditable="{{ 'true' if can_edit_live else 'false' }}" spellcheck="true">{{ activity.prompt }}</p>
                 <div class="live-slide-placeholder">
                     <span>{{ live_type_label(activity.tipo) }}</span>
                     <small>Los resultados se muestran en vivo durante la presentacion.</small>
@@ -146,10 +152,11 @@
     <aside class="live-slide-properties">
         {% for activity in session.activities %}
         <div data-live-editor-properties="{{ activity.id }}" {% if activity.id != selected_id %}hidden{% endif %}>
+            <script type="application/json" data-live-activity-config="{{ activity.id }}">{{ activity.config_json|tojson }}</script>
             <div class="live-properties-head">
                 <span>
                     <p class="eyebrow">Propiedades</p>
-                    <h2>{{ activity.titulo }}</h2>
+                    <h2 data-live-properties-title="{{ activity.id }}">{{ activity.titulo }}</h2>
                 </span>
                 <span class="tag">{{ live_type_label(activity.tipo) }}</span>
             </div>
