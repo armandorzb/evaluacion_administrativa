@@ -129,6 +129,36 @@ def test_interactive_slide_layout_blocks_render_inside_slide_canvas():
         assert html.index("slide-layout-block-results") < html.index("data-slide-results-stage")
 
 
+def test_admin_initial_canvas_marks_text_click_targets():
+    app = build_app()
+    client = app.test_client()
+
+    content_html = client.get("/admin?code=123456").get_data(as_text=True)
+    canvas_index = content_html.index("data-slide-canvas")
+    article_end = content_html.index("</article>", canvas_index)
+    content_canvas = content_html[canvas_index:article_end]
+    assert 'data-text-box-id="title"' in content_canvas
+    assert 'data-text-box-id="body"' in content_canvas
+
+    session = client.post("/api/sessions", json={"title": "Targets iniciales"}).get_json()["session"]
+    client.post(
+        f"/api/sessions/{session['code']}/questions",
+        json={
+            "type": "multiple_choice",
+            "title": "Pregunta",
+            "prompt": "Elige",
+            "options": ["A", "B"],
+        },
+    )
+    interactive_html = client.get(f"/admin?code={session['code']}").get_data(as_text=True)
+    canvas_index = interactive_html.index("data-slide-canvas")
+    article_end = interactive_html.index("</article>", canvas_index)
+    interactive_canvas = interactive_html[canvas_index:article_end]
+    assert 'data-text-target="title"' in interactive_canvas
+    assert 'data-text-target="prompt"' in interactive_canvas
+    assert 'data-text-target="option:0"' in interactive_canvas
+
+
 def test_optional_admin_pin_protects_presenter_surfaces_but_not_audience():
     app = build_protected_app()
     client = app.test_client()

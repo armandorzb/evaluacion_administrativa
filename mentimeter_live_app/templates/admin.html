@@ -116,8 +116,8 @@
                             <span>Contenido</span>
                             <strong>{{ initial_layout_labels.get(initial_layout, "Contenido") }}</strong>
                         </div>
-                        <h2 contenteditable="true" spellcheck="false" data-edit-field="title">{{ initial_slide.title }}</h2>
-                        <div class="content-body-edit" contenteditable="true" spellcheck="true" data-config-field="body">{{ initial_config.get("body", "") }}</div>
+                        <h2 contenteditable="true" spellcheck="false" data-edit-field="title" data-text-box-id="title">{{ initial_slide.title }}</h2>
+                        <div class="content-body-edit" contenteditable="true" spellcheck="true" data-config-field="body" data-text-box-id="body">{{ initial_config.get("body", "") }}</div>
                         {% if initial_config.get("show_qr") or initial_layout == "qr" %}
                         <div class="slide-join-card">
                             <span>Código</span>
@@ -150,8 +150,8 @@
                         <section class="slide-layout-block slide-layout-block-question" data-layout-block-id="question" style="left:{{ question_block.get('x', 7) }}%;top:{{ question_block.get('y', 12) }}%;width:{{ question_block.get('w', 86) }}%;height:{{ question_block.get('h', 25) }}%;z-index:{{ question_block.get('z', 1) }};">
                             <button type="button" class="slide-block-move" data-block-move-handle aria-label="Mover bloque"></button>
                             <div class="slide-layout-block-content" data-layout-block-content>
-                                <h2 contenteditable="true" spellcheck="false" data-edit-field="title">{{ initial_slide.title }}</h2>
-                                <p class="slide-prompt" contenteditable="true" spellcheck="true" data-edit-field="prompt">{{ initial_slide.prompt }}</p>
+                                <h2 contenteditable="true" spellcheck="false" data-edit-field="title" data-text-target="title" data-auto-fit="true">{{ initial_slide.title }}</h2>
+                                <p class="slide-prompt" contenteditable="true" spellcheck="true" data-edit-field="prompt" data-text-target="prompt" data-auto-fit="true">{{ initial_slide.prompt }}</p>
                             </div>
                             <button type="button" class="slide-block-resize handle-nw" data-block-resize-handle="nw" aria-label="Redimensionar bloque"></button>
                             <button type="button" class="slide-block-resize handle-ne" data-block-resize-handle="ne" aria-label="Redimensionar bloque"></button>
@@ -166,7 +166,7 @@
                             {% for option in initial_slide.options %}
                             <div class="option-card{% if option.is_correct %} is-correct{% endif %}" data-option-index="{{ loop.index0 }}">
                                 <span class="option-order">{{ loop.index }}</span>
-                                <span class="option-label" contenteditable="true" spellcheck="true">{{ option.label }}</span>
+                                <span class="option-label" contenteditable="true" spellcheck="true" data-text-target="option:{{ loop.index0 }}" data-auto-fit="true">{{ option.label }}</span>
                                 {% if initial_slide.type == "quiz" %}<button type="button" data-canvas-action="toggle-correct" data-option-index="{{ loop.index0 }}">Correcta</button>{% endif %}
                                 <button type="button" data-canvas-action="remove-option" data-option-index="{{ loop.index0 }}" aria-label="Eliminar opción">x</button>
                             </div>

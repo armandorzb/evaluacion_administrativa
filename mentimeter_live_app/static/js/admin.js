@@ -124,13 +124,10 @@
 
     canvas?.addEventListener("click", (event) => {
       const question = selectedQuestion();
-      const editableText = event.target.closest("[data-text-target]");
-      const textBox = event.target.closest("[data-text-box-id]");
+      const textSelection = canvasTextSelectionFromEvent(event, question);
       const layoutBlock = event.target.closest("[data-layout-block-id]");
-      if (textBox && question?.type === "content_slide") {
-        selectTextBox(textBox.dataset.textBoxId);
-      } else if (editableText && question?.type !== "content_slide") {
-        selectCanvasTextTarget(editableText.dataset.textTarget);
+      if (textSelection) {
+        selectCanvasTextSelection(textSelection);
       } else if (layoutBlock && question?.type !== "content_slide") {
         selectLayoutBlock(layoutBlock.dataset.layoutBlockId);
       } else if (!event.target.closest("button[data-canvas-action]") && !event.target.closest("[contenteditable='true']")) {
@@ -455,6 +452,79 @@
     const css = textTargetInlineStyle(raw);
     const baseSize = raw.font_size !== undefined ? ` data-text-base-size="${style.font_size}"` : "";
     return ` data-text-target="${escapeAttr(id)}" data-auto-fit="${style.auto_fit ? "true" : "false"}"${baseSize}${css ? ` style="${escapeAttr(css)}"` : ""}`;
+  }
+
+  function canvasTextSelectionFromEvent(event, question) {
+    if (!question || !(event.target instanceof HTMLElement)) return null;
+    if (event.target.closest("button[data-canvas-action]")) return null;
+    const editable = event.target.closest("[contenteditable='true']");
+
+    if (question.type === "content_slide") {
+      const boxNode = event.target.closest("[data-text-box-id]");
+      if (boxNode) {
+        return {
+          kind: "text-box",
+          id: boxNode.dataset.textBoxId,
+          rerenderCanvas: !boxNode.classList.contains("slide-text-box"),
+        };
+      }
+      if (editable?.dataset.editField === "title") return { kind: "text-box", id: "title", rerenderCanvas: true };
+      if (editable?.dataset.configField === "body") return { kind: "text-box", id: "body", rerenderCanvas: true };
+      return null;
+    }
+
+    const targetNode = event.target.closest("[data-text-target]");
+    if (targetNode) {
+      return {
+        kind: "text-target",
+        id: targetNode.dataset.textTarget,
+        blockId: targetNode.closest("[data-layout-block-id]")?.dataset.layoutBlockId || null,
+        rerenderCanvas: false,
+      };
+    }
+    if (editable?.dataset.editField === "title" || editable?.dataset.editField === "prompt") {
+      return { kind: "text-target", id: editable.dataset.editField, blockId: "question", rerenderCanvas: true };
+    }
+    const optionCard = event.target.closest(".option-card[data-option-index]");
+    if (optionCard && !event.target.closest("button")) {
+      return {
+        kind: "text-target",
+        id: optionTextTargetId(Number(optionCard.dataset.optionIndex || 0)),
+        blockId: "activity",
+        rerenderCanvas: !optionCard.querySelector("[data-text-target]"),
+      };
+    }
+    return null;
+  }
+
+  function selectCanvasTextSelection(selection) {
+    const question = selectedQuestion();
+    if (!question || !selection?.id) return;
+    if (selection.kind === "text-box") {
+      if (question.type !== "content_slide") return;
+      ensureTextBoxes(question);
+      state.selectedTextBoxId = selection.id;
+      state.selectedTextTargetId = null;
+      state.selectedLayoutBlockId = null;
+      if (selection.rerenderCanvas) renderCanvas();
+      else syncTextBoxSelection();
+      renderInspector();
+      return;
+    }
+    if (selection.kind !== "text-target" || question.type === "content_slide") return;
+    const validId = textTargetIds(question).includes(selection.id) ? selection.id : null;
+    if (!validId) return;
+    state.selectedTextTargetId = validId;
+    state.selectedTextBoxId = null;
+    if (selection.blockId && LAYOUT_BLOCK_IDS.includes(selection.blockId)) {
+      state.selectedLayoutBlockId = selection.blockId;
+    }
+    if (selection.rerenderCanvas) renderCanvas();
+    else {
+      syncCanvasTextTargetSelection();
+      syncLayoutBlockSelection();
+    }
+    renderInspector();
   }
 
   function selectedTextTarget(question) {
