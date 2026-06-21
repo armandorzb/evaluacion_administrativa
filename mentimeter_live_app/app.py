@@ -51,6 +51,12 @@ QUESTION_TYPES = {"content_slide", "multiple_choice", "word_cloud", "scale", "op
 SINGLE_RESPONSE_TYPES = {"multiple_choice", "scale", "ranking", "quiz"}
 PARTICIPANT_COOKIE = "menti_participant_token"
 RESULT_LAYOUTS = {"auto", "chart", "list", "grid", "cloud", "cards", "leaderboard"}
+LAYOUT_BLOCK_IDS = ("question", "activity", "results")
+DEFAULT_LAYOUT_BLOCKS = {
+    "question": {"id": "question", "x": 7, "y": 12, "w": 86, "h": 25, "z": 1},
+    "activity": {"id": "activity", "x": 7, "y": 42, "w": 42, "h": 43, "z": 2},
+    "results": {"id": "results", "x": 53, "y": 42, "w": 40, "h": 43, "z": 3},
+}
 TEXT_BOX_HEX_RE = re.compile(r"^#[0-9a-fA-F]{6}$")
 TEXT_BOX_MAX_ITEMS = 24
 TEXT_BOX_MAX_TEXT = 1200
@@ -739,6 +745,36 @@ def body_from_text_boxes(boxes: list[dict[str, Any]], fallback: str) -> str:
     return fallback
 
 
+def sanitize_layout_blocks(raw_blocks: Any) -> dict[str, dict[str, Any]]:
+    source: dict[str, Any] = {}
+    if isinstance(raw_blocks, dict):
+        source = raw_blocks
+    elif isinstance(raw_blocks, list):
+        for item in raw_blocks:
+            if isinstance(item, dict) and str(item.get("id") or "") in LAYOUT_BLOCK_IDS:
+                source[str(item.get("id"))] = item
+
+    blocks: dict[str, dict[str, Any]] = {}
+    for block_id in LAYOUT_BLOCK_IDS:
+        defaults = DEFAULT_LAYOUT_BLOCKS[block_id]
+        item = source.get(block_id)
+        if not isinstance(item, dict):
+            item = {}
+        width = clamp_float(item.get("w"), 12, 100, defaults["w"])
+        height = clamp_float(item.get("h"), 10, 100, defaults["h"])
+        x = clamp_float(item.get("x"), 0, max(0, 100 - width), defaults["x"])
+        y = clamp_float(item.get("y"), 0, max(0, 100 - height), defaults["y"])
+        blocks[block_id] = {
+            "id": block_id,
+            "x": x,
+            "y": y,
+            "w": width,
+            "h": height,
+            "z": clamp_int(item.get("z", defaults["z"]), 0, 100),
+        }
+    return blocks
+
+
 def default_result_layout(question_type: str) -> str:
     if question_type == "word_cloud":
         return "cloud"
@@ -765,7 +801,11 @@ def serialized_question_config(question: Question) -> dict[str, Any]:
     config = dict(question.config_json or {})
     if question.type == "content_slide":
         return config
-    return {**config, **normalize_result_contract(question.type, config)}
+    return {
+        **config,
+        **normalize_result_contract(question.type, config),
+        "layout_blocks": sanitize_layout_blocks(config.get("layout_blocks")),
+    }
 
 
 def normalize_question_payload(payload: dict[str, Any]) -> dict[str, Any]:
@@ -778,6 +818,7 @@ def normalize_question_payload(payload: dict[str, Any]) -> dict[str, Any]:
     options = parse_lines(payload.get("options"))
     correct_labels = set(parse_lines(payload.get("correct_option_labels") or config.get("correct_options")))
     result_contract = normalize_result_contract(question_type, config) if question_type != "content_slide" else {}
+    layout_blocks = sanitize_layout_blocks(config.get("layout_blocks")) if question_type != "content_slide" else {}
 
     if question_type == "content_slide":
         body = clean_text(config.get("body"), 1800, required=False)
@@ -802,18 +843,24 @@ def normalize_question_payload(payload: dict[str, Any]) -> dict[str, Any]:
         maximum = clamp_int(config.get("max", 5), 2, 10)
         if maximum <= minimum:
             raise ValueError("La escala requiere un máximo mayor al mínimo.")
-        config = {**result_contract, "min": minimum, "max": maximum}
+        config = {**result_contract, "layout_blocks": layout_blocks, "min": minimum, "max": maximum}
     elif question_type == "quiz":
         config = {
             **result_contract,
+            "layout_blocks": layout_blocks,
             "timer_seconds": clamp_int(config.get("timer_seconds", 30), 5, 600),
             "points": clamp_int(config.get("points", 100), 1, 1000),
         }
     elif question_type in {"word_cloud", "open_text"}:
-        config = {**result_contract, "moderation": normalize_choice(config.get("moderation"), {"none", "manual"}, "none")}
+        config = {
+            **result_contract,
+            "layout_blocks": layout_blocks,
+            "moderation": normalize_choice(config.get("moderation"), {"none", "manual"}, "none"),
+        }
     else:
         config = {
             **result_contract,
+            "layout_blocks": layout_blocks,
             **({"max_entries": config.get("max_entries")} if config.get("max_entries") is not None else {}),
         }
 

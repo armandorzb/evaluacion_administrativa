@@ -137,13 +137,29 @@
                         </section>
                     </div>
                     {% else %}
+                    {% set initial_blocks = initial_config.get("layout_blocks", {}) %}
+                    {% set question_block = initial_blocks.get("question", {}) %}
+                    {% set activity_block = initial_blocks.get("activity", {}) %}
+                    {% set results_block = initial_blocks.get("results", {}) %}
                     <div class="slide-canvas-inner interactive-layout">
                         <div class="slide-type-row">
                             <span>{{ initial_slide.type }}</span>
                             <strong>{% if initial_slide.is_open %}Voto abierto{% else %}Voto cerrado{% endif %}</strong>
                         </div>
-                        <h2 contenteditable="true" spellcheck="false" data-edit-field="title">{{ initial_slide.title }}</h2>
-                        <p class="slide-prompt" contenteditable="true" spellcheck="true" data-edit-field="prompt">{{ initial_slide.prompt }}</p>
+                        <section class="slide-layout-block slide-layout-block-question" data-layout-block-id="question" style="left:{{ question_block.get('x', 7) }}%;top:{{ question_block.get('y', 12) }}%;width:{{ question_block.get('w', 86) }}%;height:{{ question_block.get('h', 25) }}%;z-index:{{ question_block.get('z', 1) }};">
+                            <button type="button" class="slide-block-move" data-block-move-handle aria-label="Mover bloque"></button>
+                            <div class="slide-layout-block-content" data-layout-block-content>
+                                <h2 contenteditable="true" spellcheck="false" data-edit-field="title">{{ initial_slide.title }}</h2>
+                                <p class="slide-prompt" contenteditable="true" spellcheck="true" data-edit-field="prompt">{{ initial_slide.prompt }}</p>
+                            </div>
+                            <button type="button" class="slide-block-resize handle-nw" data-block-resize-handle="nw" aria-label="Redimensionar bloque"></button>
+                            <button type="button" class="slide-block-resize handle-ne" data-block-resize-handle="ne" aria-label="Redimensionar bloque"></button>
+                            <button type="button" class="slide-block-resize handle-sw" data-block-resize-handle="sw" aria-label="Redimensionar bloque"></button>
+                            <button type="button" class="slide-block-resize handle-se" data-block-resize-handle="se" aria-label="Redimensionar bloque"></button>
+                        </section>
+                        <section class="slide-layout-block slide-layout-block-activity" data-layout-block-id="activity" style="left:{{ activity_block.get('x', 7) }}%;top:{{ activity_block.get('y', 42) }}%;width:{{ activity_block.get('w', 42) }}%;height:{{ activity_block.get('h', 43) }}%;z-index:{{ activity_block.get('z', 2) }};">
+                            <button type="button" class="slide-block-move" data-block-move-handle aria-label="Mover bloque"></button>
+                            <div class="slide-layout-block-content" data-layout-block-content>
                         {% if initial_slide.type in ["multiple_choice", "quiz", "ranking"] %}
                         <div class="option-grid">
                             {% for option in initial_slide.options %}
@@ -156,16 +172,47 @@
                             {% endfor %}
                             <button type="button" class="add-option-card" data-canvas-action="add-option">+ Agregar opción</button>
                         </div>
+                        {% elif initial_slide.type == "scale" %}
+                        <div class="scale-preview">
+                            {% for value in range(initial_config.get("min", 1), initial_config.get("max", 5) + 1) %}
+                            <span>{{ value }}</span>
+                            {% endfor %}
+                        </div>
+                        {% elif initial_slide.type == "word_cloud" %}
+                        <div class="live-placeholder word-placeholder">
+                            <strong>Nube de palabras</strong>
+                            <span>Las respuestas apareceran como conceptos agrupados.</span>
+                        </div>
+                        {% elif initial_slide.type == "open_text" %}
+                        <div class="live-placeholder cards-placeholder">
+                            <strong>Tarjetas abiertas</strong>
+                            <span>Las participaciones se mostraran en una cuadricula moderable.</span>
+                        </div>
                         {% endif %}
-                        <section class="slide-results-stage" data-slide-results-stage aria-label="Resultados en vivo">
-                            <div class="results-head">
-                                <strong>Resultados en vivo</strong>
-                                <span data-result-summary></span>
                             </div>
-                            <div class="slide-results-body">
-                                <canvas class="result-chart" data-result-chart hidden></canvas>
-                                <div class="result-alt" data-result-alt></div>
+                            <button type="button" class="slide-block-resize handle-nw" data-block-resize-handle="nw" aria-label="Redimensionar bloque"></button>
+                            <button type="button" class="slide-block-resize handle-ne" data-block-resize-handle="ne" aria-label="Redimensionar bloque"></button>
+                            <button type="button" class="slide-block-resize handle-sw" data-block-resize-handle="sw" aria-label="Redimensionar bloque"></button>
+                            <button type="button" class="slide-block-resize handle-se" data-block-resize-handle="se" aria-label="Redimensionar bloque"></button>
+                        </section>
+                        <section class="slide-layout-block slide-layout-block-results" data-layout-block-id="results" style="left:{{ results_block.get('x', 53) }}%;top:{{ results_block.get('y', 42) }}%;width:{{ results_block.get('w', 40) }}%;height:{{ results_block.get('h', 43) }}%;z-index:{{ results_block.get('z', 3) }};">
+                            <button type="button" class="slide-block-move" data-block-move-handle aria-label="Mover bloque"></button>
+                            <div class="slide-layout-block-content" data-layout-block-content>
+                                <section class="slide-results-stage" data-slide-results-stage aria-label="Resultados en vivo">
+                                    <div class="results-head">
+                                        <strong>Resultados en vivo</strong>
+                                        <span data-result-summary></span>
+                                    </div>
+                                    <div class="slide-results-body">
+                                        <canvas class="result-chart" data-result-chart hidden></canvas>
+                                        <div class="result-alt" data-result-alt></div>
+                                    </div>
+                                </section>
                             </div>
+                            <button type="button" class="slide-block-resize handle-nw" data-block-resize-handle="nw" aria-label="Redimensionar bloque"></button>
+                            <button type="button" class="slide-block-resize handle-ne" data-block-resize-handle="ne" aria-label="Redimensionar bloque"></button>
+                            <button type="button" class="slide-block-resize handle-sw" data-block-resize-handle="sw" aria-label="Redimensionar bloque"></button>
+                            <button type="button" class="slide-block-resize handle-se" data-block-resize-handle="se" aria-label="Redimensionar bloque"></button>
                         </section>
                     </div>
                     {% endif %}

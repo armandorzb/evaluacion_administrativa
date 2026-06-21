@@ -94,6 +94,38 @@ def test_presenter_surfaces_mount_results_inside_slide_canvas():
         assert canvas_index < results_index < article_end
 
 
+def test_interactive_slide_layout_blocks_render_inside_slide_canvas():
+    app = build_app()
+    client = app.test_client()
+    session = client.post("/api/sessions", json={"title": "Bloques editables"}).get_json()["session"]
+    client.post(
+        f"/api/sessions/{session['code']}/questions",
+        json={
+            "type": "multiple_choice",
+            "title": "Pregunta movible",
+            "prompt": "Elige una opcion",
+            "options": ["A", "B"],
+            "config": {
+                "layout_blocks": {
+                    "question": {"x": 5, "y": 10, "w": 80, "h": 22},
+                    "activity": {"x": 6, "y": 40, "w": 35, "h": 45},
+                    "results": {"x": 48, "y": 40, "w": 45, "h": 45},
+                }
+            },
+        },
+    )
+
+    for path in [f"/admin?code={session['code']}", f"/present/{session['code']}"]:
+        html = client.get(path).get_data(as_text=True)
+        canvas_index = html.index("data-slide-canvas")
+        article_end = html.index("</article>", canvas_index)
+
+        for block_id in ["question", "activity", "results"]:
+            block_index = html.index(f'data-layout-block-id="{block_id}"')
+            assert canvas_index < block_index < article_end
+        assert html.index("slide-layout-block-results") < html.index("data-slide-results-stage")
+
+
 def test_optional_admin_pin_protects_presenter_surfaces_but_not_audience():
     app = build_protected_app()
     client = app.test_client()
@@ -262,12 +294,25 @@ def test_interactive_question_config_forces_results_inside_slide():
             "title": "Prioridad",
             "prompt": "Elige una",
             "options": ["A", "B"],
-            "config": {"result_placement": "below", "show_results": False, "result_layout": "list"},
+            "config": {
+                "result_placement": "below",
+                "show_results": False,
+                "result_layout": "list",
+                "layout_blocks": {
+                    "question": {"x": -8, "y": 120, "w": 8, "h": 4, "z": 200},
+                    "activity": {"x": 30.5, "y": 44.25, "w": 36, "h": 32, "z": 6},
+                    "legacy": {"x": 1, "y": 1, "w": 1, "h": 1},
+                },
+            },
         },
     ).get_json()["question"]
     assert multiple["config"]["result_placement"] == "slide"
     assert multiple["config"]["show_results"] is False
     assert multiple["config"]["result_layout"] == "list"
+    assert set(multiple["config"]["layout_blocks"]) == {"question", "activity", "results"}
+    assert multiple["config"]["layout_blocks"]["question"] == {"id": "question", "x": 0, "y": 90.0, "w": 12, "h": 10, "z": 100}
+    assert multiple["config"]["layout_blocks"]["activity"]["x"] == 30.5
+    assert multiple["config"]["layout_blocks"]["activity"]["y"] == 44.25
 
     cloud = client.post(
         f"/api/sessions/{code}/questions",
@@ -292,6 +337,8 @@ def test_interactive_question_config_forces_results_inside_slide():
     assert refreshed_multiple["config"]["result_placement"] == "slide"
     assert refreshed_multiple["config"]["show_results"] is True
     assert refreshed_multiple["config"]["result_layout"] == "chart"
+    assert refreshed_multiple["config"]["layout_blocks"]["question"]["w"] == 86
+    assert refreshed_multiple["config"]["layout_blocks"]["results"]["x"] == 53
 
 
 def test_content_slide_is_saved_but_does_not_accept_responses():

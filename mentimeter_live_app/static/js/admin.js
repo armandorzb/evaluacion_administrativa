@@ -8,7 +8,9 @@
     sortable: null,
     selectedQuestionId: null,
     selectedTextBoxId: null,
+    selectedLayoutBlockId: null,
     textDrag: null,
+    layoutBlockDrag: null,
     saveTimer: null,
     sessionSaveTimer: null,
     lastSaveKey: "",
@@ -16,6 +18,12 @@
 
   const $ = (selector, root = document) => root.querySelector(selector);
   const $$ = (selector, root = document) => Array.from(root.querySelectorAll(selector));
+  const LAYOUT_BLOCK_IDS = ["question", "activity", "results"];
+  const DEFAULT_LAYOUT_BLOCKS = {
+    question: { id: "question", x: 7, y: 12, w: 86, h: 25, z: 1 },
+    activity: { id: "activity", x: 7, y: 42, w: 42, h: 43, z: 2 },
+    results: { id: "results", x: 53, y: 42, w: 40, h: 43, z: 3 },
+  };
 
   const createForm = $("[data-create-session]");
   const deckTitleInput = $("[data-deck-title]");
@@ -108,11 +116,16 @@
     canvas?.addEventListener("pointerdown", handleCanvasPointerDown);
 
     canvas?.addEventListener("click", (event) => {
+      const question = selectedQuestion();
       const textBox = event.target.closest("[data-text-box-id]");
-      if (textBox && selectedQuestion()?.type === "content_slide") {
+      const layoutBlock = event.target.closest("[data-layout-block-id]");
+      if (textBox && question?.type === "content_slide") {
         selectTextBox(textBox.dataset.textBoxId);
+      } else if (layoutBlock && question?.type !== "content_slide") {
+        selectLayoutBlock(layoutBlock.dataset.layoutBlockId);
       } else if (!event.target.closest("button[data-canvas-action]") && !event.target.closest("[contenteditable='true']")) {
         selectTextBox(null);
+        if (question?.type !== "content_slide") selectLayoutBlock(null);
       }
       const button = event.target.closest("button[data-canvas-action]");
       if (!button) return;
@@ -137,6 +150,11 @@
         handleTextInspectorButton(textButton);
         return;
       }
+      const layoutButton = event.target.closest("button[data-layout-block-action]");
+      if (layoutButton) {
+        handleLayoutBlockButton(layoutButton);
+        return;
+      }
       const moderationButton = event.target.closest("button[data-moderate]");
       if (moderationButton) {
         handleModerationButton(moderationButton);
@@ -159,7 +177,7 @@
     });
 
     document.addEventListener("pointermove", handleCanvasPointerMove);
-    document.addEventListener("pointerup", finishTextBoxDrag);
+    document.addEventListener("pointerup", finishCanvasDrag);
     document.addEventListener("keydown", handleDocumentKeydown);
   }
 
@@ -279,11 +297,13 @@
     const closedClass = question.is_open ? "" : " is-closed";
     canvas.className = `slide-canvas slide-kind-${question.type}${liveClass}${closedClass}`;
     if (question.type === "content_slide") {
+      state.selectedLayoutBlockId = null;
       ensureTextBoxes(question);
       canvas.innerHTML = contentSlideMarkup(question);
       return;
     }
     state.selectedTextBoxId = null;
+    ensureLayoutBlocks(question);
     canvas.innerHTML = interactiveSlideMarkup(question);
   }
 
@@ -341,18 +361,45 @@
   }
 
   function interactiveSlideMarkup(question) {
+    const blocks = ensureLayoutBlocks(question);
     return `
       <div class="slide-canvas-inner interactive-layout">
         <div class="slide-type-row">
           <span>${escapeHtml(labelForType(question.type))}</span>
           <strong>${question.is_open ? "Voto abierto" : "Voto cerrado"}</strong>
         </div>
-        <h2 contenteditable="true" spellcheck="false" data-edit-field="title">${escapeHtml(question.title)}</h2>
-        <p class="slide-prompt" contenteditable="true" spellcheck="true" data-edit-field="prompt">${escapeHtml(question.prompt)}</p>
-        ${visualEditorFor(question)}
-        ${resultsStageMarkup(false)}
+        ${layoutBlockMarkup("question", blocks.question, `
+          <h2 contenteditable="true" spellcheck="false" data-edit-field="title">${escapeHtml(question.title)}</h2>
+          <p class="slide-prompt" contenteditable="true" spellcheck="true" data-edit-field="prompt">${escapeHtml(question.prompt)}</p>
+        `)}
+        ${layoutBlockMarkup("activity", blocks.activity, visualEditorFor(question))}
+        ${layoutBlockMarkup("results", blocks.results, resultsStageMarkup(false))}
       </div>
     `;
+  }
+
+  function layoutBlockMarkup(id, block, content) {
+    const selected = id === state.selectedLayoutBlockId ? " is-selected" : "";
+    return `
+      <section class="slide-layout-block slide-layout-block-${escapeAttr(id)}${selected}" data-layout-block-id="${escapeAttr(id)}" style="${layoutBlockStyle(block)}">
+        <button type="button" class="slide-block-move" data-block-move-handle aria-label="Mover bloque"></button>
+        <div class="slide-layout-block-content" data-layout-block-content>${content}</div>
+        <button type="button" class="slide-block-resize handle-nw" data-block-resize-handle="nw" aria-label="Redimensionar bloque"></button>
+        <button type="button" class="slide-block-resize handle-ne" data-block-resize-handle="ne" aria-label="Redimensionar bloque"></button>
+        <button type="button" class="slide-block-resize handle-sw" data-block-resize-handle="sw" aria-label="Redimensionar bloque"></button>
+        <button type="button" class="slide-block-resize handle-se" data-block-resize-handle="se" aria-label="Redimensionar bloque"></button>
+      </section>
+    `;
+  }
+
+  function layoutBlockStyle(block) {
+    return [
+      `left:${block.x}%`,
+      `top:${block.y}%`,
+      `width:${block.w}%`,
+      `height:${block.h}%`,
+      `z-index:${block.z}`,
+    ].join(";");
   }
 
   function resultsStageMarkup(hidden) {
@@ -443,6 +490,7 @@
 
       ${typeSpecificInspector(question)}
       ${resultPresentationInspector(question)}
+      ${layoutBlockInspectorMarkup(question)}
 
       <section class="inspector-section">
         <h3>Presentación</h3>
@@ -564,6 +612,43 @@
         </label>
       </section>
       ${["word_cloud", "open_text"].includes(question.type) ? '<section class="inspector-section moderation-panel" data-moderation-panel hidden></section>' : ""}
+    `;
+  }
+
+  function layoutBlockInspectorMarkup(question) {
+    if (question.type === "content_slide") return "";
+    const blocks = ensureLayoutBlocks(question);
+    const selectedId = state.selectedLayoutBlockId && blocks[state.selectedLayoutBlockId] ? state.selectedLayoutBlockId : "question";
+    const block = blocks[selectedId] || blocks.question;
+    const labels = {
+      question: "Pregunta",
+      activity: "Dinámica",
+      results: "Resultados",
+    };
+    return `
+      <section class="inspector-section layout-block-panel">
+        <h3>Diseño</h3>
+        <label>Bloque
+          <select data-layout-block-select>
+            ${LAYOUT_BLOCK_IDS.map((id) => `<option value="${id}"${id === selectedId ? " selected" : ""}>${labels[id]}</option>`).join("")}
+          </select>
+        </label>
+        <div class="two-columns">
+          <label>X
+            <input type="number" min="0" max="100" step="0.5" data-layout-block-key="x" value="${Number(block.x || 0)}">
+          </label>
+          <label>Y
+            <input type="number" min="0" max="100" step="0.5" data-layout-block-key="y" value="${Number(block.y || 0)}">
+          </label>
+          <label>Ancho
+            <input type="number" min="12" max="100" step="0.5" data-layout-block-key="w" value="${Number(block.w || 0)}">
+          </label>
+          <label>Alto
+            <input type="number" min="10" max="100" step="0.5" data-layout-block-key="h" value="${Number(block.h || 0)}">
+          </label>
+        </div>
+        <button type="button" class="wide-action" data-layout-block-action="reset">Restablecer layout</button>
+      </section>
     `;
   }
 
@@ -832,6 +917,7 @@
     config.result_placement = "slide";
     config.show_results = config.show_results !== false;
     config.result_layout = config.result_layout || defaultResultLayout(question.type);
+    config.layout_blocks = collectLayoutBlocksFromCanvas(question);
     const options = $$(".option-label", canvas).map((node) => node.textContent.trim()).filter(Boolean);
     const correct = $$(".option-card.is-correct .option-label", canvas).map((node) => node.textContent.trim()).filter(Boolean);
     return payloadForQuestion(question, { title, prompt, config, options, correct_option_labels: correct });
@@ -870,6 +956,96 @@
     if (["multiple_choice", "ranking", "quiz"].includes(payload.type) && (payload.options || []).length < 2) return false;
     if (payload.type === "quiz" && !(payload.correct_option_labels || []).length) return false;
     return true;
+  }
+
+  function ensureLayoutBlocks(question, options = {}) {
+    if (!question || question.type === "content_slide") return {};
+    question.config = question.config || {};
+    const source = question.config.layout_blocks && typeof question.config.layout_blocks === "object"
+      ? question.config.layout_blocks
+      : {};
+    const blocks = {};
+    LAYOUT_BLOCK_IDS.forEach((id, index) => {
+      blocks[id] = normalizeLayoutBlock({ ...DEFAULT_LAYOUT_BLOCKS[id], ...(source[id] || {}) }, id, index);
+    });
+    question.config.layout_blocks = blocks;
+    const hasSelected = Boolean(state.selectedLayoutBlockId && blocks[state.selectedLayoutBlockId]);
+    if (!hasSelected) state.selectedLayoutBlockId = options.selectFallback ? "question" : null;
+    return blocks;
+  }
+
+  function normalizeLayoutBlock(block, id, index = 0) {
+    const width = clampNumber(block.w, 12, 100, DEFAULT_LAYOUT_BLOCKS[id]?.w || 40);
+    const height = clampNumber(block.h, 10, 100, DEFAULT_LAYOUT_BLOCKS[id]?.h || 35);
+    return {
+      id,
+      x: roundPercent(clampNumber(block.x, 0, Math.max(0, 100 - width), DEFAULT_LAYOUT_BLOCKS[id]?.x || 0)),
+      y: roundPercent(clampNumber(block.y, 0, Math.max(0, 100 - height), DEFAULT_LAYOUT_BLOCKS[id]?.y || 0)),
+      w: roundPercent(width),
+      h: roundPercent(height),
+      z: Math.round(clampNumber(block.z, 0, 100, index + 1)),
+    };
+  }
+
+  function collectLayoutBlocksFromCanvas(question) {
+    const blocks = ensureLayoutBlocks(question);
+    $$(".slide-layout-block", canvas).forEach((node, index) => {
+      const id = node.dataset.layoutBlockId;
+      if (!LAYOUT_BLOCK_IDS.includes(id)) return;
+      blocks[id] = normalizeLayoutBlock(blocks[id], id, index);
+    });
+    question.config.layout_blocks = blocks;
+    return blocks;
+  }
+
+  function selectedLayoutBlock(question) {
+    if (!question || question.type === "content_slide" || !state.selectedLayoutBlockId) return null;
+    return ensureLayoutBlocks(question)[state.selectedLayoutBlockId] || null;
+  }
+
+  function selectLayoutBlock(id) {
+    const question = selectedQuestion();
+    if (!question || question.type === "content_slide") return;
+    const blocks = ensureLayoutBlocks(question);
+    state.selectedLayoutBlockId = id && blocks[id] ? id : null;
+    syncLayoutBlockSelection();
+    renderInspector();
+  }
+
+  function syncLayoutBlockSelection() {
+    if (!canvas) return;
+    $$(".slide-layout-block", canvas).forEach((node) => {
+      node.classList.toggle("is-selected", node.dataset.layoutBlockId === state.selectedLayoutBlockId);
+    });
+  }
+
+  function applyLayoutBlockDom(block) {
+    if (!canvas) return;
+    const node = $$(".slide-layout-block", canvas).find((item) => item.dataset.layoutBlockId === block.id);
+    if (!node) return;
+    node.style.cssText = layoutBlockStyle(block);
+  }
+
+  function updateSelectedLayoutBlock(question, patch, options = {}) {
+    const blocks = ensureLayoutBlocks(question);
+    const id = state.selectedLayoutBlockId;
+    if (!id || !blocks[id]) return;
+    const index = LAYOUT_BLOCK_IDS.indexOf(id);
+    const next = normalizeLayoutBlock({ ...blocks[id], ...patch }, id, index);
+    question.config.layout_blocks[id] = next;
+    applyLayoutBlockDom(next);
+    if (options.renderInspector) renderInspector();
+    if (options.save !== false) scheduleQuestionSave({ rerender: false });
+  }
+
+  function resetLayoutBlocks(question) {
+    if (!question || question.type === "content_slide") return;
+    question.config = { ...(question.config || {}), layout_blocks: {} };
+    ensureLayoutBlocks(question, { selectFallback: true });
+    renderCanvas();
+    renderInspector();
+    renderResults();
+    scheduleQuestionSave({ rerender: false });
   }
 
   function ensureTextBoxes(question, options = {}) {
@@ -1085,7 +1261,11 @@
 
   function handleCanvasPointerDown(event) {
     const question = selectedQuestion();
-    if (!question || question.type !== "content_slide") return;
+    if (!question) return;
+    if (question.type !== "content_slide") {
+      handleLayoutBlockPointerDown(event, question);
+      return;
+    }
     const node = event.target.closest("[data-text-box-id]");
     if (!node) return;
     state.selectedTextBoxId = node.dataset.textBoxId;
@@ -1107,10 +1287,45 @@
     event.preventDefault();
   }
 
+  function handleLayoutBlockPointerDown(event, question) {
+    const node = event.target.closest("[data-layout-block-id]");
+    if (!node || !canvas) return;
+    const blockId = node.dataset.layoutBlockId;
+    if (!LAYOUT_BLOCK_IDS.includes(blockId)) return;
+    state.selectedLayoutBlockId = blockId;
+    syncLayoutBlockSelection();
+    renderInspector();
+    const resizeHandle = event.target.closest("[data-block-resize-handle]");
+    const moveHandle = event.target.closest("[data-block-move-handle]");
+    if (!resizeHandle && !moveHandle) return;
+    const block = selectedLayoutBlock(question);
+    if (!block) return;
+    state.layoutBlockDrag = {
+      id: block.id,
+      mode: resizeHandle ? "resize" : "move",
+      handle: resizeHandle?.dataset.blockResizeHandle || "se",
+      startX: event.clientX,
+      startY: event.clientY,
+      startBlock: { ...block },
+      rect: canvas.getBoundingClientRect(),
+    };
+    event.preventDefault();
+  }
+
   function handleCanvasPointerMove(event) {
-    if (!state.textDrag) return;
     const question = selectedQuestion();
-    if (!question || question.type !== "content_slide") return;
+    if (!question) return;
+    if (state.layoutBlockDrag && question.type !== "content_slide") {
+      const drag = state.layoutBlockDrag;
+      const dx = ((event.clientX - drag.startX) / drag.rect.width) * 100;
+      const dy = ((event.clientY - drag.startY) / drag.rect.height) * 100;
+      const patch = drag.mode === "move"
+        ? movedLayoutBlockPatch(drag.startBlock, dx, dy)
+        : resizedLayoutBlockPatch(drag.startBlock, drag.handle, dx, dy);
+      updateSelectedLayoutBlock(question, patch, { save: false });
+      return;
+    }
+    if (!state.textDrag || question.type !== "content_slide") return;
     const drag = state.textDrag;
     const dx = ((event.clientX - drag.startX) / drag.rect.width) * 100;
     const dy = ((event.clientY - drag.startY) / drag.rect.height) * 100;
@@ -1120,11 +1335,17 @@
     updateSelectedTextBox(question, patch, { save: false, renderList: false });
   }
 
-  function finishTextBoxDrag() {
-    if (!state.textDrag) return;
-    state.textDrag = null;
-    renderInspector();
-    scheduleQuestionSave({ rerender: false });
+  function finishCanvasDrag() {
+    if (state.layoutBlockDrag) {
+      state.layoutBlockDrag = null;
+      renderInspector();
+      scheduleQuestionSave({ rerender: false });
+    }
+    if (state.textDrag) {
+      state.textDrag = null;
+      renderInspector();
+      scheduleQuestionSave({ rerender: false });
+    }
   }
 
   function movedTextBoxPatch(box, dx, dy) {
@@ -1161,14 +1382,44 @@
     return patch;
   }
 
+  function movedLayoutBlockPatch(block, dx, dy) {
+    return {
+      x: clampNumber(block.x + dx, 0, Math.max(0, 100 - block.w), block.x),
+      y: clampNumber(block.y + dy, 0, Math.max(0, 100 - block.h), block.y),
+    };
+  }
+
+  function resizedLayoutBlockPatch(block, handle, dx, dy) {
+    let x = block.x;
+    let y = block.y;
+    let w = block.w;
+    let h = block.h;
+    if (handle.includes("e")) w = block.w + dx;
+    if (handle.includes("s")) h = block.h + dy;
+    if (handle.includes("w")) {
+      x = block.x + dx;
+      w = block.w - dx;
+    }
+    if (handle.includes("n")) {
+      y = block.y + dy;
+      h = block.h - dy;
+    }
+    w = clampNumber(w, 12, 100, block.w);
+    h = clampNumber(h, 10, 100, block.h);
+    x = clampNumber(x, 0, Math.max(0, 100 - w), block.x);
+    y = clampNumber(y, 0, Math.max(0, 100 - h), block.y);
+    return { x, y, w, h };
+  }
+
   function handleDocumentKeydown(event) {
     const question = selectedQuestion();
-    if (!question || question.type !== "content_slide") return;
     if (event.key === "Escape") {
       document.activeElement?.blur?.();
       selectTextBox(null);
+      if (question?.type !== "content_slide") selectLayoutBlock(null);
       return;
     }
+    if (!question || question.type !== "content_slide") return;
     if (!["Delete", "Backspace"].includes(event.key) || isEditing()) return;
     event.preventDefault();
     deleteSelectedTextBox(question);
@@ -1249,6 +1500,24 @@
     updateSelectedTextBox(question, patch, { renderInspector: false });
   }
 
+  function handleLayoutBlockInput(target) {
+    const question = selectedQuestion();
+    if (!question || question.type === "content_slide") return;
+    const key = target.dataset.layoutBlockKey;
+    if (!["x", "y", "w", "h"].includes(key)) return;
+    if (!state.selectedLayoutBlockId) {
+      state.selectedLayoutBlockId = "question";
+      syncLayoutBlockSelection();
+    }
+    updateSelectedLayoutBlock(question, { [key]: Number(target.value || 0) }, { renderInspector: false });
+  }
+
+  function handleLayoutBlockButton(button) {
+    const question = selectedQuestion();
+    if (!question || question.type === "content_slide") return;
+    if (button.dataset.layoutBlockAction === "reset") resetLayoutBlocks(question);
+  }
+
   function handleCanvasAction(action, button) {
     const question = selectedQuestion();
     if (!question) return;
@@ -1279,6 +1548,16 @@
 
     if (target.matches("[data-text-style-key]")) {
       handleTextStyleInput(target);
+      return;
+    }
+
+    if (target.matches("[data-layout-block-select]")) {
+      selectLayoutBlock(target.value);
+      return;
+    }
+
+    if (target.matches("[data-layout-block-key]")) {
+      handleLayoutBlockInput(target);
       return;
     }
 
@@ -1537,9 +1816,17 @@
     return {
       show_results: true,
       result_layout: defaultResultLayout(type),
+      layout_blocks: defaultLayoutBlocks(),
       ...overrides,
       result_placement: "slide",
     };
+  }
+
+  function defaultLayoutBlocks() {
+    return LAYOUT_BLOCK_IDS.reduce((blocks, id) => {
+      blocks[id] = { ...DEFAULT_LAYOUT_BLOCKS[id] };
+      return blocks;
+    }, {});
   }
 
   function resultLayoutOptions(current) {
@@ -1640,6 +1927,10 @@
     const number = Number(value);
     if (!Number.isFinite(number)) return fallback;
     return Math.min(Math.max(number, minimum), maximum);
+  }
+
+  function roundPercent(value) {
+    return Math.round(Number(value || 0) * 100) / 100;
   }
 
   function normalizeHexColor(value, fallback) {
