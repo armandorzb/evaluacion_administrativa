@@ -13,6 +13,7 @@
     layoutBlockDrag: null,
     saveTimer: null,
     sessionSaveTimer: null,
+    fitTimer: null,
     lastSaveKey: "",
   };
 
@@ -105,6 +106,7 @@
     canvas?.addEventListener("input", (event) => {
       if (!event.target.closest("[contenteditable='true']")) return;
       updateLocalQuestionFromCanvas();
+      scheduleSlideTextFit();
       scheduleQuestionSave();
     });
 
@@ -193,6 +195,7 @@
         renderChrome();
         renderSlideList();
         renderResults();
+        scheduleSlideTextFit();
         return;
       }
       render();
@@ -203,6 +206,7 @@
         question.id === payload.question_id ? { ...question, results: payload.results } : question,
       );
       renderResults();
+      scheduleSlideTextFit();
     });
     state.socket.on("participant_count", (payload) => {
       if (connectedCount) connectedCount.textContent = payload.connected_count || 0;
@@ -227,6 +231,7 @@
       renderSlideList();
       renderInspector();
       renderResults();
+      scheduleSlideTextFit();
     }
   }
 
@@ -240,6 +245,7 @@
     renderResults();
     renderInsights();
     setupSortable();
+    scheduleSlideTextFit();
     setSaveState("Listo");
   }
 
@@ -300,11 +306,13 @@
       state.selectedLayoutBlockId = null;
       ensureTextBoxes(question);
       canvas.innerHTML = contentSlideMarkup(question);
+      scheduleSlideTextFit();
       return;
     }
     state.selectedTextBoxId = null;
     ensureLayoutBlocks(question);
     canvas.innerHTML = interactiveSlideMarkup(question);
+    scheduleSlideTextFit();
   }
 
   function contentSlideMarkup(question) {
@@ -900,6 +908,7 @@
     renderSlideList();
     renderInspector();
     renderResults();
+    scheduleSlideTextFit();
     setSaveState("Guardado");
   }
 
@@ -1024,6 +1033,10 @@
     const node = $$(".slide-layout-block", canvas).find((item) => item.dataset.layoutBlockId === block.id);
     if (!node) return;
     node.style.cssText = layoutBlockStyle(block);
+    scheduleSlideTextFit();
+    if (block.id === "results" && state.chart) {
+      window.requestAnimationFrame(() => state.chart?.resize?.());
+    }
   }
 
   function updateSelectedLayoutBlock(question, patch, options = {}) {
@@ -1045,7 +1058,147 @@
     renderCanvas();
     renderInspector();
     renderResults();
+    scheduleSlideTextFit();
     scheduleQuestionSave({ rerender: false });
+  }
+
+  function scheduleSlideTextFit() {
+    if (!canvas || typeof window.requestAnimationFrame !== "function") return;
+    if (state.fitTimer) window.cancelAnimationFrame(state.fitTimer);
+    state.fitTimer = window.requestAnimationFrame(() => {
+      state.fitTimer = null;
+      fitSlideText();
+    });
+  }
+
+  function fitSlideText() {
+    if (!canvas || !canvas.isConnected) return;
+    fitContentTextBoxes();
+    fitQuestionBlockText();
+    fitActivityBlockText();
+    fitResultsText();
+  }
+
+  function fitContentTextBoxes() {
+    $$(".slide-text-box", canvas).forEach((box) => {
+      const content = $("[data-text-box-content]", box);
+      if (!content) return;
+      const baseSize = parseFloat(box.style.fontSize || window.getComputedStyle(box).fontSize) || 32;
+      resetFitStyles([content]);
+      if (box.dataset.autoFit === "false") {
+        content.classList.toggle("is-overflowing", elementOverflows(content));
+        return;
+      }
+      fitSingleTextNode(content, { max: baseSize, min: 6 });
+    });
+  }
+
+  function fitQuestionBlockText() {
+    const block = $(".slide-layout-block-question [data-layout-block-content]", canvas);
+    if (!block) return;
+    const nodes = [block.querySelector("h2"), block.querySelector(".slide-prompt")].filter(Boolean);
+    fitTextGroup(block, nodes, { minScale: 0.18, minFont: 8 });
+  }
+
+  function fitActivityBlockText() {
+    const block = $(".slide-layout-block-activity [data-layout-block-content]", canvas);
+    if (!block) return;
+    block.classList.remove("is-overflowing");
+    const optionGrid = $(".option-grid", block);
+    if (optionGrid) {
+      optionGrid.classList.remove("is-compact", "is-overflowing");
+      const labels = $$(".option-label", optionGrid);
+      labels.forEach((label) => fitSingleTextNode(label, { min: 9 }));
+      if (elementOverflows(block) || elementOverflows(optionGrid)) {
+        optionGrid.classList.add("is-compact");
+        fitTextGroup(block, labels, { minScale: 0.18, minFont: 7 });
+      }
+      block.classList.toggle("is-overflowing", elementOverflows(block) || elementOverflows(optionGrid));
+      optionGrid.classList.toggle("is-overflowing", elementOverflows(optionGrid));
+      return;
+    }
+    const scalePreview = $(".scale-preview", block);
+    if (scalePreview) {
+      fitTextGroup(block, $$("span", scalePreview), { minScale: 0.5, minFont: 10 });
+      block.classList.toggle("is-overflowing", elementOverflows(block));
+      return;
+    }
+    const placeholder = $(".live-placeholder", block);
+    if (placeholder) {
+      fitTextGroup(block, $$("strong, span", placeholder), { minScale: 0.45, minFont: 10 });
+      block.classList.toggle("is-overflowing", elementOverflows(block));
+    }
+  }
+
+  function fitResultsText() {
+    const stage = $("[data-slide-results-stage]", canvas);
+    if (!stage || stage.hidden) return;
+    const headNodes = $$(".results-head strong, .results-head span", stage);
+    fitTextGroup($(".results-head", stage) || stage, headNodes, { minScale: 0.62, minFont: 9 });
+    $$(".response-card-grid article", stage).forEach((card) => fitSingleTextNode(card, { min: 9 }));
+    fitTextGroup($(".word-cloud-preview", stage), $$(".word-cloud-preview span", stage), { minScale: 0.55, minFont: 8 });
+    fitTextGroup($(".leaderboard-panel", stage), $$(".leaderboard-panel strong, .leaderboard-panel span, .leaderboard-panel b", stage), { minScale: 0.65, minFont: 9 });
+  }
+
+  function fitSingleTextNode(node, options = {}) {
+    if (!node || node.clientWidth <= 0 || node.clientHeight <= 0) return;
+    const computed = window.getComputedStyle(node);
+    const max = Math.min(options.max || parseFloat(computed.fontSize) || 16, 160);
+    const min = Math.min(max, options.min || 9);
+    node.style.fontSize = `${max}px`;
+    node.classList.remove("is-overflowing");
+    if (!elementOverflows(node)) return;
+    let low = min;
+    let high = max;
+    for (let step = 0; step < 8; step += 1) {
+      const mid = (low + high) / 2;
+      node.style.fontSize = `${mid}px`;
+      if (elementOverflows(node)) high = mid;
+      else low = mid;
+    }
+    node.style.fontSize = `${Math.max(min, low).toFixed(2)}px`;
+    node.classList.toggle("is-overflowing", elementOverflows(node));
+  }
+
+  function fitTextGroup(container, nodes, options = {}) {
+    if (!container || !nodes?.length || container.clientWidth <= 0 || container.clientHeight <= 0) return;
+    resetFitStyles(nodes);
+    container.classList.remove("is-overflowing");
+    const bases = nodes.map((node) => parseFloat(window.getComputedStyle(node).fontSize) || 16);
+    if (!groupOverflows(container, nodes)) return;
+    const minScale = options.minScale || 0.4;
+    const minFont = options.minFont || 9;
+    let low = minScale;
+    let high = 1;
+    for (let step = 0; step < 8; step += 1) {
+      const scale = (low + high) / 2;
+      nodes.forEach((node, index) => {
+        node.style.fontSize = `${Math.max(minFont, bases[index] * scale).toFixed(2)}px`;
+      });
+      if (groupOverflows(container, nodes)) high = scale;
+      else low = scale;
+    }
+    nodes.forEach((node, index) => {
+      node.style.fontSize = `${Math.max(minFont, bases[index] * low).toFixed(2)}px`;
+      node.classList.toggle("is-overflowing", elementOverflows(node));
+    });
+    container.classList.toggle("is-overflowing", groupOverflows(container, nodes));
+  }
+
+  function resetFitStyles(nodes) {
+    nodes.forEach((node) => {
+      node.style.removeProperty("font-size");
+      node.classList.remove("is-overflowing");
+    });
+  }
+
+  function elementOverflows(node) {
+    if (!node) return false;
+    return node.scrollHeight > node.clientHeight + 1 || node.scrollWidth > node.clientWidth + 1;
+  }
+
+  function groupOverflows(container, nodes) {
+    return elementOverflows(container) || nodes.some((node) => elementOverflows(node));
   }
 
   function ensureTextBoxes(question, options = {}) {
@@ -1257,6 +1410,7 @@
     if (!node) return;
     node.style.cssText = textBoxStyle(box);
     node.dataset.autoFit = box.auto_fit ? "true" : "false";
+    scheduleSlideTextFit();
   }
 
   function handleCanvasPointerDown(event) {
@@ -1581,6 +1735,7 @@
     if (shouldRender) {
       renderCanvas();
       renderResults();
+      scheduleSlideTextFit();
     }
     scheduleQuestionSave({ rerender: fromChange || shouldRender });
   }
