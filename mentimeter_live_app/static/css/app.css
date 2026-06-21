@@ -629,13 +629,14 @@ p {
 .slide-text-box {
     position: absolute;
     display: flex;
+    box-sizing: border-box;
     min-width: 2rem;
     min-height: 2rem;
     border: 1px solid transparent;
     border-radius: 6px;
     padding: 0.35rem 0.45rem;
     line-height: 1.08;
-    overflow: hidden;
+    overflow: visible;
     cursor: move;
     transition: border-color 120ms ease, box-shadow 120ms ease;
 }
@@ -650,8 +651,11 @@ p {
 }
 
 .slide-text-content {
+    flex: 1 1 auto;
     width: 100%;
     height: 100%;
+    min-width: 0;
+    min-height: 0;
     overflow: hidden;
     white-space: pre-wrap;
     overflow-wrap: anywhere;
@@ -731,6 +735,7 @@ p {
 
 .slide-layout-block {
     position: absolute;
+    box-sizing: border-box;
     min-width: 4rem;
     min-height: 3rem;
     border: 1px solid transparent;
@@ -749,10 +754,18 @@ p {
 }
 
 .slide-layout-block-content {
+    position: absolute;
+    inset: 0;
+    box-sizing: border-box;
     width: 100%;
     height: 100%;
     min-height: 0;
     overflow: hidden;
+}
+
+.slide-layout-block-content > * {
+    min-width: 0;
+    min-height: 0;
 }
 
 .slide-layout-block-content.is-overflowing {
@@ -772,8 +785,17 @@ p {
 }
 
 .slide-layout-block-results .slide-results-stage {
+    grid-column: 1;
+    grid-row: 1;
     width: 100%;
     height: 100%;
+}
+
+.slide-layout-block-activity .option-grid,
+.slide-layout-block-activity .scale-preview,
+.slide-layout-block-activity .live-placeholder {
+    grid-column: 1;
+    grid-row: 1;
 }
 
 .slide-block-move {

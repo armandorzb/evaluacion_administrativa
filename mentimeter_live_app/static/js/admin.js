@@ -37,6 +37,7 @@
   const inspector = $("[data-slide-inspector]");
   const saveState = $("[data-save-state]");
   const joinCardTemplate = $("[data-join-card-template]");
+  const activeSelectionControlActions = new Set(["start", "next_slide", "previous_slide", "go_to_slide", "reset"]);
 
   bindGlobalEvents();
 
@@ -344,7 +345,7 @@
     return `
       <div class="slide-text-box${selected}" data-text-box-id="${escapeAttr(box.id)}" data-auto-fit="${box.auto_fit ? "true" : "false"}" style="${textBoxStyle(box)}">
         <div class="slide-text-content" contenteditable="true" spellcheck="true" data-text-box-content>${escapeHtml(box.text)}</div>
-        <button type="button" class="slide-text-move" aria-label="Mover cuadro"></button>
+        <button type="button" class="slide-text-move" data-text-move-handle aria-label="Mover cuadro"></button>
         <button type="button" class="slide-text-resize handle-nw" data-resize-handle="nw" aria-label="Redimensionar"></button>
         <button type="button" class="slide-text-resize handle-ne" data-resize-handle="ne" aria-label="Redimensionar"></button>
         <button type="button" class="slide-text-resize handle-sw" data-resize-handle="sw" aria-label="Redimensionar"></button>
@@ -1426,7 +1427,8 @@
     syncTextBoxSelection();
     renderInspector();
     const handle = event.target.closest("[data-resize-handle]");
-    if (!handle && event.target.closest("[data-text-box-content]")) return;
+    const moveHandle = event.target.closest("[data-text-move-handle]");
+    if (!handle && !moveHandle && event.target.closest("[data-text-box-content]")) return;
     const box = selectedTextBox(question);
     if (!box || !canvas) return;
     state.textDrag = {
@@ -1796,7 +1798,7 @@
         state.socket.emit("presenter_control", payload, (ack) => {
           if (ack?.ok) {
             state.session = ack.session;
-            ensureSelectedQuestion();
+            syncSelectionAfterControl(action);
             if (fullRender) render();
           } else if (ack?.error) {
             alert(ack.error);
@@ -1808,7 +1810,7 @@
     const json = await postJson(`/api/sessions/${state.session.code}/control`, { action, ...extra });
     if (json.ok) {
       state.session = json.session;
-      ensureSelectedQuestion();
+      syncSelectionAfterControl(action);
       if (fullRender) render();
     } else {
       alert(json.error || "No se pudo controlar la presentación.");
@@ -1934,8 +1936,24 @@
   }
 
   function ensureSelectedQuestion() {
+    if (shouldFollowActiveQuestion() && state.session?.active_question_id) {
+      state.selectedQuestionId = state.session.active_question_id;
+      return;
+    }
     const question = selectedQuestion();
     state.selectedQuestionId = question ? question.id : null;
+  }
+
+  function syncSelectionAfterControl(action) {
+    if (activeSelectionControlActions.has(action) && state.session?.active_question_id) {
+      state.selectedQuestionId = state.session.active_question_id;
+      return;
+    }
+    ensureSelectedQuestion();
+  }
+
+  function shouldFollowActiveQuestion() {
+    return document.body.classList.contains("present-only");
   }
 
   function slideIndex(id) {
