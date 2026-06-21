@@ -83,6 +83,7 @@ def create_app(test_config: dict[str, Any] | None = None) -> Flask:
         MENTI_ADMIN_PASSWORD=os.getenv("MENTI_ADMIN_PASSWORD"),
         MENTI_RESPONSE_RATE_LIMIT=int(os.getenv("MENTI_RESPONSE_RATE_LIMIT", "120")),
         MENTI_RESPONSE_RATE_WINDOW=int(os.getenv("MENTI_RESPONSE_RATE_WINDOW", "60")),
+        ASSET_VERSION=os.getenv("MENTI_ASSET_VERSION") or str(int(Path(__file__).stat().st_mtime)),
     )
     if test_config:
         app.config.update(test_config)
@@ -95,6 +96,11 @@ def create_app(test_config: dict[str, Any] | None = None) -> Flask:
         app.wsgi_app = ProxyFix(app.wsgi_app, x_for=1, x_proto=1, x_host=1, x_prefix=1)
 
     socketio.init_app(app, cors_allowed_origins=app.config["MENTI_SOCKETIO_CORS"])
+
+    @app.context_processor
+    def inject_asset_version() -> dict[str, str]:
+        return {"asset_version": str(app.config.get("ASSET_VERSION") or "1")}
+
     register_routes(app)
     register_socket_events()
 

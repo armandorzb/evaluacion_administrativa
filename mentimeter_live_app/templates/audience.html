@@ -4,7 +4,7 @@
     <meta charset="utf-8">
     <meta name="viewport" content="width=device-width, initial-scale=1">
     <title>{{ session.title }}</title>
-    <link rel="stylesheet" href="{{ url_for('static', filename='css/app.css') }}">
+    <link rel="stylesheet" href="{{ url_for('static', filename='css/app.css', v=asset_version) }}">
 </head>
 <body class="audience-shell">
     <main class="audience-card" data-audience data-code="{{ session.code }}" data-token="{{ participant.token }}">
@@ -28,6 +28,6 @@
         window.MENTI_PARTICIPANT_TOKEN = {{ participant.token|tojson }};
     </script>
     <script src="https://cdn.socket.io/4.7.5/socket.io.min.js"></script>
-    <script src="{{ url_for('static', filename='js/audience.js') }}"></script>
+    <script src="{{ url_for('static', filename='js/audience.js', v=asset_version) }}"></script>
 </body>
 </html>
