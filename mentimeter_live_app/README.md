@@ -18,6 +18,10 @@ Abre:
 - Audiencia: `http://127.0.0.1:5000/join`
 - Demo: codigo `123456`
 
+En produccion el presentador se protege con `MENTI_ADMIN_USERNAME` y `MENTI_ADMIN_PASSWORD`.
+Si esas variables no existen, puede usarse el fallback `MENTI_ADMIN_PIN`; si ninguna existe,
+el admin queda abierto para desarrollo local.
+
 La base SQLite se crea automaticamente en `instance/mentimeter.sqlite3`.
 
 ## Arquitectura

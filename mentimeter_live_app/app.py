@@ -10,7 +10,7 @@ from math import ceil
 import os
 from pathlib import Path
 from random import randint
-from secrets import token_urlsafe
+from secrets import compare_digest, token_urlsafe
 from time import monotonic
 from typing import Any
 
@@ -65,6 +65,8 @@ def create_app(test_config: dict[str, Any] | None = None) -> Flask:
         MENTI_SEED_DEMO=os.getenv("MENTI_SEED_DEMO", "true").lower() in {"1", "true", "yes", "si"},
         MENTI_SOCKETIO_CORS=os.getenv("MENTI_SOCKETIO_CORS", "*"),
         MENTI_ADMIN_PIN=os.getenv("MENTI_ADMIN_PIN"),
+        MENTI_ADMIN_USERNAME=os.getenv("MENTI_ADMIN_USERNAME"),
+        MENTI_ADMIN_PASSWORD=os.getenv("MENTI_ADMIN_PASSWORD"),
         MENTI_RESPONSE_RATE_LIMIT=int(os.getenv("MENTI_RESPONSE_RATE_LIMIT", "120")),
         MENTI_RESPONSE_RATE_WINDOW=int(os.getenv("MENTI_RESPONSE_RATE_WINDOW", "60")),
     )
@@ -91,8 +93,30 @@ def create_app(test_config: dict[str, Any] | None = None) -> Flask:
 
 
 def is_admin_authenticated() -> bool:
-    expected_pin = current_app.config.get("MENTI_ADMIN_PIN")
-    return not expected_pin or flask_session.get("menti_admin_ok") is True
+    return admin_auth_mode() == "open" or flask_session.get("menti_admin_ok") is True
+
+
+def admin_auth_mode() -> str:
+    username = current_app.config.get("MENTI_ADMIN_USERNAME")
+    password = current_app.config.get("MENTI_ADMIN_PASSWORD")
+    if username and password:
+        return "password"
+    if current_app.config.get("MENTI_ADMIN_PIN"):
+        return "pin"
+    return "open"
+
+
+def validate_admin_login(form) -> bool:
+    mode = admin_auth_mode()
+    if mode == "password":
+        expected_user = str(current_app.config["MENTI_ADMIN_USERNAME"])
+        expected_password = str(current_app.config["MENTI_ADMIN_PASSWORD"])
+        submitted_user = str(form.get("username", ""))
+        submitted_password = str(form.get("password", ""))
+        return compare_digest(submitted_user, expected_user) and compare_digest(submitted_password, expected_password)
+    if mode == "pin":
+        return compare_digest(str(form.get("pin", "")), str(current_app.config["MENTI_ADMIN_PIN"]))
+    return True
 
 
 def admin_required(view):
@@ -170,14 +194,16 @@ def register_routes(app: Flask) -> None:
 
     @app.route("/admin-login", methods=["GET", "POST"])
     def admin_login():
-        if not current_app.config.get("MENTI_ADMIN_PIN"):
+        mode = admin_auth_mode()
+        if mode == "open":
             return redirect(url_for("admin"))
         if request.method == "POST":
-            if request.form.get("pin", "") == current_app.config["MENTI_ADMIN_PIN"]:
+            if validate_admin_login(request.form):
                 flask_session["menti_admin_ok"] = True
+                flask_session["menti_admin_mode"] = mode
                 return redirect(safe_next_url(request.args.get("next")))
-            return render_template("admin_login.html", error="PIN incorrecto."), 401
-        return render_template("admin_login.html")
+            return render_template("admin_login.html", auth_mode=mode, error="Credenciales incorrectas."), 401
+        return render_template("admin_login.html", auth_mode=mode)
 
     @app.post("/admin-logout")
     def admin_logout():
@@ -189,7 +215,13 @@ def register_routes(app: Flask) -> None:
     def admin():
         sessions = Session.query.order_by(Session.updated_at.desc()).all()
         selected = find_session(request.args.get("code")) if request.args.get("code") else (sessions[0] if sessions else None)
-        return render_template("admin.html", sessions=sessions, selected=selected, question_types=sorted(QUESTION_TYPES))
+        return render_template(
+            "admin.html",
+            sessions=sessions,
+            selected=selected,
+            question_types=sorted(QUESTION_TYPES),
+            admin_auth_required=admin_auth_mode() != "open",
+        )
 
     @app.get("/present/<code>")
     @admin_required
@@ -197,7 +229,14 @@ def register_routes(app: Flask) -> None:
         session = find_session(code)
         if session is None:
             abort(404)
-        return render_template("admin.html", sessions=[session], selected=session, question_types=sorted(QUESTION_TYPES), present_only=True)
+        return render_template(
+            "admin.html",
+            sessions=[session],
+            selected=session,
+            question_types=sorted(QUESTION_TYPES),
+            present_only=True,
+            admin_auth_required=admin_auth_mode() != "open",
+        )
 
     @app.route("/join", methods=["GET", "POST"])
     def join():

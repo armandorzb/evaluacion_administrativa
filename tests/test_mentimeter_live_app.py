@@ -37,6 +37,20 @@ def build_protected_app():
     )
 
 
+def build_password_app():
+    return create_app(
+        {
+            "TESTING": True,
+            "SECRET_KEY": "test",
+            "SQLALCHEMY_DATABASE_URI": "sqlite:///:memory:",
+            "SQLALCHEMY_TRACK_MODIFICATIONS": False,
+            "MENTI_SEED_DEMO": True,
+            "MENTI_ADMIN_USERNAME": "presentador",
+            "MENTI_ADMIN_PASSWORD": "secreto",
+        }
+    )
+
+
 def build_limited_app():
     return create_app(
         {
@@ -83,6 +97,29 @@ def test_optional_admin_pin_protects_presenter_surfaces_but_not_audience():
     assert bad_login.status_code == 401
 
     good_login = client.post("/admin-login?next=/admin", data={"pin": "2468"})
+    assert good_login.status_code == 302
+    assert good_login.headers["Location"].endswith("/admin")
+    assert client.get("/admin").status_code == 200
+    assert client.get("/api/sessions").status_code == 200
+
+
+def test_admin_username_password_can_protect_presenter_surfaces():
+    app = build_password_app()
+    client = app.test_client()
+
+    assert client.get("/admin").status_code == 302
+    login_page = client.get("/admin-login")
+    assert login_page.status_code == 200
+    assert b'name="username"' in login_page.data
+    assert b'name="password"' in login_page.data
+
+    bad_login = client.post("/admin-login", data={"username": "presentador", "password": "mal"})
+    assert bad_login.status_code == 401
+
+    good_login = client.post(
+        "/admin-login?next=/admin",
+        data={"username": "presentador", "password": "secreto"},
+    )
     assert good_login.status_code == 302
     assert good_login.headers["Location"].endswith("/admin")
     assert client.get("/admin").status_code == 200

@@ -14,7 +14,10 @@ DATABASE_URL=sqlite:////var/lib/mentimeter-live/mentimeter.sqlite3
 MENTI_PROXY_FIX=true
 MENTI_SOCKETIO_CORS=https://mentilive.187.124.148.20.sslip.io
 MENTI_SOCKETIO_ASYNC_MODE=eventlet
-MENTI_ADMIN_PIN=pin-privado-del-presentador
+MENTI_ADMIN_USERNAME=presentador
+MENTI_ADMIN_PASSWORD=contrasena-larga-privada
+# Fallback opcional para instalaciones antiguas sin usuario/contrasena:
+# MENTI_ADMIN_PIN=pin-privado-del-presentador
 MENTI_MAX_CONTENT_LENGTH=1048576
 MENTI_RESPONSE_RATE_LIMIT=120
 MENTI_RESPONSE_RATE_WINDOW=60
