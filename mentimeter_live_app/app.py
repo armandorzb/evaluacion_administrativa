@@ -2,15 +2,17 @@ from __future__ import annotations
 
 import csv
 import json
-from collections import Counter, defaultdict
+from collections import Counter, defaultdict, deque
 from datetime import datetime
+from functools import wraps
 from io import BytesIO, StringIO
+from math import ceil
 import os
 from pathlib import Path
 from random import randint
 from secrets import token_urlsafe
+from time import monotonic
 from typing import Any
-from functools import wraps
 
 import qrcode
 from flask import (
@@ -48,6 +50,7 @@ QUESTION_TYPES = {"multiple_choice", "word_cloud", "scale", "open_text", "rankin
 SINGLE_RESPONSE_TYPES = {"multiple_choice", "scale", "ranking", "quiz"}
 PARTICIPANT_COOKIE = "menti_participant_token"
 socket_participants: dict[str, tuple[int, str]] = {}
+public_rate_buckets: dict[str, deque[float]] = {}
 
 
 def create_app(test_config: dict[str, Any] | None = None) -> Flask:
@@ -58,9 +61,12 @@ def create_app(test_config: dict[str, Any] | None = None) -> Flask:
         SECRET_KEY=os.getenv("SECRET_KEY", "dev-mentimeter-local"),
         SQLALCHEMY_DATABASE_URI=database_url or f"sqlite:///{local_database}",
         SQLALCHEMY_TRACK_MODIFICATIONS=False,
+        MAX_CONTENT_LENGTH=int(os.getenv("MENTI_MAX_CONTENT_LENGTH", str(1024 * 1024))),
         MENTI_SEED_DEMO=os.getenv("MENTI_SEED_DEMO", "true").lower() in {"1", "true", "yes", "si"},
         MENTI_SOCKETIO_CORS=os.getenv("MENTI_SOCKETIO_CORS", "*"),
         MENTI_ADMIN_PIN=os.getenv("MENTI_ADMIN_PIN"),
+        MENTI_RESPONSE_RATE_LIMIT=int(os.getenv("MENTI_RESPONSE_RATE_LIMIT", "120")),
+        MENTI_RESPONSE_RATE_WINDOW=int(os.getenv("MENTI_RESPONSE_RATE_WINDOW", "60")),
     )
     if test_config:
         app.config.update(test_config)
@@ -107,7 +113,53 @@ def safe_next_url(value: str | None) -> str:
     return url_for("admin")
 
 
+def rate_limit_identity(scope: str, session: Session | None = None, participant: Participant | None = None) -> str:
+    forwarded = (request.headers.get("X-Forwarded-For") or "").split(",")[0].strip()
+    remote_addr = forwarded or request.remote_addr or "unknown"
+    session_key = session.code if session else "-"
+    participant_key = participant.token if participant else "-"
+    return f"{scope}:{session_key}:{participant_key}:{remote_addr}"
+
+
+def consume_rate_limit(key: str) -> tuple[bool, int]:
+    limit = max(1, int(current_app.config.get("MENTI_RESPONSE_RATE_LIMIT", 30)))
+    window = max(1, int(current_app.config.get("MENTI_RESPONSE_RATE_WINDOW", 60)))
+    now = monotonic()
+    bucket = public_rate_buckets.setdefault(key, deque())
+    while bucket and now - bucket[0] >= window:
+        bucket.popleft()
+    if len(bucket) >= limit:
+        retry_after = max(1, ceil(window - (now - bucket[0])))
+        return False, retry_after
+    bucket.append(now)
+    return True, 0
+
+
+def rate_limited_response(retry_after: int):
+    response = jsonify({"ok": False, "error": "Demasiadas respuestas. Intenta nuevamente en unos segundos."})
+    response.status_code = 429
+    response.headers["Retry-After"] = str(retry_after)
+    return response
+
+
+def socket_payload_too_large(payload: Any) -> bool:
+    max_size = int(current_app.config.get("MAX_CONTENT_LENGTH") or 0)
+    if not max_size:
+        return False
+    try:
+        size = len(json.dumps(payload or {}, ensure_ascii=False).encode("utf-8"))
+    except TypeError:
+        size = max_size + 1
+    return size > max_size
+
+
 def register_routes(app: Flask) -> None:
+    @app.before_request
+    def reject_oversized_payload():
+        max_size = int(current_app.config.get("MAX_CONTENT_LENGTH") or 0)
+        if max_size and request.content_length and request.content_length > max_size:
+            return jsonify({"ok": False, "error": "Payload demasiado grande."}), 413
+
     @app.get("/")
     def index():
         return redirect(url_for("join"))
@@ -349,6 +401,10 @@ def register_routes(app: Flask) -> None:
         session = require_session(code)
         question = require_question(session, question_id)
         participant = get_or_create_participant(session, request.cookies.get(PARTICIPANT_COOKIE))
+        allowed, retry_after = consume_rate_limit(rate_limit_identity("response", session))
+        if not allowed:
+            response = rate_limited_response(retry_after)
+            return response
         try:
             if refresh_session_timers(session):
                 db.session.commit()
@@ -390,6 +446,8 @@ def register_socket_events() -> None:
 
     @socketio.on("submit_response")
     def socket_submit_response(data):
+        if socket_payload_too_large(data):
+            return {"ok": False, "error": "Payload demasiado grande."}
         session = find_session((data or {}).get("code"))
         if session is None:
             return {"ok": False, "error": "Sesion no encontrada."}
@@ -397,6 +455,13 @@ def register_socket_events() -> None:
         if question is None or question.session_id != session.id:
             return {"ok": False, "error": "Pregunta no encontrada."}
         participant = get_or_create_participant(session, (data or {}).get("participant_token"))
+        allowed, retry_after = consume_rate_limit(rate_limit_identity("socket-response", session))
+        if not allowed:
+            return {
+                "ok": False,
+                "error": "Demasiadas respuestas. Intenta nuevamente en unos segundos.",
+                "retry_after": retry_after,
+            }
         try:
             if refresh_session_timers(session):
                 db.session.commit()

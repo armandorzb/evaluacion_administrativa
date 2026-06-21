@@ -37,6 +37,21 @@ def build_protected_app():
     )
 
 
+def build_limited_app():
+    return create_app(
+        {
+            "TESTING": True,
+            "SECRET_KEY": "test",
+            "SQLALCHEMY_DATABASE_URI": "sqlite:///:memory:",
+            "SQLALCHEMY_TRACK_MODIFICATIONS": False,
+            "MENTI_SEED_DEMO": True,
+            "MENTI_RESPONSE_RATE_LIMIT": 1,
+            "MENTI_RESPONSE_RATE_WINDOW": 60,
+            "MAX_CONTENT_LENGTH": 512,
+        }
+    )
+
+
 def test_demo_session_and_public_pages_exist():
     app = build_app()
     client = app.test_client()
@@ -199,6 +214,46 @@ def test_single_choice_vote_is_replaced_for_same_participant():
     counts = {item["id"]: item["count"] for item in payload["results"]["options"]}
     assert counts[first_option["id"]] == 0
     assert counts[second_option["id"]] == 1
+
+
+def test_public_response_rate_limit_and_payload_size_are_enforced():
+    app = build_limited_app()
+    client = app.test_client()
+    session = client.post("/api/sessions", json={"title": "Sesion limitada"}).get_json()["session"]
+    question = client.post(
+        f"/api/sessions/{session['code']}/questions",
+        json={
+            "type": "multiple_choice",
+            "title": "Voto",
+            "prompt": "Elige",
+            "options": ["A", "B"],
+        },
+    ).get_json()["question"]
+    option_id = question["options"][0]["id"]
+    client.post(f"/api/sessions/{session['code']}/control", json={"action": "start"})
+
+    first = client.post(f"/api/sessions/{session['code']}/questions/{question['id']}/responses", json={"option_id": option_id})
+    assert first.status_code == 200
+
+    second = client.post(f"/api/sessions/{session['code']}/questions/{question['id']}/responses", json={"option_id": option_id})
+    assert second.status_code == 429
+    assert second.headers["Retry-After"]
+
+    oversized = client.post(
+        f"/api/sessions/{session['code']}/questions/{question['id']}/responses",
+        data="x" * 800,
+        content_type="application/json",
+    )
+    assert oversized.status_code == 413
+
+    socket_client = socketio.test_client(app, flask_test_client=client)
+    socket_response = socket_client.emit(
+        "submit_response",
+        {"code": session["code"], "question_id": question["id"], "payload": {"text": "x" * 800}},
+        callback=True,
+    )
+    assert socket_response == {"ok": False, "error": "Payload demasiado grande."}
+    socket_client.disconnect()
 
 
 def test_manual_moderation_hides_then_reveals_open_text_results():
