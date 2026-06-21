@@ -1,7 +1,10 @@
 from datetime import timedelta
+from io import BytesIO
 
-from mentimeter_live_app.app import create_app, socketio
-from mentimeter_live_app.models import db, Question, Response, Session, utcnow
+from openpyxl import load_workbook
+
+from mentimeter_live_app.app import build_session_report, create_app, socketio
+from mentimeter_live_app.models import db, Participant, Question, Response, Session, SessionRun, utcnow
 
 
 class TestConfig:
@@ -341,6 +344,63 @@ def test_interactive_question_config_forces_results_inside_slide():
     assert refreshed_multiple["config"]["layout_blocks"]["results"]["x"] == 53
 
 
+def test_interactive_question_config_preserves_text_styles():
+    app = build_app()
+    client = app.test_client()
+    session = client.post("/api/sessions", json={"title": "Estilos de texto"}).get_json()["session"]
+    code = session["code"]
+
+    question = client.post(
+        f"/api/sessions/{code}/questions",
+        json={
+            "type": "multiple_choice",
+            "title": "Titulo",
+            "prompt": "Pregunta",
+            "options": ["A", "B"],
+            "config": {
+                "text_styles": {
+                    "title": {
+                        "font_size": 44,
+                        "font_weight": 800,
+                        "color": "#2563eb",
+                        "background": "transparent",
+                        "align": "center",
+                        "auto_fit": False,
+                    },
+                    "prompt": {
+                        "font_size": 22,
+                        "font_weight": 400,
+                        "color": "#334155",
+                        "background": "#ffffff",
+                        "align": "left",
+                        "auto_fit": True,
+                    },
+                    "option:0": {
+                        "font_size": 18,
+                        "font_weight": 800,
+                        "color": "#647c3d",
+                        "background": "transparent",
+                        "align": "right",
+                        "auto_fit": True,
+                    },
+                    "bad key !": {"font_size": 999, "color": "bad"},
+                }
+            },
+        },
+    ).get_json()["question"]
+
+    styles = question["config"]["text_styles"]
+    assert styles["title"]["font_size"] == 44
+    assert styles["title"]["font_weight"] == 800
+    assert styles["title"]["auto_fit"] is False
+    assert styles["title"]["align"] == "center"
+    assert styles["prompt"]["background"] == "#ffffff"
+    assert styles["option:0"]["color"] == "#647c3d"
+    assert styles["option:0"]["align"] == "right"
+    assert styles["badkey"]["font_size"] == 120
+    assert styles["badkey"]["color"] == "#17212f"
+
+
 def test_content_slide_is_saved_but_does_not_accept_responses():
     app = build_app()
     client = app.test_client()
@@ -522,6 +582,138 @@ def test_single_choice_vote_is_replaced_for_same_participant():
     counts = {item["id"]: item["count"] for item in payload["results"]["options"]}
     assert counts[first_option["id"]] == 0
     assert counts[second_option["id"]] == 1
+
+
+def test_session_runs_preserve_responses_across_reset_for_same_participant():
+    app = build_app()
+    client = app.test_client()
+    session = client.post("/api/sessions", json={"title": "Historial persistente"}).get_json()["session"]
+    question = client.post(
+        f"/api/sessions/{session['code']}/questions",
+        json={
+            "type": "multiple_choice",
+            "title": "Prioridad",
+            "prompt": "Elige una",
+            "options": ["Primera", "Segunda"],
+        },
+    ).get_json()["question"]
+    first_option, second_option = question["options"]
+
+    started = client.post(f"/api/sessions/{session['code']}/control", json={"action": "start"}).get_json()["session"]
+    assert started["active_run_id"]
+    assert len(started["runs"]) == 1
+    first_run_id = started["active_run_id"]
+    assert client.post(
+        f"/api/sessions/{session['code']}/questions/{question['id']}/responses",
+        json={"option_id": first_option["id"]},
+    ).status_code == 200
+
+    reset = client.post(f"/api/sessions/{session['code']}/control", json={"action": "reset"}).get_json()["session"]
+    assert reset["status"] == "draft"
+    assert reset["active_run_id"] is None
+    assert reset["runs"][0]["status"] == "closed"
+    assert reset["runs"][0]["response_count"] == 1
+    reset_question = next(item for item in reset["questions"] if item["id"] == question["id"])
+    assert reset_question["results"]["total"] == 0
+
+    restarted = client.post(f"/api/sessions/{session['code']}/control", json={"action": "start"}).get_json()["session"]
+    second_run_id = restarted["active_run_id"]
+    assert second_run_id != first_run_id
+    second_submit = client.post(
+        f"/api/sessions/{session['code']}/questions/{question['id']}/responses",
+        json={"option_id": second_option["id"]},
+    ).get_json()
+    assert second_submit["results"]["total"] == 1
+
+    with app.app_context():
+        db_session = Session.query.filter_by(code=session["code"]).first()
+        responses = Response.query.filter_by(session_id=db_session.id, question_id=question["id"]).order_by(Response.id).all()
+        assert len(responses) == 2
+        assert {response.run_id for response in responses} == {first_run_id, second_run_id}
+        assert {response.payload_json["option_id"] for response in responses} == {first_option["id"], second_option["id"]}
+        first_run = db.session.get(SessionRun, first_run_id)
+        assert first_run.summary_json["response_count"] == 1
+
+
+def test_run_exports_xlsx_pdf_and_report_are_interpreted_by_run():
+    app = build_app()
+    client = app.test_client()
+    session = client.post("/api/sessions", json={"title": "Reporte por ejecucion"}).get_json()["session"]
+    choice = client.post(
+        f"/api/sessions/{session['code']}/questions",
+        json={
+            "type": "multiple_choice",
+            "title": "Votacion",
+            "prompt": "Elige",
+            "options": ["A", "B"],
+        },
+    ).get_json()["question"]
+    cloud = client.post(
+        f"/api/sessions/{session['code']}/questions",
+        json={"type": "word_cloud", "title": "Nube", "prompt": "Una palabra"},
+    ).get_json()["question"]
+
+    started = client.post(f"/api/sessions/{session['code']}/control", json={"action": "start"}).get_json()["session"]
+    run_id = started["active_run_id"]
+    client.post(
+        f"/api/sessions/{session['code']}/questions/{choice['id']}/responses",
+        json={"option_id": choice["options"][0]["id"]},
+    )
+    client.post(f"/api/sessions/{session['code']}/control", json={"action": "go_to_slide", "index": 1})
+    client.post(f"/api/sessions/{session['code']}/questions/{cloud['id']}/responses", json={"text": "calidad"})
+    closed = client.post(f"/api/sessions/{session['code']}/control", json={"action": "close"}).get_json()["session"]
+    assert closed["runs"][0]["status"] == "closed"
+
+    with app.app_context():
+        db_session = Session.query.filter_by(code=session["code"]).first()
+        report = build_session_report(db_session, db.session.get(SessionRun, run_id))
+        assert report["run_label"] == "Ejecucion 1"
+        assert report["response_count"] == 2
+        assert report["responses"][0]["participant"] == "Participante 1"
+        assert any(row["metric"] == "A" and row["count"] == 1 for row in report["slides"][0]["result_rows"])
+
+    xlsx = client.get(f"/api/sessions/{session['code']}/runs/{run_id}/export.xlsx")
+    assert xlsx.status_code == 200
+    workbook = load_workbook(BytesIO(xlsx.data), data_only=True)
+    assert {"Resumen", "Diapositivas", "Resultados", "Respuestas", "Opcion multiple", "Nube"}.issubset(set(workbook.sheetnames))
+    assert workbook["Resumen"]["A1"].value == "Campo"
+    assert any(row[3] == "A" and row[5] == 1 for row in workbook["Resultados"].iter_rows(min_row=2, values_only=True))
+
+    pdf = client.get(f"/api/sessions/{session['code']}/runs/{run_id}/export.pdf")
+    assert pdf.status_code == 200
+    assert pdf.data.startswith(b"%PDF")
+
+
+def test_legacy_responses_without_run_are_reported_as_historical():
+    app = build_app()
+    client = app.test_client()
+    session = client.post("/api/sessions", json={"title": "Legacy"}).get_json()["session"]
+    question = client.post(
+        f"/api/sessions/{session['code']}/questions",
+        json={"type": "open_text", "title": "Comentario", "prompt": "Opina"},
+    ).get_json()["question"]
+
+    with app.app_context():
+        db_session = Session.query.filter_by(code=session["code"]).first()
+        participant = Participant(session=db_session, token="legacy-token", connected=False)
+        db.session.add(participant)
+        db.session.flush()
+        response = Response(
+            session=db_session,
+            question=db.session.get(Question, question["id"]),
+            participant=participant,
+            response_key="default",
+            payload_json={"text": "respuesta anterior", "status": "approved"},
+        )
+        db.session.add(response)
+        db.session.commit()
+        report = build_session_report(db_session)
+        assert report["run_label"] == "Historico sin ejecucion"
+        assert report["response_count"] == 1
+        assert report["responses"][0]["participant"] == "Participante 1"
+
+    workbook = load_workbook(BytesIO(client.get(f"/api/sessions/{session['code']}/export.xlsx").data), data_only=True)
+    assert workbook["Resumen"]["B4"].value == "Historico sin ejecucion"
 
 
 def test_public_response_rate_limit_and_payload_size_are_enforced():

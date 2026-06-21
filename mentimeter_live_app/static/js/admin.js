@@ -8,6 +8,7 @@
     sortable: null,
     selectedQuestionId: null,
     selectedTextBoxId: null,
+    selectedTextTargetId: null,
     selectedLayoutBlockId: null,
     textDrag: null,
     layoutBlockDrag: null,
@@ -86,6 +87,9 @@
     $$("[data-control]").forEach((button) => {
       button.addEventListener("click", () => {
         const action = normalizeControlAction(button.dataset.control);
+        if (action === "reset" && !window.confirm("Se cerrara la ejecucion activa y se preparara una nueva. Las respuestas historicas se conservaran.")) {
+          return;
+        }
         controlSession(action);
       });
     });
@@ -120,14 +124,18 @@
 
     canvas?.addEventListener("click", (event) => {
       const question = selectedQuestion();
+      const editableText = event.target.closest("[data-text-target]");
       const textBox = event.target.closest("[data-text-box-id]");
       const layoutBlock = event.target.closest("[data-layout-block-id]");
       if (textBox && question?.type === "content_slide") {
         selectTextBox(textBox.dataset.textBoxId);
+      } else if (editableText && question?.type !== "content_slide") {
+        selectCanvasTextTarget(editableText.dataset.textTarget);
       } else if (layoutBlock && question?.type !== "content_slide") {
         selectLayoutBlock(layoutBlock.dataset.layoutBlockId);
       } else if (!event.target.closest("button[data-canvas-action]") && !event.target.closest("[contenteditable='true']")) {
         selectTextBox(null);
+        selectCanvasTextTarget(null, { render: false });
         if (question?.type !== "content_slide") selectLayoutBlock(null);
       }
       const button = event.target.closest("button[data-canvas-action]");
@@ -256,7 +264,11 @@
     if (deckTitleInput && document.activeElement !== deckTitleInput) {
       deckTitleInput.value = state.session.title || "";
     }
-    if (statusPill) statusPill.textContent = `${state.session.code} - ${state.session.status}`;
+    if (statusPill) {
+      const runCount = Number(state.session.runs?.length || 0);
+      const runLabel = state.session.active_run_id ? "ejecucion activa" : `${runCount} ejec.`;
+      statusPill.textContent = `${state.session.code} - ${state.session.status} - ${runLabel}`;
+    }
     if (connectedCount) connectedCount.textContent = state.session.connected_count || 0;
   }
 
@@ -305,14 +317,17 @@
     canvas.className = `slide-canvas slide-kind-${question.type}${liveClass}${closedClass}`;
     if (question.type === "content_slide") {
       state.selectedLayoutBlockId = null;
+      state.selectedTextTargetId = null;
       ensureTextBoxes(question);
       canvas.innerHTML = contentSlideMarkup(question);
       scheduleSlideTextFit();
       return;
     }
     state.selectedTextBoxId = null;
+    ensureTextTargetSelection(question);
     ensureLayoutBlocks(question);
     canvas.innerHTML = interactiveSlideMarkup(question);
+    syncCanvasTextTargetSelection();
     scheduleSlideTextFit();
   }
 
@@ -369,6 +384,140 @@
     ].join(";");
   }
 
+  function optionTextTargetId(index) {
+    return `option:${index}`;
+  }
+
+  function textTargetIds(question) {
+    if (!question || question.type === "content_slide") return [];
+    const ids = ["title", "prompt"];
+    if (["multiple_choice", "quiz", "ranking"].includes(question.type)) {
+      (question.options || []).forEach((_option, index) => ids.push(optionTextTargetId(index)));
+    }
+    return ids;
+  }
+
+  function textTargetLabel(id) {
+    if (id === "title") return "Titulo";
+    if (id === "prompt") return "Pregunta";
+    if (String(id || "").startsWith("option:")) return `Opcion ${Number(String(id).split(":")[1] || 0) + 1}`;
+    return "Texto";
+  }
+
+  function ensureTextTargetSelection(question) {
+    if (!question || question.type === "content_slide") {
+      state.selectedTextTargetId = null;
+      return;
+    }
+    if (state.selectedTextTargetId && !textTargetIds(question).includes(state.selectedTextTargetId)) {
+      state.selectedTextTargetId = null;
+    }
+  }
+
+  function rawTextTargetStyle(question, id) {
+    const styles = question?.config?.text_styles;
+    const item = styles && typeof styles === "object" ? styles[id] : null;
+    return item && typeof item === "object" ? item : {};
+  }
+
+  function defaultTextTargetStyle(id) {
+    if (id === "title") return { font_size: 60, font_weight: 800, color: "#17212f", background: "transparent", align: "left", auto_fit: true };
+    if (id === "prompt") return { font_size: 24, font_weight: 400, color: "#334155", background: "transparent", align: "left", auto_fit: true };
+    return { font_size: 20, font_weight: 800, color: "#17212f", background: "transparent", align: "left", auto_fit: true };
+  }
+
+  function normalizedTextTargetStyle(question, id) {
+    const defaults = defaultTextTargetStyle(id);
+    const raw = rawTextTargetStyle(question, id);
+    return {
+      font_size: Math.round(clampNumber(raw.font_size, 8, 120, defaults.font_size)),
+      font_weight: Number(raw.font_weight || defaults.font_weight) >= 600 ? 800 : 400,
+      color: normalizeHexColor(raw.color, defaults.color),
+      background: raw.background === "transparent" ? "transparent" : normalizeHexColor(raw.background, defaults.background),
+      align: ["left", "center", "right"].includes(raw.align) ? raw.align : defaults.align,
+      auto_fit: raw.auto_fit !== false && raw.auto_fit !== "false",
+    };
+  }
+
+  function textTargetInlineStyle(style) {
+    const css = [];
+    if (style.font_size !== undefined) css.push(`font-size:${Math.round(clampNumber(style.font_size, 8, 120, 16))}px`);
+    if (style.font_weight !== undefined) css.push(`font-weight:${Number(style.font_weight) >= 600 ? 800 : 400}`);
+    if (style.color) css.push(`color:${normalizeHexColor(style.color, "#17212f")}`);
+    if (style.background) css.push(`background:${style.background === "transparent" ? "transparent" : normalizeHexColor(style.background, "#ffffff")}`);
+    if (["left", "center", "right"].includes(style.align)) css.push(`text-align:${style.align}`);
+    return css.join(";");
+  }
+
+  function textTargetAttrs(question, id) {
+    const raw = rawTextTargetStyle(question, id);
+    const style = normalizedTextTargetStyle(question, id);
+    const css = textTargetInlineStyle(raw);
+    const baseSize = raw.font_size !== undefined ? ` data-text-base-size="${style.font_size}"` : "";
+    return ` data-text-target="${escapeAttr(id)}" data-auto-fit="${style.auto_fit ? "true" : "false"}"${baseSize}${css ? ` style="${escapeAttr(css)}"` : ""}`;
+  }
+
+  function selectedTextTarget(question) {
+    if (!question || question.type === "content_slide" || !state.selectedTextTargetId) return null;
+    ensureTextTargetSelection(question);
+    if (!state.selectedTextTargetId) return null;
+    return {
+      id: state.selectedTextTargetId,
+      label: textTargetLabel(state.selectedTextTargetId),
+      ...normalizedTextTargetStyle(question, state.selectedTextTargetId),
+    };
+  }
+
+  function textTargetNode(id) {
+    if (!canvas || !id) return null;
+    return $$("[data-text-target]", canvas).find((node) => node.dataset.textTarget === id) || null;
+  }
+
+  function selectCanvasTextTarget(id, options = {}) {
+    const question = selectedQuestion();
+    if (!question || question.type === "content_slide") return;
+    const validId = id && textTargetIds(question).includes(id) ? id : null;
+    state.selectedTextTargetId = validId;
+    if (validId) {
+      const node = textTargetNode(validId);
+      const block = node?.closest("[data-layout-block-id]");
+      if (block) state.selectedLayoutBlockId = block.dataset.layoutBlockId;
+      state.selectedTextBoxId = null;
+    }
+    syncCanvasTextTargetSelection();
+    syncLayoutBlockSelection();
+    if (options.render !== false) renderInspector();
+  }
+
+  function syncCanvasTextTargetSelection() {
+    if (!canvas) return;
+    $$("[data-text-target]", canvas).forEach((node) => {
+      node.classList.toggle("is-text-selected", node.dataset.textTarget === state.selectedTextTargetId);
+    });
+  }
+
+  function updateSelectedTextTarget(question, patch, options = {}) {
+    if (!question || question.type === "content_slide" || !state.selectedTextTargetId) return;
+    const id = state.selectedTextTargetId;
+    question.config = question.config || {};
+    const styles = { ...(question.config.text_styles || {}) };
+    styles[id] = normalizedTextTargetStyle({ config: { text_styles: { [id]: { ...rawTextTargetStyle(question, id), ...patch } } } }, id);
+    question.config.text_styles = styles;
+    applyTextTargetDom(question, id);
+    if (options.renderInspector) renderInspector();
+    scheduleQuestionSave({ rerender: false });
+  }
+
+  function applyTextTargetDom(question, id) {
+    const node = textTargetNode(id);
+    if (!node) return;
+    const style = normalizedTextTargetStyle(question, id);
+    node.style.cssText = textTargetInlineStyle(style);
+    node.dataset.autoFit = style.auto_fit ? "true" : "false";
+    node.dataset.textBaseSize = String(style.font_size);
+    scheduleSlideTextFit();
+  }
+
   function interactiveSlideMarkup(question) {
     const blocks = ensureLayoutBlocks(question);
     return `
@@ -378,8 +527,8 @@
           <strong>${question.is_open ? "Voto abierto" : "Voto cerrado"}</strong>
         </div>
         ${layoutBlockMarkup("question", blocks.question, `
-          <h2 contenteditable="true" spellcheck="false" data-edit-field="title">${escapeHtml(question.title)}</h2>
-          <p class="slide-prompt" contenteditable="true" spellcheck="true" data-edit-field="prompt">${escapeHtml(question.prompt)}</p>
+          <h2 contenteditable="true" spellcheck="false" data-edit-field="title"${textTargetAttrs(question, "title")}>${escapeHtml(question.title)}</h2>
+          <p class="slide-prompt" contenteditable="true" spellcheck="true" data-edit-field="prompt"${textTargetAttrs(question, "prompt")}>${escapeHtml(question.prompt)}</p>
         `)}
         ${layoutBlockMarkup("activity", blocks.activity, visualEditorFor(question))}
         ${layoutBlockMarkup("results", blocks.results, resultsStageMarkup(false))}
@@ -433,7 +582,7 @@
         return `
           <div class="option-card${correct}" data-option-index="${index}">
             <span class="option-order">${index + 1}</span>
-            <span class="option-label" contenteditable="true" spellcheck="true">${escapeHtml(option.label)}</span>
+            <span class="option-label" contenteditable="true" spellcheck="true"${textTargetAttrs(question, optionTextTargetId(index))}>${escapeHtml(option.label)}</span>
             ${question.type === "quiz" ? `<button type="button" data-canvas-action="toggle-correct" data-option-index="${index}">Correcta</button>` : ""}
             <button type="button" data-canvas-action="remove-option" data-option-index="${index}" aria-label="Eliminar opción">x</button>
           </div>
@@ -498,8 +647,10 @@
       </section>
 
       ${typeSpecificInspector(question)}
+      ${question.type === "content_slide" ? "" : textTargetInspectorMarkup(question, selectedTextTarget(question))}
       ${resultPresentationInspector(question)}
       ${layoutBlockInspectorMarkup(question)}
+      ${runHistoryMarkup()}
 
       <section class="inspector-section">
         <h3>Presentación</h3>
@@ -523,6 +674,41 @@
         <div class="template-buttons">${templateButtons || "<p class=\"muted\">Cargando plantillas...</p>"}</div>
       </section>
     `;
+  }
+
+  function runHistoryMarkup() {
+    const runs = state.session?.runs || [];
+    const currentRunId = state.session?.active_run_id || state.session?.report_run_id;
+    const rows = runs.slice().reverse().map((run) => {
+      const selected = run.id === currentRunId ? " is-current" : "";
+      const ended = run.ended_at ? formatDateTime(run.ended_at) : "En curso";
+      return `
+        <article class="run-history-row${selected}">
+          <div>
+            <strong>Ejecucion ${run.run_number}</strong>
+            <span>${escapeHtml(run.status)} - ${escapeHtml(formatDateTime(run.started_at))} / ${escapeHtml(ended)}</span>
+          </div>
+          <small>${Number(run.participant_count || 0)} participantes · ${Number(run.response_count || 0)} respuestas</small>
+          <div class="run-export-actions">
+            <a href="${escapeAttr(run.xlsx_url || "#")}">Excel</a>
+            <a href="${escapeAttr(run.pdf_url || "#")}">PDF</a>
+          </div>
+        </article>
+      `;
+    }).join("");
+    return `
+      <section class="inspector-section run-history">
+        <h3>Historial de sesiones</h3>
+        ${rows || "<p class=\"muted\">Aun no hay ejecuciones registradas.</p>"}
+      </section>
+    `;
+  }
+
+  function formatDateTime(value) {
+    if (!value) return "N/D";
+    const date = new Date(value);
+    if (Number.isNaN(date.getTime())) return String(value);
+    return date.toLocaleString("es-MX", { dateStyle: "short", timeStyle: "short" });
   }
 
   function typeSpecificInspector(question) {
@@ -713,6 +899,58 @@
           <button type="button" data-text-box-action="duplicate">Duplicar cuadro</button>
           <button type="button" class="danger" data-text-box-action="delete"${totalBoxes <= 1 ? " disabled" : ""}>Eliminar cuadro</button>
         </div>
+      </section>
+    `;
+  }
+
+  function textTargetInspectorMarkup(_question, target) {
+    if (!target) {
+      return `
+        <section class="inspector-section text-box-panel">
+          <h3>Texto seleccionado</h3>
+          <p class="muted">Selecciona un titulo, pregunta u opcion del lienzo para ajustar tamano, color y alineacion.</p>
+        </section>
+      `;
+    }
+    const swatches = ["#17212f", "#334155", "#2563eb", "#647c3d", "#b45309", "#ffffff"];
+    return `
+      <section class="inspector-section text-box-panel">
+        <h3>Texto seleccionado</h3>
+        <p class="muted">${escapeHtml(target.label)}</p>
+        <label>Tamano
+          <div class="range-row">
+            <input type="range" min="8" max="120" data-text-style-key="font_size" value="${Number(target.font_size || 32)}">
+            <input type="number" min="8" max="120" data-text-style-key="font_size" value="${Number(target.font_size || 32)}">
+          </div>
+        </label>
+        <label class="check-row">
+          <input type="checkbox" data-text-style-key="font_weight"${Number(target.font_weight || 400) >= 600 ? " checked" : ""}>
+          Negritas
+        </label>
+        <div class="style-row">
+          <span>Color</span>
+          <div class="swatch-row">
+            ${swatches.map((color) => `<button type="button" class="color-swatch${target.color === color ? " is-active" : ""}" data-text-color="${color}" style="background:${color}" aria-label="Color ${color}"></button>`).join("")}
+            <input type="color" data-text-style-key="color" value="${escapeAttr(target.color || "#17212f")}">
+          </div>
+        </div>
+        <div class="style-row">
+          <span>Fondo</span>
+          <div class="swatch-row">
+            <button type="button" class="color-swatch transparent-swatch${target.background === "transparent" ? " is-active" : ""}" data-text-color="transparent" data-text-color-target="background" aria-label="Fondo transparente"></button>
+            <input type="color" data-text-style-key="background" value="${escapeAttr(target.background === "transparent" ? "#ffffff" : target.background)}">
+          </div>
+        </div>
+        <div class="style-row">
+          <span>Alineacion</span>
+          <div class="segmented-controls">
+            ${["left", "center", "right"].map((align) => `<button type="button" class="${target.align === align ? "is-active" : ""}" data-text-align="${align}">${alignLabel(align)}</button>`).join("")}
+          </div>
+        </div>
+        <label class="check-row">
+          <input type="checkbox" data-text-style-key="auto_fit"${target.auto_fit ? " checked" : ""}>
+          Autoajustar fuente
+        </label>
       </section>
     `;
   }
@@ -1018,7 +1256,9 @@
     if (!question || question.type === "content_slide") return;
     const blocks = ensureLayoutBlocks(question);
     state.selectedLayoutBlockId = id && blocks[id] ? id : null;
+    if (state.selectedLayoutBlockId) state.selectedTextTargetId = null;
     syncLayoutBlockSelection();
+    syncCanvasTextTargetSelection();
     renderInspector();
   }
 
@@ -1099,7 +1339,9 @@
     const block = $(".slide-layout-block-question [data-layout-block-content]", canvas);
     if (!block) return;
     const nodes = [block.querySelector("h2"), block.querySelector(".slide-prompt")].filter(Boolean);
-    fitTextGroup(block, nodes, { minScale: 0.18, minFont: 8 });
+    const autoNodes = nodes.filter((node) => node.dataset.autoFit !== "false");
+    nodes.filter((node) => node.dataset.autoFit === "false").forEach((node) => node.classList.toggle("is-overflowing", elementOverflows(node)));
+    fitTextGroup(block, autoNodes, { minScale: 0.18, minFont: 8 });
   }
 
   function fitActivityBlockText() {
@@ -1110,10 +1352,12 @@
     if (optionGrid) {
       optionGrid.classList.remove("is-compact", "is-overflowing");
       const labels = $$(".option-label", optionGrid);
-      labels.forEach((label) => fitSingleTextNode(label, { min: 9 }));
+      const autoLabels = labels.filter((label) => label.dataset.autoFit !== "false");
+      labels.filter((label) => label.dataset.autoFit === "false").forEach((label) => label.classList.toggle("is-overflowing", elementOverflows(label)));
+      autoLabels.forEach((label) => fitSingleTextNode(label, { min: 9 }));
       if (elementOverflows(block) || elementOverflows(optionGrid)) {
         optionGrid.classList.add("is-compact");
-        fitTextGroup(block, labels, { minScale: 0.18, minFont: 7 });
+        fitTextGroup(block, autoLabels, { minScale: 0.18, minFont: 7 });
       }
       block.classList.toggle("is-overflowing", elementOverflows(block) || elementOverflows(optionGrid));
       optionGrid.classList.toggle("is-overflowing", elementOverflows(optionGrid));
@@ -1145,7 +1389,7 @@
   function fitSingleTextNode(node, options = {}) {
     if (!node || node.clientWidth <= 0 || node.clientHeight <= 0) return;
     const computed = window.getComputedStyle(node);
-    const max = Math.min(options.max || parseFloat(computed.fontSize) || 16, 160);
+    const max = Math.min(options.max || parseFloat(node.dataset.textBaseSize || "") || parseFloat(computed.fontSize) || 16, 160);
     const min = Math.min(max, options.min || 9);
     node.style.fontSize = `${max}px`;
     node.classList.remove("is-overflowing");
@@ -1166,7 +1410,7 @@
     if (!container || !nodes?.length || container.clientWidth <= 0 || container.clientHeight <= 0) return;
     resetFitStyles(nodes);
     container.classList.remove("is-overflowing");
-    const bases = nodes.map((node) => parseFloat(window.getComputedStyle(node).fontSize) || 16);
+    const bases = nodes.map((node) => parseFloat(node.dataset.textBaseSize || "") || parseFloat(window.getComputedStyle(node).fontSize) || 16);
     if (!groupOverflows(container, nodes)) return;
     const minScale = options.minScale || 0.4;
     const minFont = options.minFont || 9;
@@ -1189,7 +1433,9 @@
 
   function resetFitStyles(nodes) {
     nodes.forEach((node) => {
-      node.style.removeProperty("font-size");
+      const baseSize = parseFloat(node.dataset.textBaseSize || "");
+      if (Number.isFinite(baseSize)) node.style.fontSize = `${baseSize}px`;
+      else node.style.removeProperty("font-size");
       node.classList.remove("is-overflowing");
     });
   }
@@ -1295,6 +1541,7 @@
 
   function selectTextBox(id) {
     state.selectedTextBoxId = id || null;
+    if (state.selectedTextBoxId) state.selectedTextTargetId = null;
     syncTextBoxSelection();
     renderInspector();
   }
@@ -1576,7 +1823,10 @@
     if (event.key === "Escape") {
       document.activeElement?.blur?.();
       selectTextBox(null);
-      if (question?.type !== "content_slide") selectLayoutBlock(null);
+      if (question?.type !== "content_slide") {
+        selectCanvasTextTarget(null, { render: false });
+        selectLayoutBlock(null);
+      }
       return;
     }
     if (!question || question.type !== "content_slide") return;
@@ -1622,42 +1872,53 @@
 
   function handleTextInspectorButton(button) {
     const question = selectedQuestion();
-    if (!question || question.type !== "content_slide") return;
+    if (!question) return;
     const action = button.dataset.textBoxAction;
     if (action === "add") {
+      if (question.type !== "content_slide") return;
       addTextBox(question);
       return;
     }
     if (action === "duplicate") {
+      if (question.type !== "content_slide") return;
       duplicateSelectedTextBox(question);
       return;
     }
     if (action === "delete") {
+      if (question.type !== "content_slide") return;
       deleteSelectedTextBox(question);
       return;
     }
     if (button.dataset.textAlign) {
-      updateSelectedTextBox(question, { align: button.dataset.textAlign }, { renderInspector: true });
+      updateSelectedTextStyle(question, { align: button.dataset.textAlign }, { renderInspector: true });
       return;
     }
     if (button.dataset.textColor) {
       const key = button.dataset.textColorTarget || "color";
-      updateSelectedTextBox(question, { [key]: button.dataset.textColor }, { renderInspector: true });
+      updateSelectedTextStyle(question, { [key]: button.dataset.textColor }, { renderInspector: true });
     }
   }
 
   function handleTextStyleInput(target) {
     const question = selectedQuestion();
-    if (!question || question.type !== "content_slide") return;
+    if (!question) return;
     const key = target.dataset.textStyleKey;
     let value = target instanceof HTMLInputElement && target.type === "checkbox" ? target.checked : target.value;
     const patch = {};
-    if (key === "font_size") patch.font_size = clampNumber(value, 12, 120);
+    if (key === "font_size") patch.font_size = clampNumber(value, 8, 120);
     if (key === "font_weight") patch.font_weight = value ? 800 : 400;
     if (key === "color") patch.color = normalizeHexColor(value, "#17212f");
     if (key === "background") patch.background = normalizeHexColor(value, "#ffffff");
     if (key === "auto_fit") patch.auto_fit = Boolean(value);
-    updateSelectedTextBox(question, patch, { renderInspector: false });
+    updateSelectedTextStyle(question, patch, { renderInspector: false });
+  }
+
+  function updateSelectedTextStyle(question, patch, options = {}) {
+    if (question.type === "content_slide") {
+      updateSelectedTextBox(question, patch, options);
+      return;
+    }
+    updateSelectedTextTarget(question, patch, options);
   }
 
   function handleLayoutBlockInput(target) {

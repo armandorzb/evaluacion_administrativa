@@ -348,6 +348,12 @@ p {
     font-weight: 700;
 }
 
+.session-chip small {
+    color: var(--green);
+    font-size: 0.68rem;
+    font-weight: 800;
+}
+
 .session-chip.is-active {
     border-color: rgba(37, 99, 235, 0.5);
     box-shadow: 0 0 0 3px rgba(37, 99, 235, 0.12);
@@ -875,6 +881,12 @@ p {
     background: rgba(255, 255, 255, 0.72);
 }
 
+[data-text-target].is-text-selected {
+    outline: 2px solid rgba(37, 99, 235, 0.38);
+    outline-offset: 2px;
+    border-radius: 6px;
+}
+
 .slide-media {
     position: absolute;
     right: 3rem;
@@ -1243,6 +1255,56 @@ p {
 .inspector-section h3 {
     margin: 0;
     font-size: 0.95rem;
+}
+
+.run-history {
+    gap: 0.5rem;
+}
+
+.run-history-row {
+    display: grid;
+    gap: 0.4rem;
+    border: 1px solid var(--line);
+    border-radius: 8px;
+    padding: 0.6rem;
+    background: var(--surface-soft);
+}
+
+.run-history-row.is-current {
+    border-color: rgba(100, 124, 61, 0.42);
+    background: #f6faef;
+}
+
+.run-history-row div:first-child {
+    display: grid;
+    gap: 0.12rem;
+}
+
+.run-history-row span,
+.run-history-row small {
+    color: var(--muted);
+    font-size: 0.72rem;
+    line-height: 1.35;
+}
+
+.run-export-actions {
+    display: flex;
+    gap: 0.4rem;
+}
+
+.run-export-actions a {
+    display: inline-flex;
+    align-items: center;
+    justify-content: center;
+    min-height: 1.85rem;
+    border: 1px solid var(--line);
+    border-radius: 7px;
+    padding: 0.25rem 0.55rem;
+    background: #fff;
+    color: var(--ink);
+    font-size: 0.72rem;
+    font-weight: 800;
+    text-decoration: none;
 }
 
 .inspector-kicker {

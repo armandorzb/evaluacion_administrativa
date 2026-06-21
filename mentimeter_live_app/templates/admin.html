@@ -56,6 +56,7 @@
                     {% for item in sessions %}
                     <a class="session-chip{% if selected and item.id == selected.id %} is-active{% endif %}" href="{{ url_for('admin', code=item.code) }}">
                         <strong>{{ item.title }}</strong>
+                        <small>{{ item.runs|length }} ejecuciones registradas</small>
                         <span>{{ item.code }} · {{ item.status }}</span>
                     </a>
                     {% else %}
@@ -97,7 +98,7 @@
                     <button type="button" data-control="open_question">Abrir voto</button>
                     <button type="button" data-control="close_question">Cerrar voto</button>
                     <button type="button" data-control="close">Cerrar sesión</button>
-                    <button type="button" class="danger" data-control="reset">Reiniciar</button>
+                    <button type="button" class="danger" data-control="reset">Reiniciar para nueva ejecuciÃ³n</button>
                 </div>
                 <span class="save-state" data-save-state>Listo</span>
             </div>

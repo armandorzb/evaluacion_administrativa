@@ -45,6 +45,12 @@ class Session(TimestampMixin, db.Model):
         back_populates="session",
         cascade="all, delete-orphan",
     )
+    runs = db.relationship(
+        "SessionRun",
+        back_populates="session",
+        cascade="all, delete-orphan",
+        order_by="SessionRun.run_number",
+    )
 
     @property
     def active_question(self) -> "Question | None":
@@ -53,6 +59,25 @@ class Session(TimestampMixin, db.Model):
             return None
         index = min(max(self.active_question_index, 0), len(ordered) - 1)
         return ordered[index]
+
+
+class SessionRun(TimestampMixin, db.Model):
+    __tablename__ = "session_runs"
+
+    id = db.Column(db.Integer, primary_key=True)
+    session_id = db.Column(db.Integer, db.ForeignKey("sessions.id"), nullable=False)
+    run_number = db.Column(db.Integer, nullable=False)
+    status = db.Column(db.String(20), nullable=False, default="active")
+    started_at = db.Column(db.DateTime, default=utcnow, nullable=False)
+    ended_at = db.Column(db.DateTime)
+    summary_json = db.Column(db.JSON, nullable=False, default=dict)
+
+    session = db.relationship("Session", back_populates="runs")
+    responses = db.relationship("Response", back_populates="run")
+
+    __table_args__ = (
+        UniqueConstraint("session_id", "run_number", name="uq_session_run_number"),
+    )
 
 
 class Question(TimestampMixin, db.Model):
@@ -129,6 +154,7 @@ class Response(TimestampMixin, db.Model):
 
     id = db.Column(db.Integer, primary_key=True)
     session_id = db.Column(db.Integer, db.ForeignKey("sessions.id"), nullable=False)
+    run_id = db.Column(db.Integer, db.ForeignKey("session_runs.id"), nullable=True, index=True)
     question_id = db.Column(db.Integer, db.ForeignKey("questions.id"), nullable=False)
     participant_id = db.Column(db.Integer, db.ForeignKey("participants.id"), nullable=False)
     response_key = db.Column(db.String(80), nullable=False, default="default")
@@ -137,9 +163,10 @@ class Response(TimestampMixin, db.Model):
     score_awarded = db.Column(db.Integer, nullable=False, default=0)
 
     session = db.relationship("Session", back_populates="responses")
+    run = db.relationship("SessionRun", back_populates="responses")
     question = db.relationship("Question", back_populates="responses")
     participant = db.relationship("Participant", back_populates="responses")
 
     __table_args__ = (
-        UniqueConstraint("question_id", "participant_id", "response_key", name="uq_response_question_participant_key"),
+        UniqueConstraint("question_id", "participant_id", "response_key", "run_id", name="uq_response_question_participant_run_key"),
     )
