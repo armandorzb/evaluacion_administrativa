@@ -1029,13 +1029,13 @@
     });
   }
 
-  function applyLayoutBlockDom(block) {
+  function applyLayoutBlockDom(block, options = {}) {
     if (!canvas) return;
     const node = $$(".slide-layout-block", canvas).find((item) => item.dataset.layoutBlockId === block.id);
     if (!node) return;
     node.style.cssText = layoutBlockStyle(block);
-    scheduleSlideTextFit();
-    if (block.id === "results" && state.chart) {
+    if (options.fit !== false) scheduleSlideTextFit();
+    if (block.id === "results" && state.chart && options.resizeChart !== false) {
       window.requestAnimationFrame(() => state.chart?.resize?.());
     }
   }
@@ -1047,7 +1047,8 @@
     const index = LAYOUT_BLOCK_IDS.indexOf(id);
     const next = normalizeLayoutBlock({ ...blocks[id], ...patch }, id, index);
     question.config.layout_blocks[id] = next;
-    applyLayoutBlockDom(next);
+    const geometryChanged = Object.prototype.hasOwnProperty.call(patch, "w") || Object.prototype.hasOwnProperty.call(patch, "h");
+    applyLayoutBlockDom(next, { fit: geometryChanged, resizeChart: geometryChanged });
     if (options.renderInspector) renderInspector();
     if (options.save !== false) scheduleQuestionSave({ rerender: false });
   }
@@ -1399,19 +1400,22 @@
     const next = normalizeTextBox({ ...boxes[index], ...patch }, index, question);
     question.config.text_boxes[index] = next;
     syncTitleAndBodyFromBoxes(question);
-    applyTextBoxDom(next);
+    const textFitChanged = ["w", "h", "font_size", "font_weight", "align", "auto_fit"].some((key) =>
+      Object.prototype.hasOwnProperty.call(patch, key),
+    );
+    applyTextBoxDom(next, { fit: textFitChanged });
     if (options.renderList !== false) renderSlideList();
     if (options.renderInspector) renderInspector();
     if (options.save !== false) scheduleQuestionSave({ rerender: false });
   }
 
-  function applyTextBoxDom(box) {
+  function applyTextBoxDom(box, options = {}) {
     if (!canvas) return;
     const node = $$(".slide-text-box", canvas).find((item) => item.dataset.textBoxId === box.id);
     if (!node) return;
     node.style.cssText = textBoxStyle(box);
     node.dataset.autoFit = box.auto_fit ? "true" : "false";
-    scheduleSlideTextFit();
+    if (options.fit !== false) scheduleSlideTextFit();
   }
 
   function handleCanvasPointerDown(event) {
