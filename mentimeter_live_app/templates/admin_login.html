@@ -1,0 +1,22 @@
+<!doctype html>
+<html lang="es">
+<head>
+    <meta charset="utf-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1">
+    <title>Acceso presentador</title>
+    <link rel="stylesheet" href="{{ url_for('static', filename='css/app.css') }}">
+</head>
+<body class="join-shell">
+    <main class="join-box">
+        <p class="eyebrow">Presentador</p>
+        <h1>Acceso live</h1>
+        <form method="post">
+            <input name="pin" type="password" inputmode="numeric" autocomplete="current-password" placeholder="PIN" required>
+            <button type="submit">Entrar</button>
+        </form>
+        {% if error %}
+        <p class="error">{{ error }}</p>
+        {% endif %}
+    </main>
+</body>
+</html>

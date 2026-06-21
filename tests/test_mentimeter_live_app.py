@@ -24,6 +24,19 @@ def build_app():
     )
 
 
+def build_protected_app():
+    return create_app(
+        {
+            "TESTING": True,
+            "SECRET_KEY": "test",
+            "SQLALCHEMY_DATABASE_URI": "sqlite:///:memory:",
+            "SQLALCHEMY_TRACK_MODIFICATIONS": False,
+            "MENTI_SEED_DEMO": True,
+            "MENTI_ADMIN_PIN": "2468",
+        }
+    )
+
+
 def test_demo_session_and_public_pages_exist():
     app = build_app()
     client = app.test_client()
@@ -35,6 +48,30 @@ def test_demo_session_and_public_pages_exist():
     assert payload["code"] == "123456"
     assert len(payload["questions"]) == 3
     assert {question["type"] for question in payload["questions"]} == {"multiple_choice", "word_cloud", "quiz"}
+
+
+def test_optional_admin_pin_protects_presenter_surfaces_but_not_audience():
+    app = build_protected_app()
+    client = app.test_client()
+
+    assert client.get("/admin").status_code == 302
+    assert client.get("/api/sessions").status_code == 401
+    socket_client = socketio.test_client(app, flask_test_client=client)
+    control = socket_client.emit("presenter_control", {"code": "123456", "action": "start"}, callback=True)
+    assert control == {"ok": False, "error": "No autorizado."}
+    socket_client.disconnect()
+    assert client.get("/join").status_code == 200
+    assert client.get("/s/123456").status_code == 200
+    assert client.get("/api/sessions/123456").status_code == 200
+
+    bad_login = client.post("/admin-login", data={"pin": "0000"})
+    assert bad_login.status_code == 401
+
+    good_login = client.post("/admin-login?next=/admin", data={"pin": "2468"})
+    assert good_login.status_code == 302
+    assert good_login.headers["Location"].endswith("/admin")
+    assert client.get("/admin").status_code == 200
+    assert client.get("/api/sessions").status_code == 200
 
 
 def test_presenter_can_create_edit_delete_and_reorder_questions():

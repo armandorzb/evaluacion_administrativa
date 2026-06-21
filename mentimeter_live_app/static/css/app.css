@@ -153,6 +153,11 @@ p {
     min-width: min(20rem, 100vw - 2rem);
 }
 
+.admin-logout button {
+    background: color-mix(in srgb, var(--danger) 14%, white);
+    color: var(--danger);
+}
+
 .admin-grid {
     display: grid;
     grid-template-columns: minmax(14rem, 0.8fr) minmax(22rem, 1.25fr) minmax(28rem, 1.6fr);

@@ -10,9 +10,22 @@ from pathlib import Path
 from random import randint
 from secrets import token_urlsafe
 from typing import Any
+from functools import wraps
 
 import qrcode
-from flask import Flask, abort, jsonify, make_response, redirect, render_template, request, send_file, url_for
+from flask import (
+    Flask,
+    abort,
+    current_app,
+    jsonify,
+    make_response,
+    redirect,
+    render_template,
+    request,
+    send_file,
+    session as flask_session,
+    url_for,
+)
 from flask_socketio import SocketIO, emit, join_room
 from werkzeug.middleware.proxy_fix import ProxyFix
 from openpyxl import Workbook
@@ -47,6 +60,7 @@ def create_app(test_config: dict[str, Any] | None = None) -> Flask:
         SQLALCHEMY_TRACK_MODIFICATIONS=False,
         MENTI_SEED_DEMO=os.getenv("MENTI_SEED_DEMO", "true").lower() in {"1", "true", "yes", "si"},
         MENTI_SOCKETIO_CORS=os.getenv("MENTI_SOCKETIO_CORS", "*"),
+        MENTI_ADMIN_PIN=os.getenv("MENTI_ADMIN_PIN"),
     )
     if test_config:
         app.config.update(test_config)
@@ -70,6 +84,29 @@ def create_app(test_config: dict[str, Any] | None = None) -> Flask:
     return app
 
 
+def is_admin_authenticated() -> bool:
+    expected_pin = current_app.config.get("MENTI_ADMIN_PIN")
+    return not expected_pin or flask_session.get("menti_admin_ok") is True
+
+
+def admin_required(view):
+    @wraps(view)
+    def wrapped(*args, **kwargs):
+        if is_admin_authenticated():
+            return view(*args, **kwargs)
+        if request.path.startswith("/api/"):
+            return jsonify({"ok": False, "error": "No autorizado."}), 401
+        return redirect(url_for("admin_login", next=request.full_path))
+
+    return wrapped
+
+
+def safe_next_url(value: str | None) -> str:
+    if value and value.startswith("/") and not value.startswith("//"):
+        return value
+    return url_for("admin")
+
+
 def register_routes(app: Flask) -> None:
     @app.get("/")
     def index():
@@ -79,13 +116,31 @@ def register_routes(app: Flask) -> None:
     def healthz():
         return jsonify({"ok": True, "service": "mentimeter_live_app"})
 
+    @app.route("/admin-login", methods=["GET", "POST"])
+    def admin_login():
+        if not current_app.config.get("MENTI_ADMIN_PIN"):
+            return redirect(url_for("admin"))
+        if request.method == "POST":
+            if request.form.get("pin", "") == current_app.config["MENTI_ADMIN_PIN"]:
+                flask_session["menti_admin_ok"] = True
+                return redirect(safe_next_url(request.args.get("next")))
+            return render_template("admin_login.html", error="PIN incorrecto."), 401
+        return render_template("admin_login.html")
+
+    @app.post("/admin-logout")
+    def admin_logout():
+        flask_session.pop("menti_admin_ok", None)
+        return redirect(url_for("admin_login"))
+
     @app.get("/admin")
+    @admin_required
     def admin():
         sessions = Session.query.order_by(Session.updated_at.desc()).all()
         selected = find_session(request.args.get("code")) if request.args.get("code") else (sessions[0] if sessions else None)
         return render_template("admin.html", sessions=sessions, selected=selected, question_types=sorted(QUESTION_TYPES))
 
     @app.get("/present/<code>")
+    @admin_required
     def present(code: str):
         session = find_session(code)
         if session is None:
@@ -126,14 +181,17 @@ def register_routes(app: Flask) -> None:
         return send_file(buffer, mimetype="image/png", download_name=f"join-{session.code}.png")
 
     @app.get("/api/sessions")
+    @admin_required
     def api_sessions():
         return jsonify({"ok": True, "sessions": [serialize_session(item) for item in Session.query.order_by(Session.updated_at.desc())]})
 
     @app.get("/api/question-templates")
+    @admin_required
     def api_question_templates():
         return jsonify({"ok": True, "templates": question_templates()})
 
     @app.post("/api/sessions")
+    @admin_required
     def api_create_session():
         payload = request.get_json(silent=True) or {}
         try:
@@ -153,6 +211,7 @@ def register_routes(app: Flask) -> None:
         return jsonify({"ok": True, "session": serialize_session(session)})
 
     @app.post("/api/sessions/<code>/questions")
+    @admin_required
     def api_create_question(code: str):
         session = require_session(code)
         try:
@@ -165,6 +224,7 @@ def register_routes(app: Flask) -> None:
             return json_error(exc)
 
     @app.patch("/api/sessions/<code>/questions/<int:question_id>")
+    @admin_required
     def api_update_question(code: str, question_id: int):
         session = require_session(code)
         question = require_question(session, question_id)
@@ -178,6 +238,7 @@ def register_routes(app: Flask) -> None:
             return json_error(exc)
 
     @app.post("/api/sessions/<code>/questions/<int:question_id>/duplicate")
+    @admin_required
     def api_duplicate_question(code: str, question_id: int):
         session = require_session(code)
         question = require_question(session, question_id)
@@ -187,6 +248,7 @@ def register_routes(app: Flask) -> None:
         return jsonify({"ok": True, "question": serialize_question(duplicate), "session": serialize_session(session)}), 201
 
     @app.delete("/api/sessions/<code>/questions/<int:question_id>")
+    @admin_required
     def api_delete_question(code: str, question_id: int):
         session = require_session(code)
         question = require_question(session, question_id)
@@ -199,6 +261,7 @@ def register_routes(app: Flask) -> None:
         return jsonify({"ok": True, "session": serialize_session(session)})
 
     @app.post("/api/sessions/<code>/questions/reorder")
+    @admin_required
     def api_reorder_questions(code: str):
         session = require_session(code)
         payload = request.get_json(silent=True) or {}
@@ -212,6 +275,7 @@ def register_routes(app: Flask) -> None:
             return json_error(exc)
 
     @app.post("/api/sessions/<code>/questions/<int:question_id>/responses/<int:response_id>/moderate")
+    @admin_required
     def api_moderate_response(code: str, question_id: int, response_id: int):
         session = require_session(code)
         question = require_question(session, question_id)
@@ -226,6 +290,7 @@ def register_routes(app: Flask) -> None:
             return json_error(exc)
 
     @app.get("/api/sessions/<code>/insights")
+    @admin_required
     def api_session_insights(code: str):
         session = require_session(code)
         refresh_session_timers(session)
@@ -233,6 +298,7 @@ def register_routes(app: Flask) -> None:
         return jsonify({"ok": True, "insights": build_insights(session)})
 
     @app.get("/api/sessions/<code>/export.csv")
+    @admin_required
     def export_session_csv(code: str):
         session = require_session(code)
         return send_file(
@@ -243,6 +309,7 @@ def register_routes(app: Flask) -> None:
         )
 
     @app.get("/api/sessions/<code>/export.xlsx")
+    @admin_required
     def export_session_xlsx(code: str):
         session = require_session(code)
         return send_file(
@@ -253,6 +320,7 @@ def register_routes(app: Flask) -> None:
         )
 
     @app.get("/api/sessions/<code>/export.pdf")
+    @admin_required
     def export_session_pdf(code: str):
         session = require_session(code)
         return send_file(
@@ -263,6 +331,7 @@ def register_routes(app: Flask) -> None:
         )
 
     @app.post("/api/sessions/<code>/control")
+    @admin_required
     def api_control_session(code: str):
         session = require_session(code)
         try:
@@ -350,6 +419,8 @@ def register_socket_events() -> None:
 
     @socketio.on("presenter_control")
     def socket_presenter_control(data):
+        if not is_admin_authenticated():
+            return {"ok": False, "error": "No autorizado."}
         session = find_session((data or {}).get("code"))
         if session is None:
             return {"ok": False, "error": "Sesion no encontrada."}
@@ -366,6 +437,8 @@ def register_socket_events() -> None:
 
     @socketio.on("moderate_response")
     def socket_moderate_response(data):
+        if not is_admin_authenticated():
+            return {"ok": False, "error": "No autorizado."}
         session = find_session((data or {}).get("code"))
         if session is None:
             return {"ok": False, "error": "Sesion no encontrada."}

@@ -16,6 +16,11 @@
             <input name="title" placeholder="Nombre de la sesion" value="Nueva sesion live" maxlength="180">
             <button type="submit">Crear sesion</button>
         </form>
+        {% if config.MENTI_ADMIN_PIN %}
+        <form class="admin-logout" method="post" action="{{ url_for('admin_logout') }}">
+            <button type="submit">Salir</button>
+        </form>
+        {% endif %}
     </header>
 
     <main class="admin-grid">

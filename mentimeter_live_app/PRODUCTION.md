@@ -14,6 +14,7 @@ DATABASE_URL=sqlite:////var/lib/mentimeter-live/mentimeter.sqlite3
 MENTI_PROXY_FIX=true
 MENTI_SOCKETIO_CORS=https://mentilive.187.124.148.20.sslip.io
 MENTI_SOCKETIO_ASYNC_MODE=eventlet
+MENTI_ADMIN_PIN=pin-privado-del-presentador
 MENTI_SEED_DEMO=true
 ```
 
