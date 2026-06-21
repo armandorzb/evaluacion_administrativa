@@ -75,8 +75,9 @@ def test_demo_session_and_public_pages_exist():
 
     payload = client.get("/api/sessions/123456").get_json()["session"]
     assert payload["code"] == "123456"
-    assert len(payload["questions"]) == 3
-    assert {question["type"] for question in payload["questions"]} == {"multiple_choice", "word_cloud", "quiz"}
+    assert len(payload["questions"]) == 4
+    assert payload["questions"][0]["type"] == "content_slide"
+    assert {question["type"] for question in payload["questions"]} == {"content_slide", "multiple_choice", "word_cloud", "quiz"}
 
 
 def test_optional_admin_pin_protects_presenter_surfaces_but_not_audience():
@@ -178,6 +179,10 @@ def test_templates_duplicate_theme_exports_and_insights_are_available():
     assert templates
 
     session = client.post("/api/sessions", json={"title": "Taller con plantillas"}).get_json()["session"]
+    renamed = client.patch(f"/api/sessions/{session['code']}", json={"title": "Presentacion editada", "theme": "ocean"}).get_json()["session"]
+    assert renamed["title"] == "Presentacion editada"
+    assert renamed["theme"] == "ocean"
+
     created = client.post(f"/api/sessions/{session['code']}/questions", json=templates[0]["payload"]).get_json()["question"]
     duplicated = client.post(f"/api/sessions/{session['code']}/questions/{created['id']}/duplicate").get_json()["session"]
     assert len(duplicated["questions"]) == 2
@@ -200,6 +205,12 @@ def test_all_required_question_types_can_be_created():
     code = session["code"]
 
     examples = [
+        {
+            "type": "content_slide",
+            "title": "Portada",
+            "prompt": "",
+            "config": {"layout": "qr", "body": "Escanea el codigo.", "show_qr": True},
+        },
         {"type": "multiple_choice", "title": "Opcion", "prompt": "Elige", "options": ["A", "B"]},
         {"type": "word_cloud", "title": "Nube", "prompt": "Una palabra"},
         {"type": "scale", "title": "Escala", "prompt": "Califica", "config": {"min": 1, "max": 10}},
@@ -224,14 +235,38 @@ def test_all_required_question_types_can_be_created():
     assert created_types == [item["type"] for item in examples]
 
 
+def test_content_slide_is_saved_but_does_not_accept_responses():
+    app = build_app()
+    client = app.test_client()
+    session = client.post("/api/sessions", json={"title": "Presentacion con contenido"}).get_json()["session"]
+    slide = client.post(
+        f"/api/sessions/{session['code']}/questions",
+        json={
+            "type": "content_slide",
+            "title": "Bienvenida",
+            "prompt": "",
+            "config": {"layout": "instructions", "body": "Lee las instrucciones.", "show_qr": False},
+        },
+    ).get_json()["question"]
+    assert slide["config"]["layout"] == "instructions"
+    assert slide["config"]["body"] == "Lee las instrucciones."
+
+    client.post(f"/api/sessions/{session['code']}/control", json={"action": "start"})
+    response = client.post(f"/api/sessions/{session['code']}/questions/{slide['id']}/responses", json={"text": "hola"})
+    assert response.status_code == 400
+    assert "no acepta respuestas" in response.get_json()["error"]
+
+
 def test_single_choice_vote_is_replaced_for_same_participant():
     app = build_app()
     client = app.test_client()
     session = client.get("/api/sessions/123456").get_json()["session"]
-    question = session["questions"][0]
+    question = next(question for question in session["questions"] if question["type"] == "multiple_choice")
+    question_index = [item["id"] for item in session["questions"]].index(question["id"])
     first_option, second_option = question["options"][:2]
 
     assert client.post("/api/sessions/123456/control", json={"action": "start"}).status_code == 200
+    assert client.post("/api/sessions/123456/control", json={"action": "go_to_slide", "index": question_index}).status_code == 200
     assert client.post(
         f"/api/sessions/123456/questions/{question['id']}/responses",
         json={"option_id": first_option["id"]},
@@ -327,10 +362,10 @@ def test_quiz_timer_is_enforced_by_server_state():
     app = build_app()
     client = app.test_client()
     session = client.get("/api/sessions/123456").get_json()["session"]
-    quiz = session["questions"][2]
+    quiz = next(question for question in session["questions"] if question["type"] == "quiz")
+    quiz_index = [question["id"] for question in session["questions"]].index(quiz["id"])
     client.post("/api/sessions/123456/control", json={"action": "start"})
-    client.post("/api/sessions/123456/control", json={"action": "next"})
-    client.post("/api/sessions/123456/control", json={"action": "next"})
+    client.post("/api/sessions/123456/control", json={"action": "go_to_slide", "index": quiz_index})
 
     with app.app_context():
         question = db.session.get(Question, quiz["id"])
@@ -349,13 +384,14 @@ def test_socketio_join_navigation_and_live_results():
     app = build_app()
     client = app.test_client()
     session = client.post("/api/sessions/123456/control", json={"action": "start"}).get_json()["session"]
-    word_question = session["questions"][1]
+    word_question = next(question for question in session["questions"] if question["type"] == "word_cloud")
+    word_index = [question["id"] for question in session["questions"]].index(word_question["id"])
 
     socket_client = socketio.test_client(app)
     join_ack = socket_client.emit("join_session", {"code": "123456"}, callback=True)
     assert join_ack["ok"] is True
 
-    next_ack = socket_client.emit("presenter_control", {"code": "123456", "action": "next"}, callback=True)
+    next_ack = socket_client.emit("presenter_control", {"code": "123456", "action": "go_to_slide", "index": word_index}, callback=True)
     assert next_ack["ok"] is True
     assert next_ack["session"]["active_question_id"] == word_question["id"]
 

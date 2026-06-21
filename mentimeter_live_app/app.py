@@ -46,7 +46,7 @@ socketio = SocketIO(
     manage_session=False,
 )
 # Contract shared by backend validation and the two vanilla JS frontends.
-QUESTION_TYPES = {"multiple_choice", "word_cloud", "scale", "open_text", "ranking", "quiz"}
+QUESTION_TYPES = {"content_slide", "multiple_choice", "word_cloud", "scale", "open_text", "ranking", "quiz"}
 SINGLE_RESPONSE_TYPES = {"multiple_choice", "scale", "ranking", "quiz"}
 PARTICIPANT_COOKIE = "menti_participant_token"
 socket_participants: dict[str, tuple[int, str]] = {}
@@ -300,6 +300,25 @@ def register_routes(app: Flask) -> None:
         refresh_session_timers(session)
         db.session.commit()
         return jsonify({"ok": True, "session": serialize_session(session)})
+
+    @app.patch("/api/sessions/<code>")
+    @admin_required
+    def api_update_session(code: str):
+        session = require_session(code)
+        payload = request.get_json(silent=True) or {}
+        try:
+            if "title" in payload:
+                session.title = clean_text(payload.get("title"), 180, required=True)
+            if "theme" in payload:
+                config = dict(session.config_json or {})
+                config["theme"] = normalize_choice(payload.get("theme"), {"civic", "ocean", "contrast"}, config.get("theme", "civic"))
+                session.config_json = config
+            db.session.commit()
+            broadcast_session(session)
+            return jsonify({"ok": True, "session": serialize_session(session)})
+        except ValueError as exc:
+            db.session.rollback()
+            return json_error(exc)
 
     @app.post("/api/sessions/<code>/questions")
     @admin_required
@@ -634,16 +653,27 @@ def normalize_question_payload(payload: dict[str, Any]) -> dict[str, Any]:
     if question_type not in QUESTION_TYPES:
         raise ValueError("Tipo de pregunta no soportado.")
     title = clean_text(payload.get("title"), 180, required=True)
-    prompt = clean_text(payload.get("prompt"), 1200, required=True)
+    prompt = clean_text(payload.get("prompt"), 1200, required=question_type != "content_slide")
     config = dict(payload.get("config") or {})
     options = parse_lines(payload.get("options"))
     correct_labels = set(parse_lines(payload.get("correct_option_labels") or config.get("correct_options")))
 
-    if question_type in {"multiple_choice", "ranking", "quiz"} and len(options) < 2:
+    if question_type == "content_slide":
+        config = {
+            "layout": normalize_choice(config.get("layout"), {"title", "text", "instructions", "qr"}, "title"),
+            "body": clean_text(config.get("body"), 1800, required=False),
+            "media_url": clean_text(config.get("media_url"), 800, required=False),
+            "show_qr": as_bool(config.get("show_qr"), False),
+        }
+        options = []
+        correct_labels = set()
+    elif question_type in {"multiple_choice", "ranking", "quiz"} and len(options) < 2:
         raise ValueError("Agrega al menos dos opciones.")
     if question_type == "quiz" and not correct_labels:
         raise ValueError("Marca al menos una respuesta correcta para el quiz.")
-    if question_type == "scale":
+    if question_type == "content_slide":
+        pass
+    elif question_type == "scale":
         minimum = clamp_int(config.get("min", 1), 1, 10)
         maximum = clamp_int(config.get("max", 5), 2, 10)
         if maximum <= minimum:
@@ -692,6 +722,8 @@ def record_response(session: Session, question: Question, participant: Participa
     # Single-response questions reuse "default" so a participant edits/replaces the vote instead of duplicating it.
     if session.status != "active":
         raise ValueError("La sesion no esta activa.")
+    if question.type == "content_slide":
+        raise ValueError("Esta diapositiva no acepta respuestas.")
     if session.active_question and session.active_question.id != question.id:
         raise ValueError("Esta no es la pregunta activa.")
     if not question.is_open:
@@ -727,6 +759,8 @@ def record_response(session: Session, question: Question, participant: Participa
 
 
 def normalize_response_payload(question: Question, payload: dict[str, Any]) -> dict[str, Any]:
+    if question.type == "content_slide":
+        raise ValueError("Esta diapositiva no acepta respuestas.")
     if question.type in {"multiple_choice", "quiz"}:
         option_id = int(payload.get("option_id") or payload.get("choice") or 0)
         if option_id not in {option.id for option in question.options}:
@@ -788,17 +822,17 @@ def apply_control(session: Session, payload: dict[str, Any]) -> None:
         session.status = "draft"
         session.active_question_index = 0
         session.config_json = {**(session.config_json or {}), "theme": (session.config_json or {}).get("theme", "civic")}
-    elif action == "next":
+    elif action in {"next", "next_slide"}:
         session.active_question_index = min(session.active_question_index + 1, max(len(questions) - 1, 0))
         if session.status == "active" and session.active_question:
             session.active_question.is_open = True
             start_timer_if_needed(session.active_question)
-    elif action == "previous":
+    elif action in {"previous", "previous_slide"}:
         session.active_question_index = max(session.active_question_index - 1, 0)
         if session.status == "active" and session.active_question:
             session.active_question.is_open = True
             start_timer_if_needed(session.active_question)
-    elif action == "go":
+    elif action in {"go", "go_to_slide"}:
         index = int(payload.get("index") or 0)
         session.active_question_index = min(max(index, 0), max(len(questions) - 1, 0))
         if session.status == "active" and session.active_question:
@@ -823,6 +857,8 @@ def apply_control(session: Session, payload: dict[str, Any]) -> None:
 def aggregate_question(question: Question) -> dict[str, Any]:
     # Results are aggregated on the server so every presenter/audience client receives the same live state.
     responses = [response for response in question.responses if response.is_active]
+    if question.type == "content_slide":
+        return {"type": "content_slide", "total": 0}
     if question.type in {"multiple_choice", "quiz"}:
         counts = Counter(int(response.payload_json.get("option_id") or 0) for response in responses)
         return {
@@ -938,6 +974,18 @@ def ensure_demo_session() -> Session:
     add_question(
         session,
         {
+            "type": "content_slide",
+            "title": "Demo participativa",
+            "prompt": "",
+            "config": {
+                "layout": "title",
+                "body": "Presentacion interactiva para talleres, consultas y capacitaciones.",
+            },
+        },
+    )
+    add_question(
+        session,
+        {
             "type": "multiple_choice",
             "title": "Prioridad del taller",
             "prompt": "Que tema deberiamos atender primero?",
@@ -969,6 +1017,24 @@ def ensure_demo_session() -> Session:
 
 def question_templates() -> list[dict[str, Any]]:
     return [
+        {
+            "name": "Portada",
+            "payload": {
+                "type": "content_slide",
+                "title": "Titulo de la presentacion",
+                "prompt": "",
+                "config": {"layout": "title", "body": "Subtitulo o contexto del taller."},
+            },
+        },
+        {
+            "name": "Instrucciones con QR",
+            "payload": {
+                "type": "content_slide",
+                "title": "Participa con tu celular",
+                "prompt": "",
+                "config": {"layout": "qr", "body": "Escanea el QR o entra con el codigo de la sesion.", "show_qr": True},
+            },
+        },
         {
             "name": "Pulso de prioridad",
             "payload": {

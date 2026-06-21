@@ -73,6 +73,7 @@
       <p class="eyebrow">${labelForType(question.type)}</p>
       <h2>${escapeHtml(question.title)}</h2>
       <p>${escapeHtml(question.prompt)}</p>
+      ${contentMarkup(question)}
       ${answerMarkup(question)}
       <p class="muted" data-submit-status></p>
     `;
@@ -81,6 +82,9 @@
   }
 
   function answerMarkup(question) {
+    if (question.type === "content_slide") {
+      return "";
+    }
     if (question.type === "multiple_choice" || question.type === "quiz") {
       const buttons = question.options
         .map((option) => `<button type="button" data-option-id="${option.id}">${escapeHtml(option.label)}</button>`)
@@ -121,6 +125,15 @@
       `;
     }
     return "";
+  }
+
+  function contentMarkup(question) {
+    if (question.type !== "content_slide") return "";
+    const body = question.config?.body ? `<p class="content-body">${escapeHtml(question.config.body)}</p>` : "";
+    const qr = question.config?.show_qr
+      ? `<img class="audience-qr" src="${escapeHtml(state.session.qr_url)}" alt="QR para entrar">`
+      : "";
+    return `<div class="audience-content-slide">${body}${qr}</div>`;
   }
 
   function wireAnswer(question) {
@@ -231,6 +244,7 @@
   function labelForType(type) {
     return {
       multiple_choice: "Opcion multiple",
+      content_slide: "Contenido",
       word_cloud: "Nube de palabras",
       scale: "Escala",
       open_text: "Pregunta abierta",
