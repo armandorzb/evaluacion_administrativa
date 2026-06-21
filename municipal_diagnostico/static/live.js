@@ -39,6 +39,12 @@
 
   function initializeSlideEditor() {
     document.querySelectorAll("[data-live-editor]").forEach((editor) => {
+      const orderList = editor.querySelector("[data-live-slide-order]");
+      const reorderStatus = editor.querySelector("[data-live-reorder-status]");
+      let draggedItem = null;
+      let pointerDrag = null;
+      let saveTimer = null;
+
       const activate = (activityId) => {
         editor.querySelectorAll("[data-live-editor-slide]").forEach((button) => {
           button.classList.toggle("is-selected", button.dataset.liveEditorSlide === activityId);
@@ -49,6 +55,55 @@
         editor.querySelectorAll("[data-live-editor-properties]").forEach((panel) => {
           panel.hidden = panel.dataset.liveEditorProperties !== activityId;
         });
+      };
+      const setReorderStatus = (message, state = "") => {
+        if (!reorderStatus) return;
+        reorderStatus.textContent = message;
+        reorderStatus.dataset.state = state;
+      };
+      const orderedIds = () =>
+        Array.from(editor.querySelectorAll("[data-live-slide-order-item] input[name='slide_ids']"))
+          .map((input) => Number(input.value))
+          .filter(Boolean);
+      const syncSlideNumbers = () => {
+        editor.querySelectorAll("[data-live-slide-order-item]").forEach((item, index) => {
+          const number = item.querySelector("[data-live-slide-index]");
+          if (number) number.textContent = String(index + 1).padStart(2, "0");
+        });
+      };
+      const saveOrder = () => {
+        const endpoint = editor.dataset.liveReorderEndpoint;
+        const activityIds = orderedIds();
+        syncSlideNumbers();
+        if (!endpoint || !activityIds.length) {
+          setReorderStatus("Orden pendiente de guardar", "dirty");
+          return;
+        }
+        setReorderStatus("Guardando orden...", "saving");
+        window.clearTimeout(saveTimer);
+        saveTimer = window.setTimeout(() => {
+          fetch(endpoint, {
+            method: "POST",
+            headers: { "Content-Type": "application/json" },
+            body: JSON.stringify({ activity_ids: activityIds }),
+          })
+            .then((response) => response.json())
+            .then((json) => {
+              if (!json.ok) throw new Error(json.error || "No se pudo guardar el orden.");
+              setReorderStatus("Orden guardado", "saved");
+            })
+            .catch(() => setReorderStatus("No se pudo guardar. Usa Guardar orden.", "error"));
+        }, 350);
+      };
+      const moveItem = (item, direction) => {
+        if (direction === "up" && item.previousElementSibling) {
+          item.parentNode.insertBefore(item, item.previousElementSibling);
+          saveOrder();
+        }
+        if (direction === "down" && item.nextElementSibling) {
+          item.parentNode.insertBefore(item.nextElementSibling, item);
+          saveOrder();
+        }
       };
 
       editor.addEventListener("click", (event) => {
@@ -61,11 +116,70 @@
         if (!moveButton) return;
         const item = moveButton.closest("[data-live-slide-order-item]");
         if (!item) return;
-        if (moveButton.dataset.liveMoveSlide === "up" && item.previousElementSibling) {
-          item.parentNode.insertBefore(item, item.previousElementSibling);
-        }
-        if (moveButton.dataset.liveMoveSlide === "down" && item.nextElementSibling) {
-          item.parentNode.insertBefore(item.nextElementSibling, item);
+        moveItem(item, moveButton.dataset.liveMoveSlide);
+      });
+
+      if (!orderList) return;
+      orderList.addEventListener("pointerdown", (event) => {
+        const handle = event.target.closest(".live-slide-drag-handle");
+        if (!handle) return;
+        const item = handle.closest("[data-live-slide-order-item]");
+        if (!item) return;
+        event.preventDefault();
+        pointerDrag = { item, moved: false };
+        item.classList.add("is-dragging");
+        setReorderStatus("Moviendo slide...", "dirty");
+        handle.setPointerCapture?.(event.pointerId);
+      });
+      document.addEventListener("pointermove", (event) => {
+        if (!pointerDrag) return;
+        const target = document
+          .elementFromPoint(event.clientX, event.clientY)
+          ?.closest("[data-live-slide-order-item]");
+        if (!target || target === pointerDrag.item || !orderList.contains(target)) return;
+        const rect = target.getBoundingClientRect();
+        const afterTarget = event.clientY > rect.top + rect.height / 2;
+        target.parentNode.insertBefore(pointerDrag.item, afterTarget ? target.nextElementSibling : target);
+        pointerDrag.moved = true;
+        syncSlideNumbers();
+        setReorderStatus("Orden modificado", "dirty");
+      });
+      document.addEventListener("pointerup", () => {
+        if (!pointerDrag) return;
+        pointerDrag.item.classList.remove("is-dragging");
+        if (pointerDrag.moved) saveOrder();
+        pointerDrag = null;
+      });
+      orderList.addEventListener("dragstart", (event) => {
+        draggedItem = event.target.closest("[data-live-slide-order-item]");
+        if (!draggedItem) return;
+        draggedItem.classList.add("is-dragging");
+        event.dataTransfer.effectAllowed = "move";
+        event.dataTransfer.setData("text/plain", draggedItem.querySelector("input[name='slide_ids']")?.value || "");
+      });
+      orderList.addEventListener("dragover", (event) => {
+        if (!draggedItem) return;
+        event.preventDefault();
+        const target = event.target.closest("[data-live-slide-order-item]");
+        if (!target || target === draggedItem) return;
+        const rect = target.getBoundingClientRect();
+        const afterTarget = event.clientY > rect.top + rect.height / 2;
+        target.parentNode.insertBefore(draggedItem, afterTarget ? target.nextElementSibling : target);
+        syncSlideNumbers();
+        setReorderStatus("Orden modificado", "dirty");
+      });
+      orderList.addEventListener("drop", (event) => {
+        if (!draggedItem) return;
+        event.preventDefault();
+        draggedItem.classList.remove("is-dragging");
+        draggedItem = null;
+        saveOrder();
+      });
+      orderList.addEventListener("dragend", () => {
+        if (draggedItem) {
+          draggedItem.classList.remove("is-dragging");
+          draggedItem = null;
+          saveOrder();
         }
       });
     });

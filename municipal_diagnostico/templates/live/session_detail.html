@@ -44,13 +44,18 @@
     </div>
 </section>
 
-<section class="live-editor" data-live-editor>
+<section
+    class="live-editor"
+    data-live-editor
+    data-live-reorder-endpoint="/live/api/sessions/{{ session.id }}/activities/reorder"
+>
     <form class="live-slide-rail" method="post" data-live-reorder-form>
         <input type="hidden" name="action" value="reorder_slides">
         <div class="live-slide-rail-head">
             <span>
                 <p class="eyebrow">Diapositivas</p>
                 <strong>{{ session.activities|length }} slides</strong>
+                <small data-live-reorder-status>Arrastra para ordenar</small>
             </span>
             {% if current_user.rol == "administrador" %}
             <span class="actions">
@@ -61,7 +66,12 @@
         </div>
         <div class="live-slide-thumbs" data-live-slide-order>
             {% for activity in session.activities %}
-            <div class="live-slide-thumb-wrap" data-live-slide-order-item>
+            <div
+                class="live-slide-thumb-wrap"
+                data-live-slide-order-item
+                draggable="true"
+                aria-label="Arrastrar slide {{ loop.index }}"
+            >
                 <input type="hidden" name="slide_ids" value="{{ activity.id }}">
                 <button
                     class="live-slide-thumb{% if activity.id == selected_id %} is-selected{% endif %}"
@@ -69,7 +79,7 @@
                     data-live-editor-slide="{{ activity.id }}"
                 >
                     <span class="live-slide-thumb-meta">
-                        <span>{{ "%02d"|format(loop.index) }}</span>
+                        <span data-live-slide-index>{{ "%02d"|format(loop.index) }}</span>
                         <em>{{ activity.estado }}</em>
                     </span>
                     <strong>{{ activity.titulo }}</strong>
@@ -77,6 +87,7 @@
                 </button>
                 {% if current_user.rol == "administrador" %}
                 <span class="live-slide-move">
+                    <span class="live-slide-drag-handle" aria-hidden="true">Arrastrar</span>
                     <button class="button" type="button" data-live-move-slide="up">Subir</button>
                     <button class="button" type="button" data-live-move-slide="down">Bajar</button>
                 </span>
