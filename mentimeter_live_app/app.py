@@ -67,6 +67,22 @@ socket_participants: dict[str, tuple[int, str]] = {}
 public_rate_buckets: dict[str, deque[float]] = {}
 
 
+def default_asset_version() -> str:
+    app_root = Path(__file__).resolve().parent
+    candidates = [
+        Path(__file__),
+        app_root / "static" / "css" / "app.css",
+        app_root / "static" / "js" / "admin.js",
+        app_root / "static" / "js" / "audience.js",
+        app_root / "templates" / "admin.html",
+        app_root / "templates" / "admin_login.html",
+        app_root / "templates" / "audience.html",
+        app_root / "templates" / "join.html",
+    ]
+    mtimes = [path.stat().st_mtime for path in candidates if path.exists()]
+    return str(int(max(mtimes, default=0)))
+
+
 def create_app(test_config: dict[str, Any] | None = None) -> Flask:
     app = Flask(__name__, instance_relative_config=True)
     database_url = os.getenv("DATABASE_URL")
@@ -83,7 +99,7 @@ def create_app(test_config: dict[str, Any] | None = None) -> Flask:
         MENTI_ADMIN_PASSWORD=os.getenv("MENTI_ADMIN_PASSWORD"),
         MENTI_RESPONSE_RATE_LIMIT=int(os.getenv("MENTI_RESPONSE_RATE_LIMIT", "120")),
         MENTI_RESPONSE_RATE_WINDOW=int(os.getenv("MENTI_RESPONSE_RATE_WINDOW", "60")),
-        ASSET_VERSION=os.getenv("MENTI_ASSET_VERSION") or str(int(Path(__file__).stat().st_mtime)),
+        ASSET_VERSION=os.getenv("MENTI_ASSET_VERSION") or default_asset_version(),
     )
     if test_config:
         app.config.update(test_config)
