@@ -2210,8 +2210,15 @@
     altNode.innerHTML = `
       <div class="word-cloud-preview">
         ${words.slice(0, 60).map((word) => {
-          const size = 0.9 + (word.count / max) * 1.8;
-          return `<span style="font-size:${size.toFixed(2)}rem">${escapeHtml(word.text)}${word.count > 1 ? ` <small>${word.count}</small>` : ""}</span>`;
+          const count = Number(word.count || 0);
+          const ratio = count / max;
+          const size = 14 + ratio * 28;
+          return `
+            <span class="word-cloud-tag" data-count="${count}" data-text-base-size="${size.toFixed(1)}" style="font-size:${size.toFixed(1)}px;--word-ratio:${ratio.toFixed(3)}" aria-label="${escapeAttr(word.text)}: ${count} menciones">
+              <b>${escapeHtml(word.text)}</b>
+              <small>${count}</small>
+            </span>
+          `;
         }).join("")}
       </div>
     `;

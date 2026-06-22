@@ -816,6 +816,38 @@ def test_manual_moderation_hides_then_reveals_open_text_results():
     assert approved["results"]["words"][0]["text"] == "integridad"
 
 
+def test_word_cloud_preserves_display_case_and_increments_repeats():
+    app = build_app()
+    client = app.test_client()
+    session = client.post("/api/sessions", json={"title": "Casing"}).get_json()["session"]
+    question = client.post(
+        f"/api/sessions/{session['code']}/questions",
+        json={"type": "word_cloud", "title": "Ideas", "prompt": "Una palabra"},
+    ).get_json()["question"]
+    client.post(f"/api/sessions/{session['code']}/control", json={"action": "start"})
+
+    for text in ["ISO 9001", "iso 9001", "ISO 9001", "Calidad"]:
+        response = client.post(
+            f"/api/sessions/{session['code']}/questions/{question['id']}/responses",
+            json={"text": text},
+        )
+        assert response.status_code == 200
+
+    refreshed = client.get(f"/api/sessions/{session['code']}").get_json()["session"]
+    results = refreshed["questions"][0]["results"]
+    assert results["total"] == 4
+    assert results["words"][0] == {"text": "ISO 9001", "key": "iso 9001", "count": 3}
+    assert results["words"][1]["text"] == "Calidad"
+    assert results["words"][1]["count"] == 1
+
+    with app.app_context():
+        db_session = Session.query.filter_by(code=session["code"]).first()
+        report = build_session_report(db_session)
+        result_rows = report["slides"][0]["result_rows"]
+        assert result_rows[0]["metric"] == "ISO 9001"
+        assert result_rows[0]["count"] == 3
+
+
 def test_quiz_timer_is_enforced_by_server_state():
     app = build_app()
     client = app.test_client()

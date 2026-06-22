@@ -1265,16 +1265,11 @@ def aggregate_question(question: Question, run=RUN_DEFAULT) -> dict[str, Any]:
             "leaderboard": leaderboard(question.session, run) if question.type == "quiz" else [],
         }
     if question.type == "word_cloud":
-        counts = Counter(
-            normalize_word(response.payload_json.get("text", ""))
-            for response in responses
-            if response.payload_json.get("status", "approved") == "approved"
-        )
-        counts.pop("", None)
+        words = aggregate_word_cloud_responses(responses)
         return {
             "type": "word_cloud",
-            "total": sum(counts.values()),
-            "words": [{"text": text, "count": count} for text, count in counts.most_common(80)],
+            "total": sum(word["count"] for word in words),
+            "words": words[:80],
         }
     if question.type == "open_text":
         visible = [response for response in responses if response.payload_json.get("status", "approved") == "approved"]
@@ -2232,6 +2227,45 @@ def parse_datetime(value: Any) -> datetime | None:
 
 def normalize_word(value: str) -> str:
     return " ".join(str(value or "").strip().lower().split())
+
+
+def display_word(value: Any) -> str:
+    return " ".join(str(value or "").strip().split())[:80]
+
+
+def aggregate_word_cloud_responses(responses: list[Response]) -> list[dict[str, Any]]:
+    buckets: dict[str, dict[str, Any]] = {}
+    for index, response in enumerate(responses):
+        payload = response.payload_json or {}
+        if payload.get("status", "approved") != "approved":
+            continue
+        label = display_word(payload.get("text", ""))
+        key = normalize_word(label)
+        if not key:
+            continue
+        bucket = buckets.setdefault(
+            key,
+            {
+                "key": key,
+                "count": 0,
+                "first_seen": index,
+                "labels": Counter(),
+                "label_order": {},
+            },
+        )
+        bucket["count"] += 1
+        bucket["labels"][label] += 1
+        bucket["label_order"].setdefault(label, index)
+
+    words: list[dict[str, Any]] = []
+    for bucket in buckets.values():
+        label = max(
+            bucket["labels"],
+            key=lambda item: (bucket["labels"][item], -bucket["label_order"][item]),
+        )
+        words.append({"text": label, "key": bucket["key"], "count": bucket["count"]})
+    words.sort(key=lambda item: (-int(item["count"]), buckets[item["key"]]["first_seen"]))
+    return words
 
 
 def json_error(exc: Exception, status_code: int = 400):

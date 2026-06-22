@@ -1176,17 +1176,42 @@ p {
     overflow: hidden;
 }
 
-.word-cloud-preview span {
-    color: var(--ink);
-    font-weight: 900;
+.word-cloud-tag {
+    --word-ratio: 0;
+    display: inline-flex;
+    align-items: center;
+    gap: 0.35em;
     max-width: 100%;
+    border: 1px solid rgba(100, 124, 61, 0.42);
+    border-radius: 8px;
+    padding: 0.22em 0.45em;
+    background: rgba(255, 255, 255, 0.74);
+    box-shadow: 0 0 0 calc(var(--word-ratio) * 5px) rgba(37, 99, 235, 0.08);
+    color: var(--ink);
+    font-weight: 800;
     overflow-wrap: anywhere;
     hyphens: auto;
 }
 
-.word-cloud-preview small {
-    color: var(--green);
-    font-size: 0.65em;
+.word-cloud-tag b {
+    min-width: 0;
+    font: inherit;
+    overflow-wrap: anywhere;
+}
+
+.word-cloud-tag small {
+    display: inline-flex;
+    align-items: center;
+    justify-content: center;
+    min-width: 1.45em;
+    min-height: 1.45em;
+    border-radius: 7px;
+    padding: 0 0.3em;
+    background: var(--green);
+    color: #fff;
+    font-size: 0.58em;
+    font-weight: 900;
+    line-height: 1;
 }
 
 .response-card-grid {
