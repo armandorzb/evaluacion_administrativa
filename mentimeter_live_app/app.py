@@ -543,6 +543,7 @@ def register_routes(app: Flask) -> None:
             response_record = record_response(session, question, participant, request.get_json(silent=True) or {})
             db.session.commit()
             emit_results(session, question)
+            emit_live_status(session)
             response = jsonify(
                 {
                     "ok": True,
@@ -560,6 +561,18 @@ def register_routes(app: Flask) -> None:
 
 
 def register_socket_events() -> None:
+    @socketio.on("presenter_join")
+    def socket_presenter_join(data):
+        if not is_admin_authenticated():
+            return {"ok": False, "error": "No autorizado."}
+        session = find_session((data or {}).get("code"))
+        if session is None:
+            return {"ok": False, "error": "Sesion no encontrada."}
+        refresh_session_timers(session)
+        join_room(room_name(session.code))
+        db.session.commit()
+        return {"ok": True, "session": serialize_session(session)}
+
     @socketio.on("join_session")
     def socket_join_session(data):
         session = find_session((data or {}).get("code"))
@@ -571,7 +584,7 @@ def register_socket_events() -> None:
         join_room(room_name(session.code))
         socket_participants[request.sid] = (session.id, participant.token)
         db.session.commit()
-        emit("participant_count", participant_count(session), to=room_name(session.code))
+        emit_live_status(session)
         return {"ok": True, "session": serialize_session(session), "participant_token": participant.token}
 
     @socketio.on("submit_response")
@@ -600,7 +613,7 @@ def register_socket_events() -> None:
             response_record = record_response(session, question, participant, (data or {}).get("payload") or {})
             db.session.commit()
             emit_results(session, question)
-            emit("participant_count", participant_count(session), to=room_name(session.code))
+            emit_live_status(session)
             return {
                 "ok": True,
                 "participant_token": participant.token,
@@ -660,7 +673,7 @@ def register_socket_events() -> None:
         if participant:
             participant.connected = False
             db.session.commit()
-            emit("participant_count", participant_count(participant.session), to=room_name(participant.session.code))
+            emit_live_status(participant.session)
 
 
 def add_question(session: Session, payload: dict[str, Any]) -> Question:
@@ -1314,6 +1327,7 @@ def serialize_session(session: Session) -> dict[str, Any]:
     active = session.active_question
     active_run = active_session_run(session)
     report_run = default_report_run(session)
+    response_monitor = response_monitor_status(session)
     return {
         "id": session.id,
         "title": session.title,
@@ -1325,7 +1339,8 @@ def serialize_session(session: Session) -> dict[str, Any]:
         "active_question_index": session.active_question_index,
         "active_question_id": active.id if active else None,
         "participant_count": len(session.participants),
-        "connected_count": len([participant for participant in session.participants if participant.connected]),
+        "connected_count": response_monitor["connected_count"],
+        "response_monitor": response_monitor,
         "join_url": url_for("audience", code=session.code, _external=True),
         "qr_url": url_for("qr_png", code=session.code),
         "runs": [serialize_run(run) for run in sorted_runs(session)],
@@ -2094,15 +2109,21 @@ def room_name(code: str) -> str:
 
 
 def participant_count(session: Session) -> dict[str, int | str]:
+    monitor = response_monitor_status(session)
     return {
         "code": session.code,
         "participant_count": len(session.participants),
-        "connected_count": len([participant for participant in session.participants if participant.connected]),
+        "connected_count": monitor["connected_count"],
+        "response_monitor": monitor,
     }
 
 
 def broadcast_session(session: Session) -> None:
     socketio.emit("session_state", serialize_session(session), to=room_name(session.code))
+
+
+def emit_live_status(session: Session) -> None:
+    socketio.emit("participant_count", participant_count(session), to=room_name(session.code))
 
 
 def emit_results(session: Session, question: Question) -> None:
@@ -2131,6 +2152,54 @@ def leaderboard(session: Session, run=RUN_DEFAULT) -> list[dict[str, Any]]:
         for index, (participant_id, score) in enumerate(ordered[:10], start=1)
         if score > 0
     ]
+
+
+def live_participant_tokens(session: Session) -> set[str]:
+    return {
+        token
+        for session_id, token in socket_participants.values()
+        if session_id == session.id and token
+    }
+
+
+def live_participant_ids(session: Session) -> set[int]:
+    tokens = live_participant_tokens(session)
+    if not tokens:
+        return set()
+    return {
+        participant.id
+        for participant in Participant.query.filter(
+            Participant.session_id == session.id,
+            Participant.token.in_(tokens),
+        ).all()
+    }
+
+
+def response_monitor_status(session: Session) -> dict[str, int | bool | None]:
+    active = session.active_question
+    live_ids = live_participant_ids(session)
+    accepting = bool(
+        active
+        and session.status == "active"
+        and active.is_open
+        and active.type != "content_slide"
+    )
+    answered_ids: set[int] = set()
+    if accepting and active is not None:
+        run = active_session_run(session) or RUN_EMPTY
+        answered_ids = {
+            response.participant_id
+            for response in scoped_question_responses(active, run, active_only=True)
+            if response.participant_id in live_ids
+        }
+    pending_count = max(len(live_ids - answered_ids), 0) if accepting else 0
+    return {
+        "active_question_id": active.id if active else None,
+        "connected_count": len(live_ids),
+        "responded_count": len(answered_ids) if accepting else 0,
+        "pending_count": pending_count,
+        "accepting_responses": accepting,
+    }
 
 
 def clean_text(value: Any, max_length: int, *, required: bool = False) -> str:

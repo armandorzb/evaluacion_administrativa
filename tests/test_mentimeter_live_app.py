@@ -16,7 +16,7 @@ class TestConfig:
     MENTI_SEED_DEMO = True
 
 
-MOJIBAKE_MARKERS = ('Ã', 'Â', 'â€', 'â€“', 'â€”', 'â€¦', 'ðŸ', '�')
+MOJIBAKE_MARKERS = ("Ã", "Â", "â€", "â€“", "â€”", "â€¦", "ðŸ", "�")
 
 
 def build_app():
@@ -888,6 +888,75 @@ def test_quiz_timer_is_enforced_by_server_state():
     refreshed_quiz = next(question for question in refreshed["questions"] if question["id"] == quiz["id"])
     assert refreshed_quiz["is_open"] is False
     assert refreshed_quiz["timer"]["remaining"] == 0
+
+
+def test_presenter_join_does_not_count_as_live_participant():
+    app = build_app()
+    client = app.test_client()
+    presenter = socketio.test_client(app, flask_test_client=client)
+
+    ack = presenter.emit("presenter_join", {"code": "123456"}, callback=True)
+
+    assert ack["ok"] is True
+    assert ack["session"]["connected_count"] == 0
+    assert ack["session"]["response_monitor"]["connected_count"] == 0
+    with app.app_context():
+        assert Participant.query.count() == 0
+    presenter.disconnect()
+
+
+def test_response_monitor_tracks_live_pending_responses():
+    app = build_app()
+    client = app.test_client()
+    session = client.post("/api/sessions", json={"title": "Pendientes"}).get_json()["session"]
+    question = client.post(
+        f"/api/sessions/{session['code']}/questions",
+        json={
+            "type": "multiple_choice",
+            "title": "Voto",
+            "prompt": "Elige",
+            "options": ["A", "B"],
+        },
+    ).get_json()["question"]
+    option_id = question["options"][0]["id"]
+    client.post(f"/api/sessions/{session['code']}/control", json={"action": "start"})
+
+    first = socketio.test_client(app)
+    second = socketio.test_client(app)
+    first_join = first.emit("join_session", {"code": session["code"]}, callback=True)
+    second_join = second.emit("join_session", {"code": session["code"]}, callback=True)
+    assert first_join["ok"] is True
+    assert second_join["ok"] is True
+
+    live_state = client.get(f"/api/sessions/{session['code']}").get_json()["session"]
+    assert live_state["connected_count"] == 2
+    assert live_state["response_monitor"]["accepting_responses"] is True
+    assert live_state["response_monitor"]["pending_count"] == 2
+    assert live_state["response_monitor"]["responded_count"] == 0
+
+    submit = first.emit(
+        "submit_response",
+        {
+            "code": session["code"],
+            "question_id": question["id"],
+            "participant_token": first_join["participant_token"],
+            "payload": {"option_id": option_id},
+        },
+        callback=True,
+    )
+    assert submit["ok"] is True
+
+    answered_state = client.get(f"/api/sessions/{session['code']}").get_json()["session"]
+    assert answered_state["connected_count"] == 2
+    assert answered_state["response_monitor"]["pending_count"] == 1
+    assert answered_state["response_monitor"]["responded_count"] == 1
+
+    second.disconnect()
+    remaining_state = client.get(f"/api/sessions/{session['code']}").get_json()["session"]
+    assert remaining_state["connected_count"] == 1
+    assert remaining_state["response_monitor"]["pending_count"] == 0
+    assert remaining_state["response_monitor"]["responded_count"] == 1
+    first.disconnect()
 
 
 def test_socketio_join_navigation_and_live_results():

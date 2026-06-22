@@ -20,7 +20,7 @@
         {% if selected %}
         <div class="deck-meta">
             <span class="status-pill" data-session-status>{{ selected.code }} · {{ selected.status }}</span>
-            <span class="participant-meter"><strong data-connected-count>0</strong> conectados</span>
+            <span class="participant-meter"><strong data-connected-count>0</strong> en vivo</span>
         </div>
         {% endif %}
 
@@ -104,6 +104,11 @@
             </div>
 
             <div class="canvas-stage">
+                <div class="response-monitor" data-response-monitor hidden>
+                    <span>Pendientes</span>
+                    <strong data-pending-response-count>0</strong>
+                    <small><span data-responded-response-count>0</span>/<span data-live-response-count>0</span></small>
+                </div>
                 {% set initial_slide = selected.active_question %}
                 <article class="slide-canvas{% if initial_slide %} slide-kind-{{ initial_slide.type }}{% endif %}" data-slide-canvas aria-label="Lienzo de diapositiva">
                     {% if initial_slide %}

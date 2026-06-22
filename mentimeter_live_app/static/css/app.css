@@ -539,12 +539,56 @@ p {
 }
 
 .canvas-stage {
+    position: relative;
     display: flex;
     align-items: center;
     justify-content: center;
     min-height: 0;
     overflow: auto;
     padding: clamp(0.8rem, 2vw, 1.5rem);
+}
+
+.response-monitor {
+    position: absolute;
+    top: 0.7rem;
+    right: 0.7rem;
+    z-index: 8;
+    display: inline-grid;
+    grid-template-columns: auto auto auto;
+    align-items: center;
+    gap: 0.35rem;
+    min-height: 1.9rem;
+    border: 1px solid rgba(148, 163, 184, 0.38);
+    border-radius: 8px;
+    padding: 0.25rem 0.5rem;
+    background: rgba(255, 255, 255, 0.82);
+    color: var(--muted);
+    font-size: 0.72rem;
+    font-weight: 800;
+    box-shadow: 0 8px 24px rgba(15, 23, 42, 0.08);
+    backdrop-filter: blur(8px);
+}
+
+.response-monitor[hidden] {
+    display: none;
+}
+
+.response-monitor strong {
+    color: var(--ink);
+    font-size: 0.95rem;
+    line-height: 1;
+}
+
+.response-monitor small {
+    border-left: 1px solid rgba(148, 163, 184, 0.4);
+    padding-left: 0.35rem;
+    color: var(--green);
+    font-size: 0.68rem;
+    line-height: 1;
+}
+
+.response-monitor.is-idle {
+    opacity: 0.58;
 }
 
 .slide-canvas {
@@ -1503,6 +1547,10 @@ p {
     background: rgba(255, 255, 255, 0.1);
     color: #e2e8f0;
     border-color: rgba(255, 255, 255, 0.18);
+}
+
+.present-only .response-monitor {
+    display: none !important;
 }
 
 .present-only .canvas-stage {

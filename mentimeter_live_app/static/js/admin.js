@@ -31,6 +31,7 @@
   const deckTitleInput = $("[data-deck-title]");
   const statusPill = $("[data-session-status]");
   const connectedCount = $("[data-connected-count]");
+  const responseMonitor = $("[data-response-monitor]");
   const addSlideButton = $("[data-add-slide]");
   const addMenu = $("[data-add-menu]");
   const slideList = $("[data-slide-list]");
@@ -193,7 +194,11 @@
     if (!window.io) return;
     state.socket = window.io({ reconnection: true });
     state.socket.on("connect", () => {
-      state.socket.emit("join_session", { code });
+      state.socket.emit("presenter_join", { code }, (ack) => {
+        if (!ack?.ok || !ack.session) return;
+        state.session = ack.session;
+        renderChrome();
+      });
     });
     state.socket.on("session_state", (next) => {
       state.session = next;
@@ -215,7 +220,13 @@
       scheduleSlideTextFit();
     });
     state.socket.on("participant_count", (payload) => {
-      if (connectedCount) connectedCount.textContent = payload.connected_count || 0;
+      if (!state.session) {
+        if (connectedCount) connectedCount.textContent = payload.connected_count || 0;
+        return;
+      }
+      state.session.connected_count = payload.connected_count || 0;
+      state.session.response_monitor = payload.response_monitor || state.session.response_monitor;
+      renderLiveCounters();
     });
   }
 
@@ -266,7 +277,27 @@
       const runLabel = state.session.active_run_id ? "ejecucion activa" : `${runCount} ejec.`;
       statusPill.textContent = `${state.session.code} - ${state.session.status} - ${runLabel}`;
     }
-    if (connectedCount) connectedCount.textContent = state.session.connected_count || 0;
+    renderLiveCounters();
+  }
+
+  function renderLiveCounters() {
+    if (connectedCount) connectedCount.textContent = state.session?.connected_count || 0;
+    if (!responseMonitor) return;
+    const monitor = state.session?.response_monitor || {};
+    const activeQuestion = questions().find((question) => question.id === monitor.active_question_id);
+    const show = Boolean(state.session && activeQuestion && activeQuestion.type !== "content_slide");
+    responseMonitor.hidden = !show;
+    if (!show) return;
+    const pending = Number(monitor.pending_count || 0);
+    const responded = Number(monitor.responded_count || 0);
+    const connected = Number(monitor.connected_count ?? state.session.connected_count ?? 0);
+    responseMonitor.classList.toggle("is-idle", !monitor.accepting_responses);
+    $("[data-pending-response-count]", responseMonitor).textContent = pending;
+    $("[data-responded-response-count]", responseMonitor).textContent = responded;
+    $("[data-live-response-count]", responseMonitor).textContent = connected;
+    responseMonitor.title = monitor.accepting_responses
+      ? `${pending} pendientes de respuesta. ${responded} de ${connected} conectados ya respondieron.`
+      : "La pregunta activa no esta recibiendo respuestas.";
   }
 
   function renderSlideList() {
