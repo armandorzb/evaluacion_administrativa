@@ -201,7 +201,7 @@ def test_live_access_guards_allow_admin_and_consulta_only():
 
     response = login(client, "admin-live@test.local")
     assert response.status_code == 200
-    assert "Live en Tiempo Real" in response.get_data(as_text=True)
+    assert "Mentimeter Live" in response.get_data(as_text=True)
     assert client.get("/live/").status_code == 200
 
     client.get("/auth/logout", follow_redirects=True)

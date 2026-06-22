@@ -35,6 +35,7 @@ def build_app():
                 acceso_diagnostico=True,
                 acceso_bienestar=True,
                 acceso_iso9001=True,
+                acceso_live=True,
             ),
             Usuario(
                 nombre="Solo Diagnostico",
@@ -82,6 +83,11 @@ def test_login_routes_users_to_the_correct_module_shell():
     assert "Diagnóstico Integral Municipal" in dual_html
     assert "Bienestar Policial" in dual_html
     assert "ISO 9001" in dual_html
+    assert "Live en Tiempo Real" in dual_html
+
+    live_redirect = client.get("/dashboard/modulos/live")
+    assert live_redirect.status_code == 302
+    assert live_redirect.headers["Location"].endswith("/menti/")
 
     client.get("/auth/logout", follow_redirects=True)
 

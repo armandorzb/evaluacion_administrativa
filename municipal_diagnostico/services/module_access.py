@@ -88,7 +88,7 @@ def landing_endpoint_for_user(user) -> str | None:
     if available[0] == MODULE_ISO9001:
         return "iso9001.dashboard"
     if available[0] == MODULE_LIVE:
-        return "live.dashboard"
+        return "menti.index"
     return "dashboard.diagnostic_home"
 
 
@@ -100,7 +100,7 @@ def endpoint_for_module(user, module_slug: str) -> str | None:
     if module_slug == MODULE_ISO9001 and getattr(user, "puede_acceder_iso9001", False):
         return "iso9001.dashboard"
     if module_slug == MODULE_LIVE and getattr(user, "puede_acceder_live", False):
-        return "live.dashboard"
+        return "menti.index"
     return None
 
 
