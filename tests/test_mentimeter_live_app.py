@@ -1,5 +1,6 @@
 from datetime import timedelta
 from io import BytesIO
+from pathlib import Path
 
 from openpyxl import load_workbook
 
@@ -13,6 +14,9 @@ class TestConfig:
     SQLALCHEMY_DATABASE_URI = "sqlite:///:memory:"
     SQLALCHEMY_TRACK_MODIFICATIONS = False
     MENTI_SEED_DEMO = True
+
+
+MOJIBAKE_MARKERS = ('Ã', 'Â', 'â€', 'â€“', 'â€”', 'â€¦', 'ðŸ', '�')
 
 
 def build_app():
@@ -67,6 +71,22 @@ def build_limited_app():
             "MAX_CONTENT_LENGTH": 512,
         }
     )
+
+
+def test_mentimeter_live_sources_do_not_contain_mojibake():
+    root = Path(__file__).resolve().parents[1] / "mentimeter_live_app"
+    text_suffixes = {".css", ".html", ".js", ".md", ".py", ".txt"}
+    failures = []
+
+    for path in sorted(root.rglob("*")):
+        if "__pycache__" in path.parts or path.suffix.lower() not in text_suffixes:
+            continue
+        text = path.read_text(encoding="utf-8")
+        for marker in MOJIBAKE_MARKERS:
+            if marker in text:
+                failures.append(f"{path.relative_to(root.parent)} contains {marker!r}")
+
+    assert failures == []
 
 
 def test_demo_session_and_public_pages_exist():
