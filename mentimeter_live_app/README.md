@@ -14,7 +14,8 @@ python app.py
 
 Abre:
 
-- Presentador: `http://127.0.0.1:5000/admin`
+- Biblioteca del presentador: `http://127.0.0.1:5000/admin`
+- Editor de una presentacion: `http://127.0.0.1:5000/admin/<codigo>`
 - Audiencia: `http://127.0.0.1:5000/join`
 - Demo: codigo `123456`
 
@@ -27,7 +28,8 @@ La base SQLite se crea automaticamente en `instance/mentimeter.sqlite3`.
 ## Arquitectura
 
 - `app.py`: factory Flask, rutas REST, eventos Socket.IO, agregadores de resultados y demo inicial.
-- `models.py`: modelos SQLAlchemy `Session`, `Question`, `Option`, `Response`, `Participant`.
+- `models.py`: modelos SQLAlchemy `PresentationFolder`, `Session`, `Question`, `Option`, `Response`, `Participant`.
+- `templates/admin_library.html`: biblioteca inicial con carpetas y acciones de presentacion.
 - `templates/admin.html`: editor y pantalla de proyeccion del presentador.
 - `templates/join.html` y `templates/audience.html`: flujo mobile-first para entrar y responder.
 - `static/js/admin.js`: control de sesiones, preguntas, navegacion y resultados con Chart.js.
@@ -47,6 +49,7 @@ La base SQLite se crea automaticamente en `instance/mentimeter.sqlite3`.
 - Exports por sesion: CSV, Excel y PDF.
 - Insights JSON por sesion.
 - Temas visuales: `civic`, `ocean`, `contrast`.
+- Biblioteca inicial con carpetas, duplicado y eliminacion de presentaciones.
 - Plantillas rapidas y duplicado de preguntas en el editor.
 
 ## Integracion municipal

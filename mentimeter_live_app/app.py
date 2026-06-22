@@ -38,9 +38,9 @@ from reportlab.lib.pagesizes import letter
 from reportlab.pdfgen import canvas
 
 try:
-    from .models import db, Option, Participant, Question, Response, Session, SessionRun, utcnow
+    from .models import db, Option, Participant, PresentationFolder, Question, Response, Session, SessionRun, utcnow
 except ImportError:  # Allows `python app.py` from this folder.
-    from models import db, Option, Participant, Question, Response, Session, SessionRun, utcnow
+    from models import db, Option, Participant, PresentationFolder, Question, Response, Session, SessionRun, utcnow
 
 
 socketio = SocketIO(
@@ -75,6 +75,7 @@ def default_asset_version() -> str:
         app_root / "static" / "js" / "admin.js",
         app_root / "static" / "js" / "audience.js",
         app_root / "templates" / "admin.html",
+        app_root / "templates" / "admin_library.html",
         app_root / "templates" / "admin_login.html",
         app_root / "templates" / "audience.html",
         app_root / "templates" / "join.html",
@@ -131,7 +132,14 @@ def create_app(test_config: dict[str, Any] | None = None) -> Flask:
 
 def ensure_schema_compatibility() -> None:
     inspector = inspect(db.engine)
-    if "responses" not in inspector.get_table_names():
+    table_names = inspector.get_table_names()
+    if "sessions" in table_names:
+        session_columns = {column["name"] for column in inspector.get_columns("sessions")}
+        if "folder_id" not in session_columns:
+            with db.engine.begin() as connection:
+                connection.exec_driver_sql("ALTER TABLE sessions ADD COLUMN folder_id INTEGER")
+                connection.exec_driver_sql("CREATE INDEX IF NOT EXISTS ix_sessions_folder_id ON sessions (folder_id)")
+    if "responses" not in table_names:
         return
     response_columns = {column["name"] for column in inspector.get_columns("responses")}
     if "run_id" not in response_columns:
@@ -261,8 +269,21 @@ def register_routes(app: Flask) -> None:
     @app.get("/admin")
     @admin_required
     def admin():
+        if request.args.get("code"):
+            return admin_session(request.args["code"])
+        return render_template(
+            "admin_library.html",
+            **build_admin_library_context(request.args.get("folder")),
+            admin_auth_required=admin_auth_mode() != "open",
+        )
+
+    @app.get("/admin/<code>")
+    @admin_required
+    def admin_session(code: str):
         sessions = Session.query.order_by(Session.updated_at.desc()).all()
-        selected = find_session(request.args.get("code")) if request.args.get("code") else (sessions[0] if sessions else None)
+        selected = find_session(code)
+        if selected is None:
+            abort(404)
         return render_template(
             "admin.html",
             sessions=sessions,
@@ -270,6 +291,86 @@ def register_routes(app: Flask) -> None:
             question_types=sorted(QUESTION_TYPES),
             admin_auth_required=admin_auth_mode() != "open",
         )
+
+    @app.post("/admin/sessions")
+    @admin_required
+    def admin_create_session():
+        try:
+            session = create_session_from_payload(request.form)
+            db.session.commit()
+            return redirect(url_for("admin_session", code=session.code))
+        except ValueError as exc:
+            db.session.rollback()
+            return render_template(
+                "admin_library.html",
+                **build_admin_library_context(request.form.get("folder_id")),
+                admin_auth_required=admin_auth_mode() != "open",
+                error=str(exc),
+            ), 400
+
+    @app.post("/admin/sessions/<code>/duplicate")
+    @admin_required
+    def admin_duplicate_session(code: str):
+        session = require_session(code)
+        duplicate = duplicate_session(session)
+        db.session.commit()
+        return redirect(url_for("admin_session", code=duplicate.code))
+
+    @app.post("/admin/sessions/<code>/delete")
+    @admin_required
+    def admin_delete_session(code: str):
+        session = require_session(code)
+        folder_id = session.folder_id
+        delete_session_record(session)
+        db.session.commit()
+        if folder_id:
+            return redirect(url_for("admin", folder=folder_id))
+        return redirect(url_for("admin"))
+
+    @app.post("/admin/sessions/<code>/folder")
+    @admin_required
+    def admin_move_session(code: str):
+        session = require_session(code)
+        try:
+            session.folder_id = normalize_folder_id(request.form.get("folder_id"))
+            db.session.commit()
+            if session.folder_id:
+                return redirect(url_for("admin", folder=session.folder_id))
+            return redirect(url_for("admin", folder="none"))
+        except ValueError as exc:
+            db.session.rollback()
+            return render_template(
+                "admin_library.html",
+                **build_admin_library_context(request.form.get("folder_id")),
+                admin_auth_required=admin_auth_mode() != "open",
+                error=str(exc),
+            ), 400
+
+    @app.post("/admin/folders")
+    @admin_required
+    def admin_create_folder():
+        try:
+            folder = create_folder_from_payload(request.form)
+            db.session.commit()
+            return redirect(url_for("admin", folder=folder.id))
+        except ValueError as exc:
+            db.session.rollback()
+            return render_template(
+                "admin_library.html",
+                **build_admin_library_context(request.args.get("folder")),
+                admin_auth_required=admin_auth_mode() != "open",
+                error=str(exc),
+            ), 400
+
+    @app.post("/admin/folders/<int:folder_id>/delete")
+    @admin_required
+    def admin_delete_folder(folder_id: int):
+        folder = PresentationFolder.query.get_or_404(folder_id)
+        for session in list(folder.sessions):
+            session.folder_id = None
+        db.session.delete(folder)
+        db.session.commit()
+        return redirect(url_for("admin"))
 
     @app.get("/present/<code>")
     @admin_required
@@ -322,7 +423,34 @@ def register_routes(app: Flask) -> None:
     @app.get("/api/sessions")
     @admin_required
     def api_sessions():
-        return jsonify({"ok": True, "sessions": [serialize_session(item) for item in Session.query.order_by(Session.updated_at.desc())]})
+        return jsonify(
+            {
+                "ok": True,
+                "folders": [serialize_folder(folder) for folder in PresentationFolder.query.order_by(PresentationFolder.name.asc())],
+                "sessions": [serialize_session(item) for item in Session.query.order_by(Session.updated_at.desc())],
+            }
+        )
+
+    @app.post("/api/folders")
+    @admin_required
+    def api_create_folder():
+        try:
+            folder = create_folder_from_payload(request.get_json(silent=True) or {})
+            db.session.commit()
+            return jsonify({"ok": True, "folder": serialize_folder(folder)}), 201
+        except ValueError as exc:
+            db.session.rollback()
+            return json_error(exc)
+
+    @app.delete("/api/folders/<int:folder_id>")
+    @admin_required
+    def api_delete_folder(folder_id: int):
+        folder = PresentationFolder.query.get_or_404(folder_id)
+        for session in list(folder.sessions):
+            session.folder_id = None
+        db.session.delete(folder)
+        db.session.commit()
+        return jsonify({"ok": True})
 
     @app.get("/api/question-templates")
     @admin_required
@@ -332,10 +460,8 @@ def register_routes(app: Flask) -> None:
     @app.post("/api/sessions")
     @admin_required
     def api_create_session():
-        payload = request.get_json(silent=True) or {}
         try:
-            session = Session(title=clean_text(payload.get("title"), 180, required=True), code=generate_session_code())
-            db.session.add(session)
+            session = create_session_from_payload(request.get_json(silent=True) or {})
             db.session.commit()
             return jsonify({"ok": True, "session": serialize_session(session)}), 201
         except ValueError as exc:
@@ -361,12 +487,34 @@ def register_routes(app: Flask) -> None:
                 config = dict(session.config_json or {})
                 config["theme"] = normalize_choice(payload.get("theme"), {"civic", "ocean", "contrast"}, config.get("theme", "civic"))
                 session.config_json = config
+            if "folder_id" in payload:
+                session.folder_id = normalize_folder_id(payload.get("folder_id"))
             db.session.commit()
             broadcast_session(session)
             return jsonify({"ok": True, "session": serialize_session(session)})
         except ValueError as exc:
             db.session.rollback()
             return json_error(exc)
+
+    @app.post("/api/sessions/<code>/duplicate")
+    @admin_required
+    def api_duplicate_session(code: str):
+        session = require_session(code)
+        try:
+            duplicate = duplicate_session(session, request.get_json(silent=True) or {})
+            db.session.commit()
+            return jsonify({"ok": True, "session": serialize_session(duplicate)}), 201
+        except ValueError as exc:
+            db.session.rollback()
+            return json_error(exc)
+
+    @app.delete("/api/sessions/<code>")
+    @admin_required
+    def api_delete_session(code: str):
+        session = require_session(code)
+        delete_session_record(session)
+        db.session.commit()
+        return jsonify({"ok": True})
 
     @app.post("/api/sessions/<code>/questions")
     @admin_required
@@ -674,6 +822,116 @@ def register_socket_events() -> None:
             participant.connected = False
             db.session.commit()
             emit_live_status(participant.session)
+
+
+def build_admin_library_context(folder_filter: Any = None) -> dict[str, Any]:
+    folders = PresentationFolder.query.order_by(PresentationFolder.name.asc()).all()
+    sessions = Session.query.order_by(Session.updated_at.desc()).all()
+    folder_counts: dict[int, int] = defaultdict(int)
+    uncategorized_count = 0
+    for session in sessions:
+        if session.folder_id:
+            folder_counts[session.folder_id] += 1
+        else:
+            uncategorized_count += 1
+
+    selected_folder = None
+    selected_token = ""
+    visible_sessions = sessions
+    if str(folder_filter or "").strip().lower() == "none":
+        selected_token = "none"
+        visible_sessions = [session for session in sessions if not session.folder_id]
+    elif str(folder_filter or "").strip():
+        try:
+            folder_id = int(str(folder_filter).strip())
+        except ValueError:
+            folder_id = 0
+        selected_folder = next((folder for folder in folders if folder.id == folder_id), None)
+        if selected_folder:
+            selected_token = str(selected_folder.id)
+            visible_sessions = [session for session in sessions if session.folder_id == selected_folder.id]
+
+    return {
+        "folders": folders,
+        "folder_counts": folder_counts,
+        "uncategorized_count": uncategorized_count,
+        "all_sessions": sessions,
+        "visible_sessions": visible_sessions,
+        "selected_folder": selected_folder,
+        "selected_folder_token": selected_token,
+        "new_session_folder_id": selected_folder.id if selected_folder else "",
+    }
+
+
+def create_folder_from_payload(payload: Any) -> PresentationFolder:
+    name = clean_text((payload or {}).get("name"), 80, required=True)
+    normalized = name.casefold()
+    existing = PresentationFolder.query.all()
+    if any(folder.name.casefold() == normalized for folder in existing):
+        raise ValueError("Ya existe una carpeta con ese nombre.")
+    folder = PresentationFolder(name=name)
+    db.session.add(folder)
+    return folder
+
+
+def normalize_folder_id(value: Any) -> int | None:
+    raw = str(value or "").strip()
+    if not raw or raw.lower() in {"none", "null", "sin-carpeta"}:
+        return None
+    try:
+        folder_id = int(raw)
+    except ValueError as exc:
+        raise ValueError("Carpeta invalida.") from exc
+    folder = db.session.get(PresentationFolder, folder_id)
+    if folder is None:
+        raise ValueError("Carpeta no encontrada.")
+    return folder.id
+
+
+def create_session_from_payload(payload: Any) -> Session:
+    payload = payload or {}
+    session = Session(
+        title=clean_text(payload.get("title"), 180, required=True),
+        code=generate_session_code(),
+        folder_id=normalize_folder_id(payload.get("folder_id")),
+    )
+    db.session.add(session)
+    return session
+
+
+def duplicate_session(source: Session, payload: dict[str, Any] | None = None) -> Session:
+    payload = payload or {}
+    title = clean_text(payload.get("title") or f"{source.title} (copia)"[:180], 180, required=True)
+    folder_id = normalize_folder_id(payload.get("folder_id")) if "folder_id" in payload else source.folder_id
+    duplicate = Session(
+        title=title,
+        code=generate_session_code(),
+        status="draft",
+        active_question_index=0,
+        folder_id=folder_id,
+        config_json=dict(source.config_json or {}),
+    )
+    db.session.add(duplicate)
+    db.session.flush()
+    for question in sorted(source.questions, key=lambda item: item.position):
+        config = dict(question.config_json or {})
+        config.pop("timer_started_at", None)
+        add_question(
+            duplicate,
+            {
+                "type": question.type,
+                "title": question.title,
+                "prompt": question.prompt,
+                "config": config,
+                "options": [option.label for option in question.options],
+                "correct_option_labels": [option.label for option in question.options if option.is_correct],
+            },
+        )
+    return duplicate
+
+
+def delete_session_record(session: Session) -> None:
+    db.session.delete(session)
 
 
 def add_question(session: Session, payload: dict[str, Any]) -> Question:
@@ -1333,18 +1591,34 @@ def serialize_session(session: Session) -> dict[str, Any]:
         "title": session.title,
         "code": session.code,
         "status": session.status,
+        "folder_id": session.folder_id,
+        "folder_name": session.folder.name if session.folder else None,
         "theme": (session.config_json or {}).get("theme", "civic"),
         "active_run_id": active_run.id if active_run else None,
         "report_run_id": report_run.id if isinstance(report_run, SessionRun) else None,
         "active_question_index": session.active_question_index,
         "active_question_id": active.id if active else None,
         "participant_count": len(session.participants),
+        "response_count": len(session.responses),
+        "question_count": len(session.questions),
         "connected_count": response_monitor["connected_count"],
+        "created_at": session.created_at.isoformat() if session.created_at else None,
+        "updated_at": session.updated_at.isoformat() if session.updated_at else None,
         "response_monitor": response_monitor,
         "join_url": url_for("audience", code=session.code, _external=True),
         "qr_url": url_for("qr_png", code=session.code),
         "runs": [serialize_run(run) for run in sorted_runs(session)],
         "questions": [serialize_question(question) for question in sorted(session.questions, key=lambda item: item.position)],
+    }
+
+
+def serialize_folder(folder: PresentationFolder) -> dict[str, Any]:
+    return {
+        "id": folder.id,
+        "name": folder.name,
+        "session_count": len(folder.sessions),
+        "created_at": folder.created_at.isoformat() if folder.created_at else None,
+        "updated_at": folder.updated_at.isoformat() if folder.updated_at else None,
     }
 
 

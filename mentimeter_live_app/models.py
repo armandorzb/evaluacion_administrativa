@@ -19,6 +19,15 @@ class TimestampMixin:
     updated_at = db.Column(db.DateTime, default=utcnow, onupdate=utcnow, nullable=False)
 
 
+class PresentationFolder(TimestampMixin, db.Model):
+    __tablename__ = "presentation_folders"
+
+    id = db.Column(db.Integer, primary_key=True)
+    name = db.Column(db.String(80), nullable=False, unique=True)
+
+    sessions = db.relationship("Session", back_populates="folder", order_by="Session.updated_at.desc()")
+
+
 class Session(TimestampMixin, db.Model):
     __tablename__ = "sessions"
 
@@ -27,8 +36,10 @@ class Session(TimestampMixin, db.Model):
     code = db.Column(db.String(6), nullable=False, unique=True, index=True)
     status = db.Column(db.String(20), nullable=False, default="draft")
     active_question_index = db.Column(db.Integer, nullable=False, default=0)
+    folder_id = db.Column(db.Integer, db.ForeignKey("presentation_folders.id"), nullable=True, index=True)
     config_json = db.Column(db.JSON, nullable=False, default=dict)
 
+    folder = db.relationship("PresentationFolder", back_populates="sessions")
     questions = db.relationship(
         "Question",
         back_populates="session",

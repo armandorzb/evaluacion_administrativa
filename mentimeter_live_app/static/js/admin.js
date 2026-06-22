@@ -57,7 +57,7 @@
       const title = String(new FormData(createForm).get("title") || "").trim();
       const json = await postJson("/api/sessions", { title: title || "Nueva presentación live" });
       if (json.ok) {
-        window.location.assign(`/admin?code=${json.session.code}`);
+        window.location.assign(`/admin/${json.session.code}`);
         return;
       }
       alert(json.error || "No se pudo crear la presentación.");

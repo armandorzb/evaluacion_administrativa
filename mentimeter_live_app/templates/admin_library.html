@@ -1,0 +1,149 @@
+<!doctype html>
+<html lang="es">
+<head>
+    <meta charset="utf-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1">
+    <title>Biblioteca | Live Studio</title>
+    <link rel="stylesheet" href="{{ url_for('static', filename='css/app.css', v=asset_version) }}">
+</head>
+<body class="deck-shell library-mode">
+    <header class="library-topbar">
+        <div class="deck-brand">
+            <p class="eyebrow">Live Studio</p>
+            <h1>Biblioteca de presentaciones</h1>
+            <p class="muted">Administra carpetas, duplica sesiones y abre el editor solo cuando lo necesites.</p>
+        </div>
+
+        <form class="library-create" method="post" action="{{ url_for('admin_create_session') }}">
+            <input type="hidden" name="folder_id" value="{{ new_session_folder_id }}">
+            <input name="title" placeholder="Nueva presentacion live" value="Nueva presentacion live" maxlength="180" aria-label="Nombre de la nueva presentacion">
+            <button type="submit">Crear presentacion</button>
+        </form>
+
+        {% if admin_auth_required %}
+        <form class="admin-logout" method="post" action="{{ url_for('admin_logout') }}">
+            <button type="submit">Salir</button>
+        </form>
+        {% endif %}
+    </header>
+
+    <main class="library-shell">
+        <aside class="library-sidebar" aria-label="Carpetas">
+            <section class="library-panel">
+                <div class="library-panel-head">
+                    <span>Carpetas</span>
+                </div>
+                <nav class="folder-list" aria-label="Filtros de carpetas">
+                    <a class="folder-item{% if not selected_folder_token %} is-active{% endif %}" href="{{ url_for('admin') }}">
+                        <strong>Todas</strong>
+                        <span>{{ all_sessions|length }}</span>
+                    </a>
+                    <a class="folder-item{% if selected_folder_token == 'none' %} is-active{% endif %}" href="{{ url_for('admin', folder='none') }}">
+                        <strong>Sin carpeta</strong>
+                        <span>{{ uncategorized_count }}</span>
+                    </a>
+                    {% for folder in folders %}
+                    <div class="folder-row{% if selected_folder and selected_folder.id == folder.id %} is-active{% endif %}">
+                        <a class="folder-item" href="{{ url_for('admin', folder=folder.id) }}">
+                            <strong>{{ folder.name }}</strong>
+                            <span>{{ folder_counts.get(folder.id, 0) }}</span>
+                        </a>
+                        <form method="post" action="{{ url_for('admin_delete_folder', folder_id=folder.id) }}" onsubmit="return confirm('Eliminar esta carpeta? Las presentaciones quedaran sin carpeta.');">
+                            <button type="submit" class="folder-delete" aria-label="Eliminar carpeta {{ folder.name }}">x</button>
+                        </form>
+                    </div>
+                    {% endfor %}
+                </nav>
+            </section>
+
+            <section class="library-panel">
+                <div class="library-panel-head">
+                    <span>Nueva carpeta</span>
+                </div>
+                <form class="folder-create" method="post" action="{{ url_for('admin_create_folder') }}">
+                    <input name="name" placeholder="Nombre de carpeta" maxlength="80" aria-label="Nombre de carpeta">
+                    <button type="submit">Crear carpeta</button>
+                </form>
+            </section>
+        </aside>
+
+        <section class="library-main" aria-label="Presentaciones">
+            {% if error %}
+            <p class="error">{{ error }}</p>
+            {% endif %}
+
+            <div class="library-heading">
+                <div>
+                    <p class="eyebrow">Presentaciones realizadas</p>
+                    <h2>
+                        {% if selected_folder %}
+                        {{ selected_folder.name }}
+                        {% elif selected_folder_token == 'none' %}
+                        Sin carpeta
+                        {% else %}
+                        Todas las presentaciones
+                        {% endif %}
+                    </h2>
+                </div>
+                <span class="status-pill">{{ visible_sessions|length }} elemento(s)</span>
+            </div>
+
+            <div class="presentation-grid">
+                {% for session in visible_sessions %}
+                <article class="presentation-card">
+                    <div class="presentation-card-main">
+                        <p class="eyebrow">{{ session.folder.name if session.folder else "Sin carpeta" }}</p>
+                        <h3>{{ session.title }}</h3>
+                        <p class="muted">Codigo {{ session.code }} · {{ session.status }} · {{ session.questions|length }} diapositiva(s)</p>
+                    </div>
+
+                    <dl class="presentation-stats">
+                        <div>
+                            <dt>Respuestas</dt>
+                            <dd>{{ session.responses|length }}</dd>
+                        </div>
+                        <div>
+                            <dt>Ejecuciones</dt>
+                            <dd>{{ session.runs|length }}</dd>
+                        </div>
+                        <div>
+                            <dt>Actualizada</dt>
+                            <dd>{{ session.updated_at.strftime("%d/%m/%Y") if session.updated_at else "-" }}</dd>
+                        </div>
+                    </dl>
+
+                    <div class="presentation-actions">
+                        <a class="button-link primary-link" href="{{ url_for('admin_session', code=session.code) }}">Editar</a>
+                        <a class="button-link" href="{{ url_for('present', code=session.code) }}" target="_blank" rel="noreferrer">Visualizar</a>
+                        <form method="post" action="{{ url_for('admin_duplicate_session', code=session.code) }}">
+                            <button type="submit" class="secondary">Duplicar</button>
+                        </form>
+                        <form method="post" action="{{ url_for('admin_delete_session', code=session.code) }}" onsubmit="return confirm('Eliminar esta presentacion y sus respuestas?');">
+                            <button type="submit" class="danger">Eliminar</button>
+                        </form>
+                    </div>
+
+                    <form class="presentation-folder-form" method="post" action="{{ url_for('admin_move_session', code=session.code) }}">
+                        <label>
+                            Carpeta
+                            <select name="folder_id" onchange="this.form.submit()">
+                                <option value="" {% if not session.folder_id %}selected{% endif %}>Sin carpeta</option>
+                                {% for folder in folders %}
+                                <option value="{{ folder.id }}" {% if session.folder_id == folder.id %}selected{% endif %}>{{ folder.name }}</option>
+                                {% endfor %}
+                            </select>
+                        </label>
+                    </form>
+                </article>
+                {% else %}
+                <div class="library-empty">
+                    <p class="eyebrow">Sin presentaciones</p>
+                    <h2>Crea la primera presentacion para esta vista</h2>
+                    <p class="muted">Usa el formulario superior para iniciar una presentacion en la carpeta seleccionada.</p>
+                </div>
+                {% endfor %}
+            </div>
+        </section>
+    </main>
+</body>
+</html>

@@ -54,7 +54,7 @@
                 </div>
                 <div class="session-items">
                     {% for item in sessions %}
-                    <a class="session-chip{% if selected and item.id == selected.id %} is-active{% endif %}" href="{{ url_for('admin', code=item.code) }}">
+                    <a class="session-chip{% if selected and item.id == selected.id %} is-active{% endif %}" href="{{ url_for('admin_session', code=item.code) }}">
                         <strong>{{ item.title }}</strong>
                         <small>{{ item.runs|length }} ejecuciones registradas</small>
                         <span>{{ item.code }} · {{ item.status }}</span>

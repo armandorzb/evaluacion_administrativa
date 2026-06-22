@@ -5,7 +5,7 @@ from pathlib import Path
 from openpyxl import load_workbook
 
 from mentimeter_live_app.app import build_session_report, create_app, socketio
-from mentimeter_live_app.models import db, Participant, Question, Response, Session, SessionRun, utcnow
+from mentimeter_live_app.models import db, Participant, PresentationFolder, Question, Response, Session, SessionRun, utcnow
 
 
 class TestConfig:
@@ -101,6 +101,96 @@ def test_demo_session_and_public_pages_exist():
     assert len(payload["questions"]) == 4
     assert payload["questions"][0]["type"] == "content_slide"
     assert {question["type"] for question in payload["questions"]} == {"content_slide", "multiple_choice", "word_cloud", "quiz"}
+
+
+def test_admin_home_is_library_and_editor_uses_explicit_session_route():
+    app = build_app()
+    client = app.test_client()
+
+    library_html = client.get("/admin").get_data(as_text=True)
+    assert "Biblioteca de presentaciones" in library_html
+    assert "Demo participativa" in library_html
+    assert "data-slide-canvas" not in library_html
+    assert "/admin/123456" in library_html
+    assert "/present/123456" in library_html
+
+    editor_html = client.get("/admin/123456").get_data(as_text=True)
+    assert "data-slide-canvas" in editor_html
+    assert "data-slide-results-stage" in editor_html
+
+    legacy_editor_html = client.get("/admin?code=123456").get_data(as_text=True)
+    assert "data-slide-canvas" in legacy_editor_html
+
+
+def test_library_can_create_folders_duplicate_move_and_delete_presentations():
+    app = build_app()
+    client = app.test_client()
+
+    folder_response = client.post("/api/folders", json={"name": "Talleres ISO"})
+    assert folder_response.status_code == 201
+    folder = folder_response.get_json()["folder"]
+
+    created = client.post(
+        "/api/sessions",
+        json={"title": "Presentacion base", "folder_id": folder["id"]},
+    ).get_json()["session"]
+    assert created["folder_id"] == folder["id"]
+    assert created["folder_name"] == "Talleres ISO"
+
+    slide = client.post(
+        f"/api/sessions/{created['code']}/questions",
+        json={"type": "multiple_choice", "title": "Prioridad", "prompt": "Elige", "options": ["A", "B"]},
+    ).get_json()["question"]
+    assert slide["title"] == "Prioridad"
+
+    duplicated_response = client.post(f"/api/sessions/{created['code']}/duplicate")
+    assert duplicated_response.status_code == 201
+    duplicated = duplicated_response.get_json()["session"]
+    assert duplicated["code"] != created["code"]
+    assert duplicated["title"] == "Presentacion base (copia)"
+    assert duplicated["folder_id"] == folder["id"]
+    assert duplicated["question_count"] == 1
+    assert duplicated["response_count"] == 0
+
+    moved = client.patch(f"/api/sessions/{duplicated['code']}", json={"folder_id": None}).get_json()["session"]
+    assert moved["folder_id"] is None
+    assert moved["folder_name"] is None
+
+    assert client.delete(f"/api/sessions/{created['code']}").get_json()["ok"] is True
+    assert client.get(f"/api/sessions/{created['code']}").status_code == 404
+
+    assert client.delete(f"/api/folders/{folder['id']}").get_json()["ok"] is True
+    with app.app_context():
+        assert db.session.get(PresentationFolder, folder["id"]) is None
+
+
+def test_library_web_forms_create_folder_and_open_new_presentation_editor():
+    app = build_app()
+    client = app.test_client()
+
+    folder_redirect = client.post("/admin/folders", data={"name": "Planeacion"}, follow_redirects=False)
+    assert folder_redirect.status_code == 302
+    assert folder_redirect.headers["Location"].startswith("/admin?folder=")
+
+    with app.app_context():
+        folder = PresentationFolder.query.filter_by(name="Planeacion").one()
+
+    created_redirect = client.post(
+        "/admin/sessions",
+        data={"title": "Sesion desde biblioteca", "folder_id": str(folder.id)},
+        follow_redirects=False,
+    )
+    assert created_redirect.status_code == 302
+    assert created_redirect.headers["Location"].startswith("/admin/")
+
+    code = created_redirect.headers["Location"].rsplit("/", 1)[-1]
+    editor_html = client.get(f"/admin/{code}").get_data(as_text=True)
+    assert "Sesion desde biblioteca" in editor_html
+    assert "data-slide-canvas" in editor_html
+
+    with app.app_context():
+        session = Session.query.filter_by(code=code).one()
+        assert session.folder_id == folder.id
 
 
 def test_presenter_surfaces_mount_results_inside_slide_canvas():
