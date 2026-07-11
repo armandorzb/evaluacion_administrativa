@@ -17,10 +17,18 @@ depends_on = None
 
 
 def upgrade():
-    op.add_column(
-        "usuario",
-        sa.Column("acceso_iso45001", sa.Boolean(), nullable=False, server_default=sa.false()),
-    )
+    bind = op.get_bind()
+    usuario_columns = {
+        column["name"]
+        for column in sa.inspect(bind).get_columns("usuario")
+    }
+    # SQLite applies DDL outside a transaction.  If a deployment is interrupted
+    # after this column is added, a retry must continue safely from that state.
+    if "acceso_iso45001" not in usuario_columns:
+        op.add_column(
+            "usuario",
+            sa.Column("acceso_iso45001", sa.Boolean(), nullable=False, server_default=sa.false()),
+        )
     op.execute(
         """
         UPDATE usuario
@@ -30,7 +38,10 @@ def upgrade():
         END
         """
     )
-    op.alter_column("usuario", "acceso_iso45001", server_default=None)
+    # SQLite cannot drop a column default in place.  Retaining the default is
+    # harmless there and avoids an invalid ALTER TABLE on deployment.
+    if bind.dialect.name != "sqlite":
+        op.alter_column("usuario", "acceso_iso45001", server_default=None)
 
     op.create_table(
         "iso45001_cuestionario_version",
