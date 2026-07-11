@@ -68,6 +68,9 @@ def init_extensions(app: Flask) -> None:
 
 def ensure_database_ready(app: Flask) -> None:
     with app.app_context():
+        if os.getenv("SKIP_DATABASE_AUTOINIT", "").lower() in {"1", "true", "yes", "on"}:
+            app.logger.info("Inicialización automática de base omitida para ejecutar migraciones.")
+            return
         inspector = inspect(db.engine)
         auto_init = app.config.get("AUTO_INIT_DATABASE", False)
         uri = app.config["SQLALCHEMY_DATABASE_URI"]
