@@ -36,6 +36,7 @@ from municipal_diagnostico.services.importers import (
     load_rows,
 )
 from municipal_diagnostico.services.module_access import (
+    ISO45001_ALLOWED_ROLES,
     ISO9001_ALLOWED_ROLES,
     LIVE_ALLOWED_ROLES,
     WELLBEING_ALLOWED_ROLES,
@@ -315,6 +316,7 @@ def catalogs():
                     acceso_diagnostico=user_data["acceso_diagnostico"],
                     acceso_bienestar=user_data["acceso_bienestar"],
                     acceso_iso9001=user_data["acceso_iso9001"],
+                    acceso_iso45001=user_data["acceso_iso45001"],
                     acceso_live=user_data["acceso_live"],
                     activo=True,
                 )
@@ -330,6 +332,7 @@ def catalogs():
                         "acceso_diagnostico": user.acceso_diagnostico,
                         "acceso_bienestar": user.acceso_bienestar,
                         "acceso_iso9001": user.acceso_iso9001,
+                        "acceso_iso45001": user.acceso_iso45001,
                         "acceso_live": user.acceso_live,
                     },
                 )
@@ -356,6 +359,7 @@ def catalogs():
                     user.acceso_diagnostico = user_data["acceso_diagnostico"]
                     user.acceso_bienestar = user_data["acceso_bienestar"]
                     user.acceso_iso9001 = user_data["acceso_iso9001"]
+                    user.acceso_iso45001 = user_data["acceso_iso45001"]
                     user.acceso_live = user_data["acceso_live"]
                     if user_data["password"]:
                         user.set_password(user_data["password"])
@@ -369,6 +373,7 @@ def catalogs():
                             "acceso_diagnostico": user.acceso_diagnostico,
                             "acceso_bienestar": user.acceso_bienestar,
                             "acceso_iso9001": user.acceso_iso9001,
+                            "acceso_iso45001": user.acceso_iso45001,
                             "acceso_live": user.acceso_live,
                         },
                     )
@@ -449,6 +454,7 @@ def catalogs():
         "usuarios_diagnostico": sum(1 for user in users if user.acceso_diagnostico),
         "usuarios_bienestar": sum(1 for user in users if user.acceso_bienestar),
         "usuarios_iso9001": sum(1 for user in users if user.acceso_iso9001),
+        "usuarios_iso45001": sum(1 for user in users if user.acceso_iso45001),
         "usuarios_live": sum(1 for user in users if user.acceso_live),
     }
     log_activity("view_catalogs")
@@ -462,6 +468,7 @@ def catalogs():
         role_definitions=ROLE_DEFINITIONS,
         wellbeing_allowed_roles=sorted(WELLBEING_ALLOWED_ROLES),
         iso9001_allowed_roles=sorted(ISO9001_ALLOWED_ROLES),
+        iso45001_allowed_roles=sorted(ISO45001_ALLOWED_ROLES),
         stats=stats,
     )
 
@@ -855,6 +862,7 @@ def validate_user_payload(form_data, *, current_user_id: int | None = None, pass
     requested_diagnostic = form_data.get("acceso_diagnostico")
     requested_wellbeing = form_data.get("acceso_bienestar")
     requested_iso9001 = form_data.get("acceso_iso9001")
+    requested_iso45001 = form_data.get("acceso_iso45001")
     requested_live = form_data.get("acceso_live")
 
     if not nombre:
@@ -875,11 +883,13 @@ def validate_user_payload(form_data, *, current_user_id: int | None = None, pass
         acceso_bienestar=requested_wellbeing is not None,
         acceso_iso9001=requested_iso9001 is not None,
         acceso_live=requested_live is not None,
+        acceso_iso45001=requested_iso45001 is not None,
     )
     if (
         not module_access["acceso_diagnostico"]
         and not module_access["acceso_bienestar"]
         and not module_access["acceso_iso9001"]
+        and not module_access["acceso_iso45001"]
         and not module_access["acceso_live"]
     ):
         return None, "Activa al menos un módulo para permitir el acceso del usuario."
@@ -887,6 +897,9 @@ def validate_user_payload(form_data, *, current_user_id: int | None = None, pass
         return None, "Bienestar Policial solo puede asignarse a usuarios con rol administrador o consulta."
     if requested_iso9001 is not None and rol not in ISO9001_ALLOWED_ROLES:
         return None, "Diagnóstico ISO 9001:2015 puede asignarse a cualquier rol activo del sistema."
+
+    if requested_iso45001 is not None and rol not in ISO45001_ALLOWED_ROLES:
+        return None, "Diagnóstico ISO 45001:2018 puede asignarse a cualquier rol activo del sistema."
 
     if requested_live is not None and rol not in LIVE_ALLOWED_ROLES:
         return None, "Live en Tiempo Real solo puede asignarse a usuarios con rol administrador o consulta."
@@ -913,6 +926,7 @@ def validate_user_payload(form_data, *, current_user_id: int | None = None, pass
         "acceso_diagnostico": module_access["acceso_diagnostico"],
         "acceso_bienestar": module_access["acceso_bienestar"],
         "acceso_iso9001": module_access["acceso_iso9001"],
+        "acceso_iso45001": module_access["acceso_iso45001"],
         "acceso_live": module_access["acceso_live"],
     }, None
 

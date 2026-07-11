@@ -11,6 +11,7 @@ from municipal_diagnostico.services.campaign_analytics import FINAL_ASSIGNMENT_S
 from municipal_diagnostico.services.module_access import (
     MODULE_BIENESTAR,
     MODULE_DIAGNOSTICO,
+    MODULE_ISO45001,
     MODULE_ISO9001,
     MODULE_LIVE,
     endpoint_for_module,
@@ -70,6 +71,14 @@ def modules():
                 "description": "Evalúa cumplimiento por dependencia con evidencia por reactivo, revisión formal y reportes ejecutivos.",
                 "url": url_for("dashboard.open_module", module_slug=MODULE_ISO9001),
                 "is_available": current_user.puede_acceder_iso9001,
+            },
+            {
+                "slug": MODULE_ISO45001,
+                "title": "Diagnóstico ISO 45001:2018",
+                "subtitle": "Seguridad y salud en el trabajo, evidencias y madurez",
+                "description": "Evalúa el Sistema de Gestión de la SST por dependencia con revisión formal y reportes ejecutivos.",
+                "url": url_for("dashboard.open_module", module_slug=MODULE_ISO45001),
+                "is_available": current_user.puede_acceder_iso45001,
             },
             {
                 "slug": MODULE_LIVE,

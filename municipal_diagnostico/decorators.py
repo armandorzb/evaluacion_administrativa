@@ -71,6 +71,25 @@ def iso9001_role_required(*roles):
     return decorator
 
 
+def iso45001_role_required(*roles):
+    def decorator(func):
+        @wraps(func)
+        @login_required
+        def wrapper(*args, **kwargs):
+            if not getattr(current_user, "puede_acceder_iso45001", False):
+                _abort_module_access(
+                    "iso45001",
+                    "No cuentas con acceso al mÃ³dulo DiagnÃ³stico ISO 45001:2018.",
+                )
+            if current_user.rol not in roles:
+                abort(403)
+            return func(*args, **kwargs)
+
+        return wrapper
+
+    return decorator
+
+
 def live_role_required(*roles):
     def decorator(func):
         @wraps(func)

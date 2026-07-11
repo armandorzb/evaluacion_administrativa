@@ -1,0 +1,140 @@
+{% extends "iso45001_base.html" %}
+{% block title %}Revisión ISO | Diagnóstico ISO 45001:2018{% endblock %}
+{% block content %}
+{% set document_controls = summary.get('document_controls', []) %}
+{% set uses_document_controls = document_controls|length > 0 %}
+{% set document_stats = summary.get('document_evidence_stats', {}) %}
+{% set document_validation = summary.get('document_validation', {}) %}
+{% set document_ready = document_validation.ok if uses_document_controls else summary.evidence_coverage.missing == 0 %}
+<section class="executive-hero">
+    <div class="hero-copy">
+        <p class="eyebrow">Revisión formal</p>
+        <h1>{{ evaluation.dependencia.nombre }}</h1>
+        <p class="lede">Valida la captura del ciclo {{ evaluation.ciclo.nombre }} y registra la decisión de revisión.</p>
+        <div class="tag-row">
+            <span class="tag">Estado: {{ summary.state_label }}</span>
+            <span class="tag">Responsable: {{ evaluation.responsable.nombre if evaluation.responsable else "Sin responsable" }}</span>
+            <span class="tag">Revisor: {{ evaluation.revisor.nombre if evaluation.revisor else "Sin revisor" }}</span>
+        </div>
+    </div>
+    <article class="hero-card compact">
+        <div class="metric-inline"><span>Avance</span><strong>{{ summary.completion }}%</strong></div>
+        <div class="metric-inline"><span>Cumplimiento</span><strong>{% if summary.percent is not none %}{{ summary.percent }}%{% else %}-{% endif %}</strong></div>
+        <div class="metric-inline"><span>Madurez</span><strong>{{ summary.maturity_label }}</strong></div>
+        {% if uses_document_controls %}
+        <div class="metric-inline"><span>Cobertura documental</span><strong>{{ document_stats.percent }}%</strong></div>
+        <div class="metric-inline"><span>Controles sustentados</span><strong>{{ document_stats.sustained_controls }}/{{ document_stats.total_controls }}</strong></div>
+        {% else %}
+        <div class="metric-inline"><span>Evidencia complementaria</span><strong>{{ summary.evidence_count }}</strong></div>
+        {% endif %}
+        <div class="actions vertical compact-top">
+            <a class="button" href="{{ url_for('iso45001.evaluation_detail', evaluation_id=evaluation.id) }}">Ver captura</a>
+            {% if uses_document_controls %}
+            <a class="button" href="{{ url_for('iso45001.document_controls', evaluation_id=evaluation.id) }}">Documentaci&oacute;n</a>
+            {% endif %}
+            <a class="button" href="{{ url_for('iso45001.report_pdf', evaluation_id=evaluation.id) }}">PDF</a>
+            <a class="button" href="{{ url_for('iso45001.report_excel', evaluation_id=evaluation.id) }}">XLSX</a>
+        </div>
+    </article>
+</section>
+
+<section class="section-grid two">
+    <article class="panel">
+        <div class="section-heading">
+            <div>
+                <p class="eyebrow">Resultado</p>
+                <h2>Por cláusula</h2>
+            </div>
+        </div>
+        <div class="table-wrap">
+            <table class="executive-table">
+                <thead>
+                    <tr>
+                        <th>Cláusula</th>
+                        <th>Reactivos</th>
+                        <th>Respondidos</th>
+                        <th>Aplicables</th>
+                        <th>Cumplimiento</th>
+                        <th>Madurez</th>
+                    </tr>
+                </thead>
+                <tbody>
+                    {% for clause in summary.clauses %}
+                    <tr>
+                        <td><strong>{{ clause.numero }}</strong><br><span class="muted">{{ clause.nombre }}</span></td>
+                        <td>{{ clause.total }}</td>
+                        <td>{{ clause.answered }}</td>
+                        <td>{{ clause.applicable }}</td>
+                        <td>{% if clause.percent is not none %}{{ clause.percent }}%{% else %}-{% endif %}</td>
+                        <td><span class="status status-{{ clause.maturity_slug }}">{{ clause.maturity_label }}</span></td>
+                    </tr>
+                    {% endfor %}
+                </tbody>
+            </table>
+        </div>
+    </article>
+
+    <article class="panel">
+        <div class="section-heading">
+            <div>
+                <p class="eyebrow">Decisión</p>
+                <h2>Observación de revisión</h2>
+            </div>
+        </div>
+        {% if evaluation.estado == 'cerrada' %}
+        <div class="callout callout-success">
+            <strong>Evaluación cerrada</strong>
+            <p>Este resultado ya fue marcado como oficial.</p>
+        </div>
+        {% endif %}
+        {% if uses_document_controls %}
+        <div class="callout {% if document_ready %}callout-success{% else %}callout-warning{% endif %} compact-top">
+            <strong>{% if document_ready %}Cobertura documental lista para cierre{% else %}Cobertura documental pendiente{% endif %}</strong>
+            <div class="meta-grid compact-top">
+                <div><span class="meta-label">Controles sin evaluar</span><strong>{{ document_validation.missing_controls|length }}</strong></div>
+                <div><span class="meta-label">Brechas sin observaci&oacute;n</span><strong>{{ document_validation.missing_observations|length }}</strong></div>
+                <div><span class="meta-label">Coberturas sin archivo</span><strong>{{ document_validation.missing_files|length }}</strong></div>
+            </div>
+        </div>
+        {% endif %}
+        <form method="post" class="stack compact-top">
+            <label>Observación
+                <textarea name="comentario" rows="7" required placeholder="Registra observaciones, condiciones de devolución o fundamento del cierre oficial."></textarea>
+            </label>
+            <div class="actions">
+                <button class="button danger" name="action" value="return" type="submit" {% if evaluation.estado != 'en_revision' %}disabled{% endif %}>Devolver con observaciones</button>
+                <button class="button button-primary" name="action" value="close" type="submit" {% if summary.completion < 100 or not document_ready or evaluation.estado != 'en_revision' %}disabled{% endif %}>Cerrar resultado oficial</button>
+            </div>
+            {% if summary.completion < 100 or not document_ready %}
+            {% if uses_document_controls %}
+            <p class="muted">El cierre oficial requiere 100% de reactivos respondidos, los controles documentales evaluados, observación en cada brecha y archivos para los resultados Parcial o Sí.</p>
+            {% else %}
+            <p class="muted">El cierre oficial requiere 100% de reactivos respondidos y la evidencia complementaria aplicable.</p>
+            {% endif %}
+            {% endif %}
+        </form>
+    </article>
+</section>
+
+<article class="panel compact-top">
+    <div class="section-heading">
+        <div>
+            <p class="eyebrow">Bitácora</p>
+            <h2>Observaciones registradas</h2>
+        </div>
+    </div>
+    <div class="stack">
+        {% for observation in evaluation.observaciones %}
+        <div class="list-row data-row">
+            <div>
+                <strong>{{ observation.autor.nombre }} - {{ "Devolución" if observation.accion == "return" else "Cierre oficial" }}</strong>
+                <p>{{ observation.comentario }}</p>
+            </div>
+            <span class="pill">{{ observation.created_at.strftime('%d/%m/%Y %H:%M') }}</span>
+        </div>
+        {% else %}
+        <p class="muted">Sin observaciones de revisión.</p>
+        {% endfor %}
+    </div>
+</article>
+{% endblock %}

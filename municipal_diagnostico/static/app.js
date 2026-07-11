@@ -8,6 +8,7 @@
   const headerRegion = document.querySelector("[data-header-region]");
   const menuScrim = document.querySelector("[data-menu-scrim]");
   const dirtyForms = new Set();
+  let isSubmittingForm = false;
 
   if (menuToggle && headerShell) {
     const closeMenu = () => {
@@ -113,9 +114,11 @@
     if (!form) return;
     const wellbeingCheckbox = form.querySelector('input[name="acceso_bienestar"]');
     const iso9001Checkbox = form.querySelector('input[name="acceso_iso9001"]');
+    const iso45001Checkbox = form.querySelector('input[name="acceso_iso45001"]');
     const liveCheckbox = form.querySelector('input[name="acceso_live"]');
     const allowsWellbeing = ["administrador", "consulta"].includes(select.value);
     const allowsIso9001 = ["administrador", "revisor", "evaluador", "respondente", "consulta"].includes(select.value);
+    const allowsIso45001 = ["administrador", "revisor", "evaluador", "respondente", "consulta"].includes(select.value);
     const allowsLive = ["administrador", "consulta"].includes(select.value);
 
     if (wellbeingCheckbox) {
@@ -135,6 +138,16 @@
         iso9001Checkbox.checked = false;
       } else if (roleBasedDefault && iso9001Checkbox.dataset.userTouched !== "true") {
         iso9001Checkbox.checked = select.value === "administrador";
+      }
+    }
+
+    if (iso45001Checkbox) {
+      const roleBasedDefault = iso45001Checkbox.dataset.defaultMode === "admin-only";
+      iso45001Checkbox.disabled = !allowsIso45001;
+      if (!allowsIso45001) {
+        iso45001Checkbox.checked = false;
+      } else if (roleBasedDefault && iso45001Checkbox.dataset.userTouched !== "true") {
+        iso45001Checkbox.checked = select.value === "administrador";
       }
     }
 
@@ -233,7 +246,7 @@
     }
   }
 
-  document.querySelectorAll('input[name="acceso_bienestar"][data-default-mode], input[name="acceso_iso9001"][data-default-mode], input[name="acceso_live"][data-default-mode]').forEach((checkbox) => {
+  document.querySelectorAll('input[name="acceso_bienestar"][data-default-mode], input[name="acceso_iso9001"][data-default-mode], input[name="acceso_iso45001"][data-default-mode], input[name="acceso_live"][data-default-mode]').forEach((checkbox) => {
     checkbox.dataset.userTouched = "false";
     checkbox.addEventListener("change", () => {
       checkbox.dataset.userTouched = "true";
@@ -481,7 +494,7 @@
   }
 
   function hasPendingFiles() {
-    return Array.from(document.querySelectorAll('[data-axis-form] input[type="file"]')).some(
+    return Array.from(document.querySelectorAll('[data-axis-form] input[type="file"], [data-iso-form] input[type="file"], [data-iso-document-library] input[type="file"]')).some(
       (input) => input.files && input.files.length > 0,
     );
   }
@@ -561,8 +574,190 @@
     });
 
     form.addEventListener("submit", () => {
+      isSubmittingForm = true;
       dirtyForms.delete(form);
       setSaveState(form, "saving", "Guardando módulo...");
+    });
+  });
+
+  function updateIsoQuestionScore(input) {
+    const card = input.closest(".iso-question-card");
+    const score = card?.querySelector(".question-score");
+    const label = input.closest(".choice-chip")?.querySelector("strong")?.textContent?.trim();
+    if (!score || !label) return;
+    score.textContent = label;
+    score.classList.remove("is-empty");
+    card?.classList.add("has-answer");
+  }
+
+  function serializeIsoSectionForm(form) {
+    const responses = [];
+    form.querySelectorAll(".iso-question-card[data-iso-reactivo-id]").forEach((card) => {
+      const reactivoId = Number(card.dataset.isoReactivoId);
+      const selected = card.querySelector('input[type="radio"]:checked');
+      if (!selected) return;
+      const observation = card.querySelector(`[name="observacion_${reactivoId}"]`);
+      responses.push({
+        reactivo_id: reactivoId,
+        calificacion: selected.value,
+        observacion: observation ? observation.value : "",
+      });
+    });
+    return {
+      apartado_id: Number(form.dataset.isoSectionId),
+      responses,
+    };
+  }
+
+  function updateIsoSectionProgress(form, payload) {
+    const sectionId = form.dataset.isoSectionId;
+    const answered = Number(payload.section_answered ?? 0);
+    const total = Number(payload.section_total || form.dataset.isoSectionTotal || 0);
+    document.querySelectorAll(`[data-iso-section-nav="${sectionId}"]`).forEach((node) => {
+      node.textContent = `${answered}/${total}`;
+    });
+  }
+
+  document.querySelectorAll("[data-iso-form]").forEach((form) => {
+    setChoiceState(form);
+    if (form.dataset.readonly === "true") {
+      return;
+    }
+
+    let timerId = null;
+
+    const queueIsoAutosave = () => {
+      const url = form.dataset.isoAutosaveUrl;
+      if (!url) return;
+      dirtyForms.add(form);
+      window.clearTimeout(timerId);
+      timerId = window.setTimeout(() => {
+        setSaveState(form, "saving", "Guardando...");
+        fetch(url, {
+          method: "POST",
+          headers: {
+            "Content-Type": "application/json",
+            "X-Requested-With": "fetch",
+          },
+          body: JSON.stringify(serializeIsoSectionForm(form)),
+        })
+          .then((response) => {
+            if (!response.ok) {
+              throw new Error("No se pudo guardar");
+            }
+            return response.json();
+          })
+          .then((payload) => {
+            setSaveState(form, "saved", "Guardado");
+            updateOverallProgress(payload.completion);
+            updateIsoSectionProgress(form, payload);
+            dirtyForms.delete(form);
+          })
+          .catch(() => {
+            setSaveState(form, "error", "Error al guardar");
+          });
+      }, 700);
+    };
+
+    form.addEventListener("change", (event) => {
+      if (event.target.matches('input[type="file"]')) {
+        dirtyForms.add(form);
+        setSaveState(form, "saving", "Archivos listos para guardar");
+        return;
+      }
+      if (event.target.matches('.choice-chip input[type="radio"]')) {
+        setChoiceState(form, event.target);
+        updateIsoQuestionScore(event.target);
+        queueIsoAutosave();
+      }
+      if (event.target.matches("textarea")) {
+        queueIsoAutosave();
+      }
+    });
+
+    form.addEventListener("input", (event) => {
+      if (event.target.matches("textarea")) {
+        queueIsoAutosave();
+      }
+    });
+
+    form.addEventListener("submit", () => {
+      isSubmittingForm = true;
+      dirtyForms.delete(form);
+      setSaveState(form, "saving", "Guardando...");
+    });
+  });
+
+  function syncDocumentControlState(form) {
+    const total = Number(form.dataset.documentTotal || 0);
+    const covered = form.querySelectorAll("[data-document-point]:checked").length;
+    const evidenceSelect = form.querySelector("[data-document-evidence]");
+    const observation = form.querySelector('textarea[name="observacion"]');
+    const hasEvidence = Boolean(
+      evidenceSelect && Array.from(evidenceSelect.options).some((option) => option.selected),
+    );
+    const coveredTarget = form.querySelector("[data-document-covered]");
+    const stateTarget = form.querySelector("[data-document-state]");
+    const guidance = form.querySelector("[data-document-guidance]");
+
+    if (coveredTarget) {
+      coveredTarget.textContent = String(covered);
+    }
+
+    let label = "No cubierto";
+    let slug = "low";
+    if (covered > 0 && (!total || covered < total)) {
+      label = "Cobertura parcial";
+      slug = "medium";
+    } else if (total > 0 && covered === total) {
+      label = "Cubierto";
+      slug = "high";
+    }
+
+    if (stateTarget) {
+      stateTarget.textContent = label;
+      stateTarget.classList.remove("status-low", "status-medium", "status-high", "status-empty");
+      stateTarget.classList.add(`status-${slug}`);
+    }
+
+    if (guidance) {
+      if (covered === 0) {
+        guidance.textContent = "Sin puntos cubiertos: explica la brecha. No es necesario adjuntar un archivo.";
+      } else if (!hasEvidence) {
+        guidance.textContent = "La cobertura Parcial o S\u00ed requiere vincular al menos un archivo de la biblioteca antes de enviar a revisi\u00f3n.";
+      } else {
+        guidance.textContent = "Cobertura sustentada con archivo(s) de la biblioteca documental.";
+      }
+    }
+
+    if (observation) {
+      observation.required = covered === 0;
+    }
+    if (evidenceSelect) {
+      evidenceSelect.required = covered > 0;
+    }
+  }
+
+  document.querySelectorAll("[data-iso-document-control-form]").forEach((form) => {
+    syncDocumentControlState(form);
+    if (form.dataset.readonly === "true") {
+      return;
+    }
+
+    form.addEventListener("change", (event) => {
+      if (event.target.matches("[data-document-point], [data-document-evidence]")) {
+        syncDocumentControlState(form);
+      }
+    });
+
+    form.addEventListener("submit", () => {
+      isSubmittingForm = true;
+    });
+  });
+
+  document.querySelectorAll("[data-iso-document-library]").forEach((form) => {
+    form.addEventListener("submit", () => {
+      isSubmittingForm = true;
     });
   });
 
@@ -600,7 +795,7 @@
   }
 
   window.addEventListener("beforeunload", (event) => {
-    if (!dirtyForms.size && !hasPendingFiles()) {
+    if (isSubmittingForm || (!dirtyForms.size && !hasPendingFiles())) {
       return;
     }
     event.preventDefault();

@@ -1,11 +1,11 @@
-{% extends "iso9001_base.html" %}
-{% block title %}Captura ISO | Diagnóstico ISO 9001:2015{% endblock %}
+{% extends "iso45001_base.html" %}
+{% block title %}Captura ISO | Diagnóstico ISO 45001:2018{% endblock %}
 {% block content %}
 <section class="executive-hero" id="top">
     <div class="hero-copy">
         <p class="eyebrow">Captura formal</p>
         <h1>{{ evaluation.dependencia.nombre }}</h1>
-        <p class="lede">{{ evaluation.ciclo.nombre }}. Responde por apartado, registra hallazgos y adjunta evidencia documental por reactivo.</p>
+        <p class="lede">{{ evaluation.ciclo.nombre }}. Responde los reactivos, registra hallazgos y gestiona la cobertura documental en controles compartidos.</p>
         <div class="tag-row">
             <span class="tag">Estado: {{ summary.state_label }}</span>
             <span class="tag">Responsable: {{ evaluation.responsable.nombre if evaluation.responsable else "Sin responsable" }}</span>
@@ -17,22 +17,53 @@
         <div class="progress" role="progressbar" aria-valuemin="0" aria-valuemax="100" aria-valuenow="{{ summary.completion }}">
             <span data-progress-bar data-progress-role="overall" data-progress-value="{{ summary.completion }}"></span>
         </div>
-        <div class="metric-inline"><span>Cumplimiento</span><strong>{% if summary.percent is not none %}{{ summary.percent }}%{% else %}Sin aplicables{% endif %}</strong></div>
+        <div class="metric-inline"><span>Cumplimiento</span><strong>{% if summary.percent is not none %}{{ summary.percent }}%{% else %}-{% endif %}</strong></div>
         <div class="metric-inline"><span>Madurez</span><strong>{{ summary.maturity_label }}</strong></div>
+        <div class="metric-inline"><span>Cobertura documental</span><strong>{% if has_document_controls %}{{ document_overview.percent }}%{% else %}-{% endif %}</strong></div>
         <div class="actions vertical compact-top">
             {% if can_edit %}
-            <form method="post" action="{{ url_for('iso9001.submit_evaluation', evaluation_id=evaluation.id) }}">
+            <form method="post" action="{{ url_for('iso45001.submit_evaluation', evaluation_id=evaluation.id) }}">
                 <button class="button button-primary" type="submit">Enviar a revisión</button>
             </form>
             {% endif %}
             {% if current_user.rol in ['administrador', 'revisor'] %}
-            <a class="button" href="{{ url_for('iso9001.review_evaluation', evaluation_id=evaluation.id) }}">Abrir revisión</a>
+            <a class="button" href="{{ url_for('iso45001.review_evaluation', evaluation_id=evaluation.id) }}">Abrir revisión</a>
             {% endif %}
-            <a class="button" href="{{ url_for('iso9001.report_pdf', evaluation_id=evaluation.id) }}">PDF</a>
-            <a class="button" href="{{ url_for('iso9001.report_excel', evaluation_id=evaluation.id) }}">XLSX</a>
+            <a class="button" href="{{ url_for('iso45001.report_pdf', evaluation_id=evaluation.id) }}">PDF</a>
+            <a class="button" href="{{ url_for('iso45001.report_excel', evaluation_id=evaluation.id) }}">XLSX</a>
+            {% if has_document_controls %}
+            <a class="button" href="{{ url_for('iso45001.document_controls', evaluation_id=evaluation.id) }}">Control documental</a>
+            {% endif %}
         </div>
     </article>
 </section>
+
+{% if has_document_controls %}
+<section class="panel evidence-card-emphasis">
+    <div class="section-heading">
+        <div>
+            <p class="eyebrow">Documentaci&oacute;n transversal</p>
+            <h2>Control de informaci&oacute;n documentada</h2>
+            <p class="muted">Los archivos se administran por control documental y pueden cubrir varios reactivos. La evidencia adjunta a un reactivo es complementaria e hist&oacute;rica.</p>
+        </div>
+        <a class="button button-primary" href="{{ url_for('iso45001.document_controls', evaluation_id=evaluation.id) }}">Gestionar {{ document_overview.total }} controles</a>
+    </div>
+    <div class="meta-grid compact-top">
+        <div>
+            <span class="meta-label">Puntos cubiertos</span>
+            <strong>{{ document_overview.covered_points }}/{{ document_overview.total_points }} ({{ document_overview.percent }}%)</strong>
+        </div>
+        <div>
+            <span class="meta-label">Controles sustentados</span>
+            <strong>{{ document_overview.sustained }}/{{ document_overview.total }}</strong>
+        </div>
+        <div>
+            <span class="meta-label">Brechas documentales</span>
+            <strong>{{ document_overview.gaps }}</strong>
+        </div>
+    </div>
+</section>
+{% endif %}
 
 {% if not can_edit %}
 <div class="callout callout-warning compact">
@@ -69,7 +100,7 @@
                 <div>
                     <p class="eyebrow">Cláusula {{ clause.numero }}</p>
                     <h2>{{ clause.nombre }}</h2>
-                    <p class="muted">{{ clause.answered }}/{{ clause.total }} respondidos - {% if clause.percent is not none %}{{ clause.percent }}% cumplimiento{% else %}sin reactivos aplicables{% endif %}</p>
+                    <p class="muted">{{ clause.answered }}/{{ clause.total }} respondidos - {% if clause.percent is not none %}{{ clause.percent }}% cumplimiento{% else %}sin calificación disponible{% endif %}</p>
                 </div>
                 <span class="status status-{{ clause.maturity_slug }}">{{ clause.maturity_label }}</span>
             </div>
@@ -84,7 +115,7 @@
                         data-iso-form
                         data-iso-section-id="{{ section.id }}"
                         data-iso-section-total="{{ section.total }}"
-                        data-iso-autosave-url="{{ url_for('iso9001.autosave_section', evaluation_id=evaluation.id, section_id=section.id) if can_edit else '' }}"
+                        data-iso-autosave-url="{{ url_for('iso45001.autosave_section', evaluation_id=evaluation.id, section_id=section.id) if can_edit else '' }}"
                         data-readonly="{{ 'true' if not can_edit else 'false' }}"
                     >
                         <input type="hidden" name="apartado_id" value="{{ section.id }}">
@@ -92,10 +123,10 @@
                             <div>
                                 <p class="eyebrow">{{ section.codigo }}</p>
                                 <h3>{{ section.nombre }}</h3>
-                                <p class="muted">{{ section.answered }}/{{ section.total }} respondidos - {{ section.na }} N/A</p>
+                                <p class="muted">{{ section.answered }}/{{ section.total }} respondidos</p>
                             </div>
                             <div class="actions">
-                                <span class="status status-{{ section.maturity_slug }}">{% if section.percent is not none %}{{ section.percent }}%{% else %}Sin aplicables{% endif %}</span>
+                                <span class="status status-{{ section.maturity_slug }}">{% if section.percent is not none %}{{ section.percent }}%{% else %}Sin calificación{% endif %}</span>
                                 {% if can_edit %}
                                 <span class="save-indicator" data-save-state="idle">
                                     <span data-save-label>Sin cambios pendientes</span>
@@ -145,11 +176,28 @@
                                 </div>
                             </details>
 
+                            {% if item.documents %}
+                            <details class="iso-details">
+                                <summary>Información documentada requerida</summary>
+                                <div class="stack compact-top">
+                                    {% for document in item.documents %}
+                                    <div class="list-row data-row">
+                                        <div>
+                                            <strong>{{ document.codigo }} - {{ document.nombre }}</strong>
+                                            <p class="muted">{{ document.tipo }}. {{ document.contenido_minimo }}</p>
+                                        </div>
+                                    </div>
+                                    {% endfor %}
+                                </div>
+                            </details>
+                            {% endif %}
+
                             <div class="iso-evidence-block">
                                 {% if can_edit %}
-                                <label>Evidencias
+                                <label>Evidencia complementaria del reactivo (opcional)
                                     <input type="file" name="evidencias_{{ reactive.id }}" multiple>
                                 </label>
+                                <p class="muted">No necesitas repetir aquí un documento que ya esté en la biblioteca documental; úsalo sólo como soporte adicional o histórico del reactivo.</p>
                                 {% endif %}
                                 <div class="evidence-list">
                                     {% for evidence in item.evidence %}
@@ -158,7 +206,7 @@
                                             <strong>{{ evidence.archivo_nombre_original }}</strong>
                                             <p class="muted">{{ evidence.mime_type }} - {{ evidence.tamano_bytes }} bytes</p>
                                         </div>
-                                        <a class="button button-compact" href="{{ url_for('iso9001.download_evidence', evidence_id=evidence.id) }}">Descargar</a>
+                                        <a class="button button-compact" href="{{ url_for('iso45001.download_evidence', evidence_id=evidence.id) }}">Descargar</a>
                                     </div>
                                     {% else %}
                                     <p class="muted">Sin evidencias cargadas.</p>

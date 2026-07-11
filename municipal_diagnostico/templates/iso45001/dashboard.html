@@ -1,0 +1,75 @@
+{% extends "iso45001_base.html" %}
+{% block title %}Tablero | Diagnóstico ISO 45001:2018{% endblock %}
+{% block content %}
+<section class="executive-hero">
+    <div class="hero-copy">
+        <p class="eyebrow">Módulo interno</p>
+        <h1>Diagnóstico de implementación ISO 45001:2018</h1>
+        <p class="lede">
+            Gestiona ciclos por dependencia, captura reactivos y verifica evidencia documental compartida por control antes del cierre formal.
+        </p>
+    </div>
+    <article class="hero-card compact">
+        <div class="actions vertical">
+            {% if current_user.rol == 'administrador' %}
+            <a class="button button-primary" href="{{ url_for('iso45001.cycles') }}">Administrar ciclos</a>
+            {% endif %}
+            <a class="button" href="{{ url_for('iso45001.reports') }}">Ver reportes</a>
+        </div>
+    </article>
+</section>
+
+<section class="metric-grid">
+    <article class="metric-card"><span>Ciclos</span><strong>{{ counts.ciclos }}</strong></article>
+    <article class="metric-card"><span>Evaluaciones visibles</span><strong>{{ counts.evaluaciones }}</strong></article>
+    <article class="metric-card"><span>En revisión</span><strong>{{ counts.en_revision }}</strong></article>
+    <article class="metric-card"><span>Cerradas</span><strong>{{ counts.cerradas }}</strong></article>
+</section>
+
+<section class="section-heading">
+    <div>
+        <p class="eyebrow">Seguimiento</p>
+        <h2>Evaluaciones ISO recientes</h2>
+    </div>
+</section>
+
+<section class="card-grid">
+    {% for card in summaries %}
+    {% set document_stats = card.summary.get('document_evidence_stats', {}) %}
+    {% set uses_document_controls = card.summary.get('uses_document_control_coverage', false) %}
+    <article class="report-card">
+        <div class="report-card-head">
+            <div>
+                <h3>{{ card.evaluacion.dependencia.nombre }}</h3>
+                <p>{{ card.evaluacion.ciclo.nombre }}</p>
+            </div>
+            <span class="status status-{{ card.evaluacion.estado }}">{{ card.summary.state_label }}</span>
+        </div>
+        <div class="metric-inline"><span>Avance</span><strong>{{ card.summary.completion }}%</strong></div>
+        <div class="metric-inline"><span>Cumplimiento</span><strong>{% if card.summary.percent is not none %}{{ card.summary.percent }}%{% else %}-{% endif %}</strong></div>
+        <div class="metric-inline"><span>Madurez</span><strong>{{ card.summary.maturity_label }}</strong></div>
+        {% if uses_document_controls %}
+        <div class="metric-inline"><span>Cobertura documental</span><strong>{{ document_stats.percent }}%</strong></div>
+        <div class="metric-inline"><span>Controles sustentados</span><strong>{{ document_stats.sustained_controls }}/{{ document_stats.total_controls }}</strong></div>
+        {% else %}
+        <div class="metric-inline"><span>Evidencia complementaria</span><strong>{{ card.summary.evidence_count }}</strong></div>
+        {% endif %}
+        <div class="actions">
+            <a class="button button-primary" href="{{ url_for('iso45001.evaluation_detail', evaluation_id=card.evaluacion.id) }}">Abrir</a>
+            {% if card.summary.get('document_controls') %}
+            <a class="button" href="{{ url_for('iso45001.document_controls', evaluation_id=card.evaluacion.id) }}">Documentaci&oacute;n</a>
+            {% endif %}
+            {% if current_user.rol in ['administrador', 'revisor'] %}
+            <a class="button" href="{{ url_for('iso45001.review_evaluation', evaluation_id=card.evaluacion.id) }}">Revisión</a>
+            {% endif %}
+            <a class="button" href="{{ url_for('iso45001.report_pdf', evaluation_id=card.evaluacion.id) }}">PDF</a>
+            <a class="button" href="{{ url_for('iso45001.report_excel', evaluation_id=card.evaluacion.id) }}">XLSX</a>
+        </div>
+    </article>
+    {% else %}
+    <article class="panel">
+        <p class="muted">Aún no hay evaluaciones ISO visibles.</p>
+    </article>
+    {% endfor %}
+</section>
+{% endblock %}

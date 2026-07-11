@@ -1,6 +1,7 @@
 import zipfile
 from datetime import date
 from io import BytesIO
+from pathlib import Path
 
 from openpyxl import load_workbook
 
@@ -446,6 +447,43 @@ def test_autosave_persists_axis_progress_and_module_comment():
         assert updated_response is not None
         assert updated_response.valor == 3
         assert updated_response.comentario == "Fortalecido en autosave"
+
+
+def test_capture_module_upload_persists_axis_evidence(tmp_path):
+    app, ids = build_app_with_reporting_data()
+    app.config["UPLOAD_FOLDER"] = str(tmp_path)
+    client = app.test_client()
+
+    login(client, "admin@test.local")
+
+    filename = "diagnostico-soporte.pdf"
+    contents = b"%PDF-1.4 soporte diagnostico"
+    response = client.post(
+        f"/evaluaciones/{ids['preliminary_evaluation_id']}",
+        data={
+            "eje_id": str(ids["axis_id"]),
+            f"comentario_eje_{ids['axis_id']}": "Modulo con evidencia documental",
+            f"comentario_eje_area_{ids['axis_id']}": str(ids["preliminary_area_id"]),
+            f"evidencia_area_{ids['axis_id']}": str(ids["preliminary_area_id"]),
+            f"evidencias_{ids['axis_id']}": (BytesIO(contents), filename),
+        },
+        content_type="multipart/form-data",
+        follow_redirects=True,
+    )
+
+    assert response.status_code == 200
+    with app.app_context():
+        evidence = EvidenciaEje.query.filter_by(
+            evaluacion_id=ids["preliminary_evaluation_id"],
+            eje_version_id=ids["axis_id"],
+            archivo_nombre_original=filename,
+            activo=True,
+        ).one()
+
+        stored_path = Path(app.config["UPLOAD_FOLDER"]) / evidence.archivo_guardado
+        assert evidence.area_id == ids["preliminary_area_id"]
+        assert evidence.tamano_bytes == len(contents)
+        assert stored_path.read_bytes() == contents
 
 
 def test_admin_can_open_read_only_evaluator_view_and_monitoring():

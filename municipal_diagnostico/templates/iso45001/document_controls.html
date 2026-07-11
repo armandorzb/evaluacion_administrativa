@@ -1,0 +1,215 @@
+{% extends "iso45001_base.html" %}
+{% block title %}Control documental | Diagn&oacute;stico ISO 45001:2018{% endblock %}
+{% block content %}
+<section class="executive-hero" id="top">
+    <div class="hero-copy">
+        <p class="eyebrow">Cobertura verificable</p>
+        <h1>Control de informaci&oacute;n documentada</h1>
+        <p class="lede">{{ evaluation.dependencia.nombre }} &middot; {{ evaluation.ciclo.nombre }}. Un archivo se carga una sola vez y puede sustentar varios controles y reactivos.</p>
+        <div class="tag-row">
+            <span class="tag">{{ document_overview.total }} controles</span>
+            <span class="tag">{{ document_overview.covered_points }}/{{ document_overview.total_points }} puntos cubiertos</span>
+            <span class="tag">Estado: {{ summary.state_label }}</span>
+        </div>
+    </div>
+    <article class="hero-card compact">
+        <div class="metric-inline"><span>Cobertura de puntos</span><strong>{{ document_overview.percent }}%</strong></div>
+        <div class="progress" role="progressbar" aria-valuemin="0" aria-valuemax="100" aria-valuenow="{{ document_overview.percent }}">
+            <span data-progress-bar data-progress-value="{{ document_overview.percent }}"></span>
+        </div>
+        <div class="metric-inline"><span>Controles evaluados</span><strong>{{ document_overview.evaluated }}/{{ document_overview.total }}</strong></div>
+        <div class="metric-inline"><span>Controles sustentados</span><strong>{{ document_overview.sustained }}/{{ document_overview.total }}</strong></div>
+        <div class="actions vertical compact-top">
+            <a class="button button-primary" href="{{ url_for('iso45001.evaluation_detail', evaluation_id=evaluation.id) }}">Volver a captura</a>
+            <a class="button" href="{{ url_for('iso45001.report_pdf', evaluation_id=evaluation.id) }}">PDF</a>
+            <a class="button" href="{{ url_for('iso45001.report_excel', evaluation_id=evaluation.id) }}">XLSX</a>
+        </div>
+    </article>
+</section>
+
+{% if not can_edit %}
+<div class="callout callout-warning compact">
+    <strong>Consulta documental</strong>
+    <p>La evaluaci&oacute;n est&aacute; en revisi&oacute;n, cerrada o fuera de un ciclo activo. Puedes consultar los controles y descargar archivos, pero no modificarlos.</p>
+</div>
+{% endif %}
+
+<section class="panel evidence-card-emphasis">
+    <div class="section-heading">
+        <div>
+            <p class="eyebrow">Criterio de captura</p>
+            <h2>Un control, varios puntos y archivos reutilizables</h2>
+            <p class="muted">Marca los puntos m&iacute;nimos que el documento o evidencia cubre. El estado se calcula autom&aacute;ticamente: sin puntos es <strong>No</strong>, una cobertura incompleta es <strong>Parcial</strong> y todos los puntos cubiertos es <strong>S&iacute;</strong>.</p>
+        </div>
+    </div>
+    <div class="meta-grid compact-top">
+        <div>
+            <span class="meta-label">Resultado No</span>
+            <strong>Exige observaci&oacute;n de brecha; no exige archivo.</strong>
+        </div>
+        <div>
+            <span class="meta-label">Resultado Parcial o S&iacute;</span>
+            <strong>Exige al menos un archivo de la biblioteca.</strong>
+        </div>
+        <div>
+            <span class="meta-label">Puntaje ISO</span>
+            <strong>Se conserva por reactivo; esta cobertura no altera el cumplimiento.</strong>
+        </div>
+    </div>
+</section>
+
+<section class="panel" id="biblioteca-documental">
+    <div class="section-heading">
+        <div>
+            <p class="eyebrow">Biblioteca de la evaluaci&oacute;n</p>
+            <h2>Archivos reutilizables</h2>
+            <p class="muted">Carga aquí cada evidencia una sola vez. Después puedes vincularla con tantos controles como corresponda.</p>
+        </div>
+        <span class="pill">{{ document_evidences|length }} archivo(s)</span>
+    </div>
+
+    {% if can_edit %}
+    <form method="post" enctype="multipart/form-data" action="{{ url_for('iso45001.upload_document_control_evidence', evaluation_id=evaluation.id) }}" class="stack" data-iso-document-library>
+        <div class="meta-grid">
+            <label>Archivo(s) para la biblioteca
+                <input type="file" name="archivos" multiple required>
+            </label>
+            <label>Vincular inicialmente con controles (opcional)
+                <select name="control_ids" multiple size="5">
+                    {% for control in document_controls %}
+                    <option value="{{ control.id }}">{{ control.codigo }} &mdash; {{ control.nombre }}</option>
+                    {% endfor %}
+                </select>
+            </label>
+        </div>
+        <div class="actions">
+            <button class="button button-primary" type="submit">Agregar a la biblioteca</button>
+        </div>
+    </form>
+    {% endif %}
+
+    <div class="evidence-list compact-top">
+        {% for evidence in document_evidences %}
+        <div class="evidence-row">
+            <div>
+                <strong>{{ evidence.archivo_nombre_original }}</strong>
+                <p class="muted">{{ evidence.mime_type }} &middot; {{ evidence.tamano_bytes }} bytes</p>
+            </div>
+            <a class="button button-compact" href="{{ url_for('iso45001.download_document_evidence', evidence_id=evidence.id) }}">Descargar</a>
+        </div>
+        {% else %}
+        <p class="muted">A&uacute;n no hay archivos en la biblioteca. Puedes cargar primero los documentos y vincularlos después.</p>
+        {% endfor %}
+    </div>
+</section>
+
+<section class="stack">
+    {% for group in document_groups %}
+    <article class="panel" id="grupo-{{ group.key }}">
+        <div class="section-heading">
+            <div>
+                <p class="eyebrow">{{ "Grupos complementarios" if group.key == "99" else "Controles normativos" }}</p>
+                <h2>{{ group.title }}</h2>
+                <p class="muted">{{ group.controls|length }} control(es) de cobertura documental.</p>
+            </div>
+        </div>
+
+        <div class="stack">
+            {% for control in group.controls %}
+            <form
+                method="post"
+                action="{{ url_for('iso45001.save_document_control', evaluation_id=evaluation.id, control_id=control.id) }}"
+                class="question-card iso-question-card"
+                id="control-{{ control.id }}"
+                data-iso-document-control-form
+                data-document-total="{{ control.total_puntos }}"
+                data-readonly="{{ 'true' if not can_edit else 'false' }}"
+            >
+                <div class="question-head">
+                    <div class="question-reference">
+                        <span class="question-index">{{ control.codigo }} {% if control.apartado %}&middot; {{ control.apartado }}{% endif %}</span>
+                        <strong>{{ control.nombre }}</strong>
+                    </div>
+                    <span class="status status-{{ control.estado_slug }}" data-document-state aria-live="polite">{{ control.estado_label }}</span>
+                </div>
+
+                <p class="question-text">{{ control.clasificacion }}. {{ control.contenido_minimo or "Define los puntos m&iacute;nimos que deben quedar demostrados." }}</p>
+
+                <details class="iso-details" open>
+                    <summary>Puntos m&iacute;nimos de cobertura (<span data-document-covered>{{ control.puntos_cubiertos }}</span>/{{ control.total_puntos }})</summary>
+                    <div class="stack compact-top">
+                        {% for point in control.puntos %}
+                        <label class="list-row data-row">
+                            <span>
+                                <input type="checkbox" name="punto_ids" value="{{ point.id }}" data-document-point {% if point.cubierto %}checked{% endif %} {% if not can_edit %}disabled{% endif %}>
+                            <strong>{{ loop.index }}.</strong> {{ point.texto }}
+                        </span>
+                        {% if point.cubierto %}<span class="pill">Cubierto</span>{% endif %}
+                        </label>
+                        {% else %}
+                        <p class="muted">Este control no tiene puntos de cobertura configurados.</p>
+                        {% endfor %}
+                    </div>
+                </details>
+
+                <details class="iso-details">
+                    <summary>Reactivos que este control sustenta ({{ control.reactivos|length }})</summary>
+                    <div class="stack compact-top">
+                        {% for reactive in control.reactivos %}
+                        <div class="list-row data-row">
+                            <div>
+                                <strong>{{ reactive.codigo }}</strong>
+                                <p class="muted">{{ reactive.texto }}</p>
+                            </div>
+                        </div>
+                        {% else %}
+                        <p class="muted">Sin reactivos trazados.</p>
+                        {% endfor %}
+                    </div>
+                </details>
+
+                <label>Observaci&oacute;n de cobertura o brecha
+                    <textarea name="observacion" rows="3" {% if not can_edit %}disabled{% endif %}>{{ control.observacion }}</textarea>
+                </label>
+                <p class="muted" data-document-guidance aria-live="polite">
+                    {% if control.requires_file %}
+                    Este resultado requiere al menos un archivo vinculado.
+                    {% else %}
+                    Si no se cubre ningún punto, explica la brecha; no es necesario adjuntar un archivo.
+                    {% endif %}
+                </p>
+
+                <label>Archivos de la biblioteca vinculados a este control
+                    <select name="evidencia_ids" multiple size="5" data-document-evidence {% if not can_edit %}disabled{% endif %}>
+                        {% for evidence in document_evidences %}
+                        <option value="{{ evidence.id }}" {% if evidence.id in control.evidence_ids %}selected{% endif %}>{{ evidence.archivo_nombre_original }}</option>
+                        {% endfor %}
+                    </select>
+                </label>
+                <div class="evidence-list">
+                    {% for evidence in control.evidencias %}
+                    <div class="evidence-row">
+                        <div>
+                            <strong>{{ evidence.archivo_nombre_original }}</strong>
+                            <p class="muted">Archivo compartido de esta evaluaci&oacute;n.</p>
+                        </div>
+                        <a class="button button-compact" href="{{ url_for('iso45001.download_document_evidence', evidence_id=evidence.id) }}">Descargar</a>
+                    </div>
+                    {% else %}
+                    <p class="muted">Sin archivos vinculados.</p>
+                    {% endfor %}
+                </div>
+
+                {% if can_edit %}
+                <div class="sticky-actions actions">
+                    <button class="button button-primary" type="submit">Guardar {{ control.codigo }}</button>
+                    <a class="button" href="#biblioteca-documental">Agregar archivo</a>
+                </div>
+                {% endif %}
+            </form>
+            {% endfor %}
+        </div>
+    </article>
+    {% endfor %}
+</section>
+{% endblock %}

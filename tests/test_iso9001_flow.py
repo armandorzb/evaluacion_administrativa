@@ -486,6 +486,51 @@ def test_iso9001_capture_can_be_assigned_to_any_active_user():
     assert submit_response.status_code == 200
     assert "Evaluación enviada a revisión." in submit_response.get_data(as_text=True)
 
+def test_iso9001_section_autosave_persists_response_and_progress():
+    app, ids = build_app()
+    client = app.test_client()
+
+    with app.app_context():
+        evaluation_id = create_iso_evaluation(
+            ids["dependency_one_id"],
+            ids["evaluator_id"],
+            ids["reviewer_id"],
+            ids["admin_id"],
+        )
+        evaluation = db.session.get(Iso9001Evaluacion, evaluation_id)
+        first_section = evaluation.ciclo.version.clausulas[0].apartados[0]
+        section_id = first_section.id
+        reactive_id = first_section.reactivos[0].id
+
+    login(client, "captura.iso@test.local")
+    autosave = client.post(
+        f"/iso9001/evaluaciones/{evaluation_id}/apartados/{section_id}/autosave",
+        json={
+            "apartado_id": section_id,
+            "responses": [
+                {
+                    "reactivo_id": reactive_id,
+                    "calificacion": "parcial",
+                    "observacion": "Autoguardado operativo.",
+                }
+            ],
+        },
+    )
+    payload = autosave.get_json()
+    assert autosave.status_code == 200
+    assert payload["ok"] is True
+    assert payload["section_answered"] == 1
+    assert payload["completion"] > 0
+
+    with app.app_context():
+        evaluation = db.session.get(Iso9001Evaluacion, evaluation_id)
+        response = Iso9001Respuesta.query.filter_by(evaluacion_id=evaluation_id, reactivo_id=reactive_id).first()
+        assert evaluation.estado == "en_captura"
+        assert response is not None
+        assert response.calificacion == "parcial"
+        assert response.observacion == "Autoguardado operativo."
+        assert response.usuario_id == ids["evaluator_id"]
+
 
 def test_iso9001_admin_can_update_existing_evaluation_assignment():
     app, ids = build_app()

@@ -7,10 +7,12 @@ from werkzeug.security import check_password_hash, generate_password_hash
 
 from municipal_diagnostico.extensions import db
 from municipal_diagnostico.services.module_access import (
+    ISO45001_ALLOWED_ROLES,
     ISO9001_ALLOWED_ROLES,
     LIVE_ALLOWED_ROLES,
     MODULE_BIENESTAR,
     MODULE_DIAGNOSTICO,
+    MODULE_ISO45001,
     MODULE_ISO9001,
     MODULE_LIVE,
     WELLBEING_ALLOWED_ROLES,
@@ -54,6 +56,7 @@ class Dependencia(TimestampMixin, db.Model):
         foreign_keys="AsignacionCuestionario.dependencia_id",
     )
     iso9001_evaluaciones = db.relationship("Iso9001Evaluacion", back_populates="dependencia")
+    iso45001_evaluaciones = db.relationship("Iso45001Evaluacion", back_populates="dependencia")
 
     @property
     def areas_activas(self):
@@ -94,6 +97,7 @@ class Usuario(UserMixin, TimestampMixin, db.Model):
     acceso_diagnostico = db.Column(db.Boolean, nullable=False, default=True)
     acceso_bienestar = db.Column(db.Boolean, nullable=False, default=False)
     acceso_iso9001 = db.Column(db.Boolean, nullable=False, default=False)
+    acceso_iso45001 = db.Column(db.Boolean, nullable=False, default=False)
     acceso_live = db.Column(db.Boolean, nullable=False, default=False)
     dependencia_id = db.Column(db.Integer, db.ForeignKey("dependencia.id"))
     area_id = db.Column(db.Integer, db.ForeignKey("area.id"))
@@ -190,6 +194,46 @@ class Usuario(UserMixin, TimestampMixin, db.Model):
         back_populates="autor",
         foreign_keys="Iso9001ObservacionRevision.autor_id",
     )
+    iso45001_ciclos_creados = db.relationship(
+        "Iso45001Ciclo",
+        back_populates="creado_por",
+        foreign_keys="Iso45001Ciclo.creado_por_id",
+    )
+    iso45001_asignaciones = db.relationship(
+        "Iso45001Asignacion",
+        back_populates="usuario",
+        foreign_keys="Iso45001Asignacion.usuario_id",
+    )
+    iso45001_revisiones = db.relationship(
+        "Iso45001Evaluacion",
+        back_populates="revisor",
+        foreign_keys="Iso45001Evaluacion.revisor_id",
+    )
+    iso45001_respuestas = db.relationship(
+        "Iso45001Respuesta",
+        back_populates="usuario",
+        foreign_keys="Iso45001Respuesta.usuario_id",
+    )
+    iso45001_evidencias = db.relationship(
+        "Iso45001Evidencia",
+        back_populates="usuario",
+        foreign_keys="Iso45001Evidencia.usuario_id",
+    )
+    iso45001_controles_evidencia = db.relationship(
+        "Iso45001EvaluacionControlEvidencia",
+        back_populates="usuario",
+        foreign_keys="Iso45001EvaluacionControlEvidencia.usuario_id",
+    )
+    iso45001_evidencias_documentales = db.relationship(
+        "Iso45001EvidenciaDocumental",
+        back_populates="usuario",
+        foreign_keys="Iso45001EvidenciaDocumental.usuario_id",
+    )
+    iso45001_observaciones = db.relationship(
+        "Iso45001ObservacionRevision",
+        back_populates="autor",
+        foreign_keys="Iso45001ObservacionRevision.autor_id",
+    )
     live_templates = db.relationship(
         "LiveReactivoTemplate",
         back_populates="creado_por",
@@ -203,20 +247,31 @@ class Usuario(UserMixin, TimestampMixin, db.Model):
 
     def __init__(self, **kwargs):
         super().__init__(**kwargs)
-        explicit_module_flags = {"acceso_diagnostico", "acceso_bienestar", "acceso_iso9001", "acceso_live"}
+        explicit_module_flags = {
+            "acceso_diagnostico",
+            "acceso_bienestar",
+            "acceso_iso9001",
+            "acceso_iso45001",
+            "acceso_live",
+        }
         acceso_live = kwargs.get("acceso_live", getattr(self, "acceso_live", None))
+        acceso_iso45001 = kwargs.get("acceso_iso45001", getattr(self, "acceso_iso45001", None))
         if "acceso_live" not in kwargs and explicit_module_flags.intersection(kwargs):
             acceso_live = False
+        if "acceso_iso45001" not in kwargs and explicit_module_flags.intersection(kwargs):
+            acceso_iso45001 = False
         normalized = normalize_module_flags(
             kwargs.get("rol", getattr(self, "rol", None)),
-            kwargs.get("acceso_diagnostico", getattr(self, "acceso_diagnostico", None)),
-            kwargs.get("acceso_bienestar", getattr(self, "acceso_bienestar", None)),
-            kwargs.get("acceso_iso9001", getattr(self, "acceso_iso9001", None)),
-            acceso_live,
+            acceso_diagnostico=kwargs.get("acceso_diagnostico", getattr(self, "acceso_diagnostico", None)),
+            acceso_bienestar=kwargs.get("acceso_bienestar", getattr(self, "acceso_bienestar", None)),
+            acceso_iso9001=kwargs.get("acceso_iso9001", getattr(self, "acceso_iso9001", None)),
+            acceso_live=acceso_live,
+            acceso_iso45001=acceso_iso45001,
         )
         self.acceso_diagnostico = normalized["acceso_diagnostico"]
         self.acceso_bienestar = normalized["acceso_bienestar"]
         self.acceso_iso9001 = normalized["acceso_iso9001"]
+        self.acceso_iso45001 = normalized["acceso_iso45001"]
         self.acceso_live = normalized["acceso_live"]
 
     def set_password(self, password: str) -> None:
@@ -228,14 +283,16 @@ class Usuario(UserMixin, TimestampMixin, db.Model):
     def sync_module_accesses(self) -> None:
         normalized = normalize_module_flags(
             self.rol,
-            self.acceso_diagnostico,
-            self.acceso_bienestar,
-            self.acceso_iso9001,
-            self.acceso_live,
+            acceso_diagnostico=self.acceso_diagnostico,
+            acceso_bienestar=self.acceso_bienestar,
+            acceso_iso9001=self.acceso_iso9001,
+            acceso_live=self.acceso_live,
+            acceso_iso45001=self.acceso_iso45001,
         )
         self.acceso_diagnostico = normalized["acceso_diagnostico"]
         self.acceso_bienestar = normalized["acceso_bienestar"]
         self.acceso_iso9001 = normalized["acceso_iso9001"]
+        self.acceso_iso45001 = normalized["acceso_iso45001"]
         self.acceso_live = normalized["acceso_live"]
 
     @property
@@ -269,6 +326,14 @@ class Usuario(UserMixin, TimestampMixin, db.Model):
         )
 
     @property
+    def puede_acceder_iso45001(self) -> bool:
+        return (
+            self.activo
+            and bool(self.acceso_iso45001)
+            and self.rol in ISO45001_ALLOWED_ROLES
+        )
+
+    @property
     def puede_acceder_live(self) -> bool:
         return (
             self.activo
@@ -285,6 +350,8 @@ class Usuario(UserMixin, TimestampMixin, db.Model):
             modules.append(MODULE_BIENESTAR)
         if self.puede_acceder_iso9001:
             modules.append(MODULE_ISO9001)
+        if self.puede_acceder_iso45001:
+            modules.append(MODULE_ISO45001)
         if self.puede_acceder_live:
             modules.append(MODULE_LIVE)
         return modules
@@ -302,6 +369,8 @@ class Usuario(UserMixin, TimestampMixin, db.Model):
             labels.append("Bienestar")
         if self.acceso_iso9001:
             labels.append("ISO 9001")
+        if self.acceso_iso45001:
+            labels.append("ISO 45001")
         if self.acceso_live:
             labels.append("Live")
         return " · ".join(labels) if labels else "Sin acceso"
@@ -840,6 +909,656 @@ class Iso9001ObservacionRevision(TimestampMixin, db.Model):
 
     evaluacion = db.relationship("Iso9001Evaluacion", back_populates="observaciones")
     autor = db.relationship("Usuario", back_populates="iso9001_observaciones", foreign_keys=[autor_id])
+
+
+class Iso45001CuestionarioVersion(TimestampMixin, db.Model):
+    __tablename__ = "iso45001_cuestionario_version"
+
+    id = db.Column(db.Integer, primary_key=True)
+    slug = db.Column(db.String(80), unique=True, nullable=False, index=True)
+    nombre = db.Column(db.String(180), nullable=False)
+    descripcion = db.Column(db.Text)
+    norma = db.Column(db.String(100), nullable=False, default="ISO 45001:2018 + Amd. 1:2024")
+    estado = db.Column(db.String(20), default="publicado", nullable=False)
+    publicado_at = db.Column(db.DateTime, default=utcnow)
+
+    clausulas = db.relationship(
+        "Iso45001Clausula",
+        back_populates="version",
+        cascade="all, delete-orphan",
+        order_by="Iso45001Clausula.orden",
+    )
+    documentos_obligatorios = db.relationship(
+        "Iso45001DocumentoRequerido",
+        back_populates="version",
+        cascade="all, delete-orphan",
+        order_by="Iso45001DocumentoRequerido.orden",
+    )
+    controles_evidencia = db.relationship(
+        "Iso45001ControlEvidencia",
+        back_populates="version",
+        cascade="all, delete-orphan",
+        order_by="Iso45001ControlEvidencia.orden",
+    )
+    ciclos = db.relationship("Iso45001Ciclo", back_populates="version")
+
+    @property
+    def documentos_requeridos(self):
+        """Alias de compatibilidad para el catálogo documental de la versión."""
+        return self.documentos_obligatorios
+
+
+class Iso45001Clausula(TimestampMixin, db.Model):
+    __tablename__ = "iso45001_clausula"
+
+    id = db.Column(db.Integer, primary_key=True)
+    version_id = db.Column(db.Integer, db.ForeignKey("iso45001_cuestionario_version.id"), nullable=False)
+    numero = db.Column(db.String(10), nullable=False)
+    nombre = db.Column(db.String(180), nullable=False)
+    orden = db.Column(db.Integer, nullable=False)
+
+    version = db.relationship("Iso45001CuestionarioVersion", back_populates="clausulas")
+    apartados = db.relationship(
+        "Iso45001Apartado",
+        back_populates="clausula",
+        cascade="all, delete-orphan",
+        order_by="Iso45001Apartado.orden",
+    )
+
+    __table_args__ = (
+        UniqueConstraint("version_id", "numero", name="uq_iso45001_clausula_version_numero"),
+    )
+
+
+class Iso45001Apartado(TimestampMixin, db.Model):
+    __tablename__ = "iso45001_apartado"
+
+    id = db.Column(db.Integer, primary_key=True)
+    clausula_id = db.Column(db.Integer, db.ForeignKey("iso45001_clausula.id"), nullable=False)
+    codigo = db.Column(db.String(20), nullable=False)
+    nombre = db.Column(db.String(220), nullable=False)
+    orden = db.Column(db.Integer, nullable=False)
+
+    clausula = db.relationship("Iso45001Clausula", back_populates="apartados")
+    reactivos = db.relationship(
+        "Iso45001Reactivo",
+        back_populates="apartado",
+        cascade="all, delete-orphan",
+        order_by="Iso45001Reactivo.orden",
+    )
+
+    __table_args__ = (
+        UniqueConstraint("clausula_id", "codigo", name="uq_iso45001_apartado_clausula_codigo"),
+    )
+
+
+class Iso45001Reactivo(TimestampMixin, db.Model):
+    __tablename__ = "iso45001_reactivo"
+
+    id = db.Column(db.Integer, primary_key=True)
+    apartado_id = db.Column(db.Integer, db.ForeignKey("iso45001_apartado.id"), nullable=False)
+    numero = db.Column(db.Integer, nullable=False)
+    orden = db.Column(db.Integer, nullable=False)
+    codigo = db.Column(db.String(40), nullable=False)
+    tema = db.Column(db.String(255))
+    criticidad = db.Column(db.String(30), nullable=False, default="media")
+    es_enmienda_2024 = db.Column(db.Boolean, default=False, nullable=False)
+    texto = db.Column(db.Text, nullable=False)
+    evidencia_sugerida = db.Column(db.Text)
+    criterio_idoneidad = db.Column(db.Text)
+    requiere_documento = db.Column(db.Boolean, default=False, nullable=False)
+
+    apartado = db.relationship("Iso45001Apartado", back_populates="reactivos")
+    respuestas = db.relationship("Iso45001Respuesta", back_populates="reactivo")
+    documento_mapeos = db.relationship(
+        "Iso45001ReactivoDocumentoRequerido",
+        back_populates="reactivo",
+        cascade="all, delete-orphan",
+        overlaps="documentos_requeridos,reactivos,reactivo_mapeos,documento",
+    )
+    documentos_requeridos = db.relationship(
+        "Iso45001DocumentoRequerido",
+        secondary="iso45001_reactivo_documento_requerido",
+        back_populates="reactivos",
+        order_by="Iso45001DocumentoRequerido.orden",
+        overlaps="documento_mapeos,reactivo_mapeos,reactivo,documento",
+    )
+    control_evidencia_mapeos = db.relationship(
+        "Iso45001ControlEvidenciaReactivo",
+        back_populates="reactivo",
+        cascade="all, delete-orphan",
+        overlaps="controles_evidencia,reactivos,control,reactivo_mapeos",
+    )
+    controles_evidencia = db.relationship(
+        "Iso45001ControlEvidencia",
+        secondary="iso45001_control_evidencia_reactivo",
+        back_populates="reactivos",
+        order_by="Iso45001ControlEvidencia.orden",
+        overlaps="control_evidencia_mapeos,reactivo_mapeos,reactivo,control",
+    )
+
+    __table_args__ = (
+        UniqueConstraint("apartado_id", "orden", name="uq_iso45001_reactivo_apartado_orden"),
+        UniqueConstraint("apartado_id", "numero", name="uq_iso45001_reactivo_apartado_numero"),
+    )
+
+class Iso45001DocumentoRequerido(TimestampMixin, db.Model):
+    __tablename__ = "iso45001_documento_requerido"
+
+    id = db.Column(db.Integer, primary_key=True)
+    version_id = db.Column(db.Integer, db.ForeignKey("iso45001_cuestionario_version.id"), nullable=False)
+    codigo = db.Column(db.String(40), nullable=False)
+    apartado = db.Column(db.String(40), nullable=False)
+    clasificacion = db.Column(db.String(20), nullable=False)
+    nombre = db.Column(db.String(255), nullable=False)
+    contenido_minimo = db.Column(db.Text)
+    criticidad = db.Column(db.String(30), nullable=False, default="media")
+    orden = db.Column(db.Integer, nullable=False)
+
+    version = db.relationship("Iso45001CuestionarioVersion", back_populates="documentos_obligatorios")
+    reactivo_mapeos = db.relationship(
+        "Iso45001ReactivoDocumentoRequerido",
+        back_populates="documento",
+        cascade="all, delete-orphan",
+        overlaps="documentos_requeridos,reactivos,reactivo,documento_mapeos",
+    )
+    reactivos = db.relationship(
+        "Iso45001Reactivo",
+        secondary="iso45001_reactivo_documento_requerido",
+        back_populates="documentos_requeridos",
+        overlaps="documento_mapeos,reactivo_mapeos,reactivo,documento",
+    )
+
+    __table_args__ = (
+        UniqueConstraint("version_id", "codigo", name="uq_iso45001_documento_version_codigo"),
+        UniqueConstraint("version_id", "orden", name="uq_iso45001_documento_version_orden"),
+    )
+
+    @property
+    def apartado_codigo(self) -> str:
+        return self.apartado
+
+    @property
+    def tipo(self) -> str:
+        return self.clasificacion
+
+
+class Iso45001ReactivoDocumentoRequerido(TimestampMixin, db.Model):
+    __tablename__ = "iso45001_reactivo_documento_requerido"
+
+    id = db.Column(db.Integer, primary_key=True)
+    reactivo_id = db.Column(db.Integer, db.ForeignKey("iso45001_reactivo.id"), nullable=False)
+    documento_requerido_id = db.Column(
+        db.Integer,
+        db.ForeignKey("iso45001_documento_requerido.id"),
+        nullable=False,
+    )
+
+    reactivo = db.relationship(
+        "Iso45001Reactivo",
+        back_populates="documento_mapeos",
+        overlaps="documentos_requeridos,reactivos,reactivo_mapeos,documento",
+    )
+    documento = db.relationship(
+        "Iso45001DocumentoRequerido",
+        back_populates="reactivo_mapeos",
+        overlaps="documentos_requeridos,reactivos,reactivo,documento_mapeos",
+    )
+
+    __table_args__ = (
+        UniqueConstraint(
+            "reactivo_id",
+            "documento_requerido_id",
+            name="uq_iso45001_reactivo_documento",
+        ),
+    )
+
+
+class Iso45001ControlEvidencia(TimestampMixin, db.Model):
+    """Control documental o grupo complementario de evidencia versionado.
+
+    Los controles pertenecen al catálogo ISO 45001, no a una evaluación.  Una
+    versión posterior de la norma crea controles nuevos en vez de alterar esta
+    matriz y sus trazabilidades publicadas.
+    """
+
+    __tablename__ = "iso45001_control_evidencia"
+
+    id = db.Column(db.Integer, primary_key=True)
+    version_id = db.Column(
+        db.Integer,
+        db.ForeignKey("iso45001_cuestionario_version.id"),
+        nullable=False,
+    )
+    codigo = db.Column(db.String(40), nullable=False)
+    tipo = db.Column(db.String(30), nullable=False)
+    clausula = db.Column(db.String(10), nullable=False)
+    apartado = db.Column(db.String(40), nullable=False)
+    clasificacion = db.Column(db.String(40), nullable=False)
+    nombre = db.Column(db.String(255), nullable=False)
+    descripcion = db.Column(db.Text)
+    contenido_minimo = db.Column(db.Text)
+    evidencia_sugerida = db.Column(db.Text)
+    criticidad = db.Column(db.String(30), nullable=False, default="media")
+    orden = db.Column(db.Integer, nullable=False)
+
+    version = db.relationship("Iso45001CuestionarioVersion", back_populates="controles_evidencia")
+    puntos = db.relationship(
+        "Iso45001ControlEvidenciaPunto",
+        back_populates="control",
+        cascade="all, delete-orphan",
+        order_by="Iso45001ControlEvidenciaPunto.orden",
+    )
+    reactivo_mapeos = db.relationship(
+        "Iso45001ControlEvidenciaReactivo",
+        back_populates="control",
+        cascade="all, delete-orphan",
+        overlaps="reactivos,controles_evidencia,control_evidencia_mapeos,reactivo",
+    )
+    reactivos = db.relationship(
+        "Iso45001Reactivo",
+        secondary="iso45001_control_evidencia_reactivo",
+        back_populates="controles_evidencia",
+        order_by="Iso45001Reactivo.numero",
+        overlaps="reactivo_mapeos,control_evidencia_mapeos,control,reactivo",
+    )
+    evaluaciones = db.relationship(
+        "Iso45001EvaluacionControlEvidencia",
+        back_populates="control",
+        cascade="all, delete-orphan",
+    )
+
+    __table_args__ = (
+        UniqueConstraint("version_id", "codigo", name="uq_iso45001_control_evidencia_version_codigo"),
+        UniqueConstraint("version_id", "orden", name="uq_iso45001_control_evidencia_version_orden"),
+    )
+
+    @property
+    def es_normativo(self) -> bool:
+        return self.tipo == "documento_normativo"
+
+
+class Iso45001ControlEvidenciaPunto(TimestampMixin, db.Model):
+    """Punto mínimo que integra un control de evidencia."""
+
+    __tablename__ = "iso45001_control_evidencia_punto"
+
+    id = db.Column(db.Integer, primary_key=True)
+    control_evidencia_id = db.Column(
+        db.Integer,
+        db.ForeignKey("iso45001_control_evidencia.id"),
+        nullable=False,
+    )
+    orden = db.Column(db.Integer, nullable=False)
+    texto = db.Column(db.Text, nullable=False)
+
+    control = db.relationship("Iso45001ControlEvidencia", back_populates="puntos")
+    respuestas = db.relationship(
+        "Iso45001EvaluacionControlEvidenciaPunto",
+        back_populates="punto",
+        cascade="all, delete-orphan",
+    )
+
+    __table_args__ = (
+        UniqueConstraint(
+            "control_evidencia_id",
+            "orden",
+            name="uq_iso45001_control_evidencia_punto_orden",
+        ),
+    )
+
+
+class Iso45001ControlEvidenciaReactivo(TimestampMixin, db.Model):
+    """Trazabilidad explícita entre un control de evidencia y un reactivo."""
+
+    __tablename__ = "iso45001_control_evidencia_reactivo"
+
+    id = db.Column(db.Integer, primary_key=True)
+    control_evidencia_id = db.Column(
+        db.Integer,
+        db.ForeignKey("iso45001_control_evidencia.id"),
+        nullable=False,
+    )
+    reactivo_id = db.Column(db.Integer, db.ForeignKey("iso45001_reactivo.id"), nullable=False)
+
+    control = db.relationship(
+        "Iso45001ControlEvidencia",
+        back_populates="reactivo_mapeos",
+        overlaps="reactivos,controles_evidencia,control_evidencia_mapeos,reactivo",
+    )
+    reactivo = db.relationship(
+        "Iso45001Reactivo",
+        back_populates="control_evidencia_mapeos",
+        overlaps="reactivos,controles_evidencia,reactivo_mapeos,control",
+    )
+
+    __table_args__ = (
+        UniqueConstraint(
+            "control_evidencia_id",
+            "reactivo_id",
+            name="uq_iso45001_control_evidencia_reactivo",
+        ),
+    )
+
+
+class Iso45001Ciclo(TimestampMixin, db.Model):
+    __tablename__ = "iso45001_ciclo"
+
+    id = db.Column(db.Integer, primary_key=True)
+    nombre = db.Column(db.String(180), unique=True, nullable=False)
+    descripcion = db.Column(db.Text)
+    estado = db.Column(db.String(20), default="borrador", nullable=False)
+    fecha_inicio = db.Column(db.Date, nullable=False)
+    fecha_cierre = db.Column(db.Date, nullable=False)
+    version_id = db.Column(db.Integer, db.ForeignKey("iso45001_cuestionario_version.id"), nullable=False)
+    creado_por_id = db.Column(db.Integer, db.ForeignKey("usuario.id"))
+
+    version = db.relationship("Iso45001CuestionarioVersion", back_populates="ciclos")
+    creado_por = db.relationship("Usuario", back_populates="iso45001_ciclos_creados", foreign_keys=[creado_por_id])
+    evaluaciones = db.relationship(
+        "Iso45001Evaluacion",
+        back_populates="ciclo",
+        cascade="all, delete-orphan",
+        order_by="Iso45001Evaluacion.updated_at.desc()",
+    )
+
+    @property
+    def esta_activo(self) -> bool:
+        return self.estado == "activo"
+
+
+class Iso45001Evaluacion(TimestampMixin, db.Model):
+    __tablename__ = "iso45001_evaluacion"
+
+    id = db.Column(db.Integer, primary_key=True)
+    ciclo_id = db.Column(db.Integer, db.ForeignKey("iso45001_ciclo.id"), nullable=False)
+    dependencia_id = db.Column(db.Integer, db.ForeignKey("dependencia.id"), nullable=False)
+    revisor_id = db.Column(db.Integer, db.ForeignKey("usuario.id"))
+    estado = db.Column(db.String(20), default="borrador", nullable=False)
+    progreso = db.Column(db.Float, default=0.0, nullable=False)
+    enviada_revision_at = db.Column(db.DateTime)
+    cerrada_at = db.Column(db.DateTime)
+
+    ciclo = db.relationship("Iso45001Ciclo", back_populates="evaluaciones")
+    dependencia = db.relationship("Dependencia", back_populates="iso45001_evaluaciones")
+    revisor = db.relationship("Usuario", back_populates="iso45001_revisiones", foreign_keys=[revisor_id])
+    asignaciones = db.relationship(
+        "Iso45001Asignacion",
+        back_populates="evaluacion",
+        cascade="all, delete-orphan",
+    )
+    respuestas = db.relationship(
+        "Iso45001Respuesta",
+        back_populates="evaluacion",
+        cascade="all, delete-orphan",
+    )
+    controles_evidencia = db.relationship(
+        "Iso45001EvaluacionControlEvidencia",
+        back_populates="evaluacion",
+        cascade="all, delete-orphan",
+        order_by="Iso45001EvaluacionControlEvidencia.updated_at.desc()",
+    )
+    evidencias_documentales = db.relationship(
+        "Iso45001EvidenciaDocumental",
+        back_populates="evaluacion",
+        cascade="all, delete-orphan",
+        order_by="Iso45001EvidenciaDocumental.created_at.desc()",
+    )
+    observaciones = db.relationship(
+        "Iso45001ObservacionRevision",
+        back_populates="evaluacion",
+        cascade="all, delete-orphan",
+        order_by="Iso45001ObservacionRevision.created_at.desc()",
+    )
+
+    __table_args__ = (
+        UniqueConstraint("ciclo_id", "dependencia_id", name="uq_iso45001_evaluacion_ciclo_dependencia"),
+    )
+
+    @property
+    def editable(self) -> bool:
+        return self.estado in {"borrador", "en_captura", "devuelta"} and self.ciclo.esta_activo
+
+    @property
+    def responsable(self):
+        assignment = next((item for item in self.asignaciones if item.tipo == "captura"), None)
+        return assignment.usuario if assignment else None
+
+
+class Iso45001Asignacion(TimestampMixin, db.Model):
+    __tablename__ = "iso45001_asignacion"
+
+    id = db.Column(db.Integer, primary_key=True)
+    evaluacion_id = db.Column(db.Integer, db.ForeignKey("iso45001_evaluacion.id"), nullable=False)
+    usuario_id = db.Column(db.Integer, db.ForeignKey("usuario.id"), nullable=False)
+    tipo = db.Column(db.String(30), default="captura", nullable=False)
+
+    evaluacion = db.relationship("Iso45001Evaluacion", back_populates="asignaciones")
+    usuario = db.relationship("Usuario", back_populates="iso45001_asignaciones", foreign_keys=[usuario_id])
+
+    __table_args__ = (
+        UniqueConstraint("evaluacion_id", "usuario_id", "tipo", name="uq_iso45001_asignacion_usuario_tipo"),
+    )
+
+
+class Iso45001Respuesta(TimestampMixin, db.Model):
+    __tablename__ = "iso45001_respuesta"
+
+    id = db.Column(db.Integer, primary_key=True)
+    evaluacion_id = db.Column(db.Integer, db.ForeignKey("iso45001_evaluacion.id"), nullable=False)
+    reactivo_id = db.Column(db.Integer, db.ForeignKey("iso45001_reactivo.id"), nullable=False)
+    usuario_id = db.Column(db.Integer, db.ForeignKey("usuario.id"), nullable=False)
+    calificacion = db.Column(db.String(12), nullable=False)
+    valor = db.Column(db.Integer)
+    observacion = db.Column(db.Text)
+
+    evaluacion = db.relationship("Iso45001Evaluacion", back_populates="respuestas")
+    reactivo = db.relationship("Iso45001Reactivo", back_populates="respuestas")
+    usuario = db.relationship("Usuario", back_populates="iso45001_respuestas", foreign_keys=[usuario_id])
+    evidencias = db.relationship(
+        "Iso45001Evidencia",
+        back_populates="respuesta",
+        cascade="all, delete-orphan",
+        order_by="Iso45001Evidencia.created_at.desc()",
+    )
+
+    __table_args__ = (
+        UniqueConstraint("evaluacion_id", "reactivo_id", name="uq_iso45001_respuesta_evaluacion_reactivo"),
+    )
+
+
+class Iso45001Evidencia(TimestampMixin, db.Model):
+    __tablename__ = "iso45001_evidencia"
+
+    id = db.Column(db.Integer, primary_key=True)
+    respuesta_id = db.Column(db.Integer, db.ForeignKey("iso45001_respuesta.id"), nullable=False)
+    usuario_id = db.Column(db.Integer, db.ForeignKey("usuario.id"), nullable=False)
+    archivo_nombre_original = db.Column(db.String(255), nullable=False)
+    archivo_guardado = db.Column(db.String(255), nullable=False)
+    mime_type = db.Column(db.String(120), nullable=False)
+    tamano_bytes = db.Column(db.Integer, nullable=False)
+    activo = db.Column(db.Boolean, default=True, nullable=False)
+
+    respuesta = db.relationship("Iso45001Respuesta", back_populates="evidencias")
+    usuario = db.relationship("Usuario", back_populates="iso45001_evidencias", foreign_keys=[usuario_id])
+
+
+class Iso45001EvaluacionControlEvidencia(TimestampMixin, db.Model):
+    """Instancia evaluable de un control documental dentro de una evaluación."""
+
+    __tablename__ = "iso45001_evaluacion_control_evidencia"
+
+    id = db.Column(db.Integer, primary_key=True)
+    evaluacion_id = db.Column(
+        db.Integer,
+        db.ForeignKey("iso45001_evaluacion.id"),
+        nullable=False,
+    )
+    control_evidencia_id = db.Column(
+        db.Integer,
+        db.ForeignKey("iso45001_control_evidencia.id"),
+        nullable=False,
+    )
+    usuario_id = db.Column(db.Integer, db.ForeignKey("usuario.id"))
+    estado = db.Column(db.String(12), nullable=False, default="no")
+    observacion = db.Column(db.Text)
+
+    evaluacion = db.relationship("Iso45001Evaluacion", back_populates="controles_evidencia")
+    control = db.relationship("Iso45001ControlEvidencia", back_populates="evaluaciones")
+    usuario = db.relationship(
+        "Usuario",
+        back_populates="iso45001_controles_evidencia",
+        foreign_keys=[usuario_id],
+    )
+    puntos = db.relationship(
+        "Iso45001EvaluacionControlEvidenciaPunto",
+        back_populates="evaluacion_control",
+        cascade="all, delete-orphan",
+        order_by="Iso45001EvaluacionControlEvidenciaPunto.id",
+    )
+    archivo_mapeos = db.relationship(
+        "Iso45001EvidenciaDocumentalControl",
+        back_populates="evaluacion_control",
+        cascade="all, delete-orphan",
+        overlaps="archivos,controles,evidencia_documental,control",
+    )
+    archivos = db.relationship(
+        "Iso45001EvidenciaDocumental",
+        secondary="iso45001_evidencia_documental_control",
+        back_populates="controles_evidencia",
+        order_by="Iso45001EvidenciaDocumental.created_at.desc()",
+        overlaps="archivo_mapeos,control_mapeos,evidencia_documental,evaluacion_control",
+    )
+
+    __table_args__ = (
+        UniqueConstraint(
+            "evaluacion_id",
+            "control_evidencia_id",
+            name="uq_iso45001_evaluacion_control_evidencia",
+        ),
+    )
+
+
+class Iso45001EvaluacionControlEvidenciaPunto(TimestampMixin, db.Model):
+    """Cobertura declarada para un punto mínimo de un control evaluado."""
+
+    __tablename__ = "iso45001_evaluacion_control_evidencia_punto"
+
+    id = db.Column(db.Integer, primary_key=True)
+    evaluacion_control_evidencia_id = db.Column(
+        db.Integer,
+        db.ForeignKey("iso45001_evaluacion_control_evidencia.id"),
+        nullable=False,
+    )
+    control_evidencia_punto_id = db.Column(
+        db.Integer,
+        db.ForeignKey("iso45001_control_evidencia_punto.id"),
+        nullable=False,
+    )
+    cubierto = db.Column(db.Boolean, nullable=False, default=False)
+    observacion = db.Column(db.Text)
+
+    evaluacion_control = db.relationship(
+        "Iso45001EvaluacionControlEvidencia",
+        back_populates="puntos",
+    )
+    punto = db.relationship("Iso45001ControlEvidenciaPunto", back_populates="respuestas")
+
+    __table_args__ = (
+        UniqueConstraint(
+            "evaluacion_control_evidencia_id",
+            "control_evidencia_punto_id",
+            name="uq_iso45001_evaluacion_control_evidencia_punto",
+        ),
+    )
+
+
+class Iso45001EvidenciaDocumental(TimestampMixin, db.Model):
+    """Archivo reutilizable de una evaluación para uno o varios controles."""
+
+    __tablename__ = "iso45001_evidencia_documental"
+
+    id = db.Column(db.Integer, primary_key=True)
+    evaluacion_id = db.Column(
+        db.Integer,
+        db.ForeignKey("iso45001_evaluacion.id"),
+        nullable=False,
+    )
+    usuario_id = db.Column(db.Integer, db.ForeignKey("usuario.id"), nullable=False)
+    archivo_nombre_original = db.Column(db.String(255), nullable=False)
+    archivo_guardado = db.Column(db.String(255), nullable=False)
+    mime_type = db.Column(db.String(120), nullable=False)
+    tamano_bytes = db.Column(db.Integer, nullable=False)
+    activo = db.Column(db.Boolean, default=True, nullable=False)
+
+    evaluacion = db.relationship("Iso45001Evaluacion", back_populates="evidencias_documentales")
+    usuario = db.relationship(
+        "Usuario",
+        back_populates="iso45001_evidencias_documentales",
+        foreign_keys=[usuario_id],
+    )
+    control_mapeos = db.relationship(
+        "Iso45001EvidenciaDocumentalControl",
+        back_populates="evidencia_documental",
+        cascade="all, delete-orphan",
+        overlaps="controles_evidencia,archivos,evaluacion_control,control",
+    )
+    controles_evidencia = db.relationship(
+        "Iso45001EvaluacionControlEvidencia",
+        secondary="iso45001_evidencia_documental_control",
+        back_populates="archivos",
+        overlaps="control_mapeos,archivo_mapeos,evidencia_documental,evaluacion_control",
+    )
+
+
+class Iso45001EvidenciaDocumentalControl(TimestampMixin, db.Model):
+    """Vínculo muchos-a-muchos entre un archivo y un control de evaluación."""
+
+    __tablename__ = "iso45001_evidencia_documental_control"
+
+    id = db.Column(db.Integer, primary_key=True)
+    evidencia_documental_id = db.Column(
+        db.Integer,
+        db.ForeignKey("iso45001_evidencia_documental.id"),
+        nullable=False,
+    )
+    evaluacion_control_evidencia_id = db.Column(
+        db.Integer,
+        db.ForeignKey("iso45001_evaluacion_control_evidencia.id"),
+        nullable=False,
+    )
+
+    evidencia_documental = db.relationship(
+        "Iso45001EvidenciaDocumental",
+        back_populates="control_mapeos",
+        overlaps="controles_evidencia,archivos,evaluacion_control,control",
+    )
+    evaluacion_control = db.relationship(
+        "Iso45001EvaluacionControlEvidencia",
+        back_populates="archivo_mapeos",
+        overlaps="controles_evidencia,archivos,evidencia_documental,control_mapeos",
+    )
+
+    __table_args__ = (
+        UniqueConstraint(
+            "evidencia_documental_id",
+            "evaluacion_control_evidencia_id",
+            name="uq_iso45001_evidencia_documental_control",
+        ),
+    )
+
+
+class Iso45001ObservacionRevision(TimestampMixin, db.Model):
+    __tablename__ = "iso45001_observacion_revision"
+
+    id = db.Column(db.Integer, primary_key=True)
+    evaluacion_id = db.Column(db.Integer, db.ForeignKey("iso45001_evaluacion.id"), nullable=False)
+    autor_id = db.Column(db.Integer, db.ForeignKey("usuario.id"), nullable=False)
+    accion = db.Column(db.String(20), nullable=False)
+    comentario = db.Column(db.Text, nullable=False)
+
+    evaluacion = db.relationship("Iso45001Evaluacion", back_populates="observaciones")
+    autor = db.relationship("Usuario", back_populates="iso45001_observaciones", foreign_keys=[autor_id])
 
 
 class Evaluacion(TimestampMixin, db.Model):

@@ -8,6 +8,7 @@ from flask import (
     abort,
     current_app,
     flash,
+    jsonify,
     redirect,
     render_template,
     request,
@@ -37,6 +38,7 @@ from municipal_diagnostico.services.iso9001 import (
     ISO9001_OPTION_LABELS,
     ISO9001_OPTION_POINTS,
     ensure_iso9001_catalog,
+    format_iso_datetime,
     list_visible_iso9001_evaluations,
     summarize_iso9001_cycle,
     summarize_iso9001_evaluation,
@@ -228,6 +230,41 @@ def evaluation_detail(evaluation_id: int):
         summary=summary,
         option_labels=ISO9001_OPTION_LABELS,
         can_edit=can_edit,
+    )
+
+
+@bp.route("/evaluaciones/<int:evaluation_id>/apartados/<int:section_id>/autosave", methods=["POST"])
+@iso9001_role_required("administrador", "revisor", "evaluador", "respondente", "consulta")
+def autosave_section(evaluation_id: int, section_id: int):
+    evaluation = Iso9001Evaluacion.query.get_or_404(evaluation_id)
+    if not user_can_edit_evaluation(evaluation):
+        abort(403)
+
+    section = get_section_or_404(evaluation, section_id)
+    payload = request.get_json(silent=True) or {}
+    saved = persist_section_from_payload(evaluation, section, payload)
+    if evaluation.estado in {"borrador", "devuelta"}:
+        evaluation.estado = "en_captura"
+    summary = summarize_iso9001_evaluation(evaluation)
+    db.session.commit()
+
+    section_summary = next((item for item in summary["sections"] if item["id"] == section.id), None)
+    last_saved_at = latest_section_timestamp(evaluation, section)
+    log_activity(
+        "autosave_iso9001_section",
+        entity_type="iso9001_evaluacion",
+        entity_id=evaluation.id,
+        metadata={"apartado_id": section.id, "responses": saved},
+    )
+    return jsonify(
+        {
+            "ok": True,
+            "completion": summary["completion"],
+            "section_answered": section_summary["answered"] if section_summary else 0,
+            "section_total": section_summary["total"] if section_summary else len(section.reactivos),
+            "section_completion": section_summary["completion"] if section_summary else 0,
+            "last_saved": format_iso_datetime(last_saved_at),
+        }
     )
 
 
@@ -499,6 +536,48 @@ def persist_section_from_form(evaluation: Iso9001Evaluacion, section) -> tuple[i
             )
             uploaded += 1
     return saved, uploaded
+
+
+def persist_section_from_payload(evaluation: Iso9001Evaluacion, section, payload: dict) -> int:
+    response_map = {response.reactivo_id: response for response in evaluation.respuestas}
+    section_reactive_ids = {reactive.id for reactive in section.reactivos}
+    saved = 0
+    for item in payload.get("responses") or []:
+        try:
+            reactive_id = int(item.get("reactivo_id"))
+        except (TypeError, ValueError):
+            continue
+        if reactive_id not in section_reactive_ids:
+            continue
+        selected = item.get("calificacion")
+        if selected not in ISO9001_OPTION_POINTS:
+            continue
+        response = response_map.get(reactive_id)
+        if response is None:
+            response = Iso9001Respuesta(
+                evaluacion=evaluation,
+                reactivo_id=reactive_id,
+                usuario=current_user,
+                calificacion=selected,
+            )
+            db.session.add(response)
+            response_map[reactive_id] = response
+        response.calificacion = selected
+        response.valor = ISO9001_OPTION_POINTS[selected]
+        response.observacion = clean_text(item.get("observacion"))
+        response.usuario = current_user
+        saved += 1
+    return saved
+
+
+def latest_section_timestamp(evaluation: Iso9001Evaluacion, section):
+    section_reactive_ids = {reactive.id for reactive in section.reactivos}
+    timestamps = [
+        response.updated_at or response.created_at
+        for response in evaluation.respuestas
+        if response.reactivo_id in section_reactive_ids
+    ]
+    return max(timestamps) if timestamps else None
 
 
 def user_can_view_evaluation(evaluation: Iso9001Evaluacion) -> bool:

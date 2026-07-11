@@ -9,7 +9,7 @@
     <link href="https://fonts.googleapis.com/css2?family=Urbanist:wght@300;400;500;600;700;800&family=Cormorant+Garamond:wght@600;700&family=Source+Sans+3:wght@400;600;700&display=swap" rel="stylesheet">
     <link rel="stylesheet" href="{{ url_for('static', filename='style.css') }}">
     <script src="https://cdn.jsdelivr.net/npm/chart.js"></script>
-    <script defer src="{{ url_for('static', filename='app.js') }}"></script>
+    <script defer src="{{ url_for('static', filename='app.js', v='diagnostico-docs-20260709') }}"></script>
 </head>
 <body class="{% block body_class %}{% endblock %}" {% if current_user.is_authenticated %}data-heartbeat-url="{{ url_for('dashboard.heartbeat') }}"{% endif %}>
     <div class="site-shell">
