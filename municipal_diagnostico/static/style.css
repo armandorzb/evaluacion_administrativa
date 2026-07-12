@@ -36,6 +36,7 @@
     --radius-md: 14px;
     --radius-sm: 10px;
     --max-width: 1320px;
+    --focus-ring: #0d2535;
 }
 
 *,
@@ -47,13 +48,16 @@
 html {
     color-scheme: light;
     scroll-behavior: smooth;
+    scroll-padding-top: 7.5rem;
     -webkit-text-size-adjust: 100%;
 }
 
 body {
     margin: 0;
     min-height: 100vh;
+    min-height: 100dvh;
     font-family: "Source Sans 3", sans-serif;
+    line-height: 1.5;
     color: var(--ink);
     background:
         radial-gradient(circle at top left, rgba(114, 139, 80, 0.16), transparent 26rem),
@@ -130,6 +134,7 @@ code {
 
 .site-shell {
     min-height: 100vh;
+    min-height: 100dvh;
 }
 
 .site-header {
@@ -625,7 +630,7 @@ form {
 }
 
 .card-grid {
-    grid-template-columns: repeat(auto-fit, minmax(280px, 1fr));
+    grid-template-columns: repeat(auto-fit, minmax(min(100%, 280px), 1fr));
 }
 
 .panel,
@@ -689,6 +694,10 @@ form {
     background: rgba(232, 238, 242, 0.92);
     color: var(--navy-900);
     font-weight: 700;
+    line-height: 1.2;
+    text-align: center;
+    white-space: normal;
+    overflow-wrap: anywhere;
     transition: transform 0.16s ease, box-shadow 0.16s ease, background-color 0.16s ease, border-color 0.16s ease;
 }
 
@@ -1886,6 +1895,7 @@ body.menu-open .menu-scrim {
             rgba(74, 35, 10, 0.28);
         opacity: 0;
         overflow: hidden;
+        overscroll-behavior: contain;
         transform: translateY(-10px) scale(0.985);
         transform-origin: top center;
         visibility: hidden;
@@ -1900,9 +1910,11 @@ body.menu-open .menu-scrim {
     }
 
     .header-shell[data-open="true"] {
-        max-height: 75vh;
+        max-height: calc(100dvh - 6.5rem);
         padding: 1rem;
         opacity: 1;
+        overflow-y: auto;
+        -webkit-overflow-scrolling: touch;
         transform: translateY(0) scale(1);
         visibility: visible;
         pointer-events: auto;
@@ -5368,5 +5380,372 @@ body.wellbeing-body {
     .live-chart-wrap,
     .live-wordcloud {
         min-height: 12rem;
+    }
+}
+
+/* Shared reading and touch safeguards for text-heavy cards. */
+.skip-link {
+    position: fixed;
+    top: max(0.75rem, env(safe-area-inset-top));
+    left: 50%;
+    z-index: 100;
+    max-width: calc(100% - 2rem);
+    padding: 0.7rem 1rem;
+    border-radius: 999px;
+    background: var(--navy-900);
+    color: #ffffff;
+    font-weight: 800;
+    text-align: center;
+    transform: translate(-50%, -175%);
+    transition: transform 0.18s ease;
+}
+
+.skip-link:focus {
+    transform: translate(-50%, 0);
+}
+
+:where(a, button, input, select, textarea, summary, [tabindex]):focus-visible {
+    outline: 3px solid var(--focus-ring);
+    outline-offset: 3px;
+}
+
+:where(
+    .card-grid,
+    .metric-grid,
+    .stats-grid,
+    .section-grid,
+    .grid,
+    .meta-grid,
+    .choice-grid,
+    .role-guide-grid,
+    .module-grid,
+    .module-meta,
+    .wellbeing-chart-grid,
+    .wellbeing-live-metrics,
+    .wellbeing-profile-grid,
+    .wellbeing-filter-grid
+) > * {
+    min-inline-size: 0;
+}
+
+:where(
+    .hero-copy,
+    .hero-card,
+    .panel,
+    .report-card,
+    .page-header,
+    .page-banner,
+    .stat-card,
+    .metric-card,
+    .insight-card,
+    .period-card,
+    .reactive-box,
+    .question-card,
+    .preview-panel,
+    .module-card,
+    .activity-card,
+    .session-card,
+    .role-guide-card,
+    .import-guide-card,
+    .module-selector-copy,
+    .module-selector-user,
+    .module-panel,
+    .iso-section-panel,
+    .wellbeing-survey-panel,
+    [class*="-card"]
+) :where(h1, h2, h3, h4, p, li, dd) {
+    overflow-wrap: anywhere;
+}
+
+:where(
+    .hero-copy,
+    .hero-card,
+    .panel,
+    .report-card,
+    .page-header,
+    .page-banner,
+    .insight-card,
+    .period-card,
+    .question-card,
+    .preview-panel,
+    .module-card,
+    .activity-card,
+    .session-card,
+    .role-guide-card,
+    .import-guide-card,
+    .module-selector-copy,
+    .module-selector-user,
+    .module-panel,
+    .iso-section-panel,
+    .wellbeing-survey-panel,
+    [class*="-card"]
+) :where(h1, h2, h3, h4) {
+    text-wrap: balance;
+}
+
+:where(
+    .hero-copy,
+    .hero-card,
+    .panel,
+    .report-card,
+    .page-header,
+    .page-banner,
+    .insight-card,
+    .period-card,
+    .question-card,
+    .preview-panel,
+    .module-card,
+    .activity-card,
+    .session-card,
+    .role-guide-card,
+    .import-guide-card,
+    .module-selector-copy,
+    .module-selector-user,
+    .module-panel,
+    .iso-section-panel,
+    .wellbeing-survey-panel,
+    [class*="-card"]
+) :where(p, li) {
+    max-inline-size: 72ch;
+    line-height: 1.6;
+    text-wrap: pretty;
+}
+
+.actions > *,
+.panel-head > *,
+.report-card-head > *,
+.section-heading > *,
+.list-row > *,
+.data-row > *,
+.evidence-row > *,
+.metric-inline > *,
+.legend-row > * {
+    min-inline-size: 0;
+    max-inline-size: 100%;
+}
+
+.list-row :where(strong, small),
+.data-row :where(strong, small),
+.evidence-row :where(strong, small) {
+    overflow-wrap: anywhere;
+}
+
+:where(
+    label,
+    .card-kicker,
+    .meta-label,
+    .tag,
+    .pill,
+    .badge,
+    .status,
+    .question-score,
+    .save-indicator,
+    .secondary-link,
+    .main-nav a,
+    .notifications summary,
+    .dropdown-item,
+    .callout
+) {
+    min-inline-size: 0;
+    max-inline-size: 100%;
+    overflow-wrap: anywhere;
+}
+
+.tag,
+.pill,
+.badge,
+.status,
+.question-score,
+.save-indicator,
+.secondary-link,
+.main-nav a,
+.notifications summary {
+    white-space: normal;
+}
+
+/* Shared fallbacks used by the Live views and legacy templates. */
+.form-grid {
+    display: grid;
+    grid-template-columns: repeat(auto-fit, minmax(min(100%, 15rem), 1fr));
+    gap: 1rem;
+    align-items: start;
+}
+
+.form-grid > *,
+.grid-two > *,
+.hero-panel > * {
+    min-inline-size: 0;
+}
+
+.grid-two {
+    display: grid;
+    grid-template-columns: repeat(2, minmax(0, 1fr));
+    gap: 1.35rem;
+    align-items: start;
+}
+
+.hero-panel {
+    display: grid;
+    grid-template-columns: minmax(0, 1fr) auto;
+    align-items: center;
+    gap: clamp(1rem, 3vw, 2rem);
+    margin-bottom: 1.5rem;
+    padding: clamp(1.35rem, 3vw, 2rem);
+    border: 1px solid rgba(22, 48, 66, 0.08);
+    border-radius: var(--radius-xl);
+    background:
+        linear-gradient(135deg, rgba(255, 255, 255, 0.96), rgba(246, 247, 244, 0.9)),
+        radial-gradient(circle at top right, rgba(114, 139, 80, 0.13), transparent 20rem);
+    box-shadow: var(--shadow-md);
+}
+
+.hero-panel :where(.eyebrow, h1, h2, .lede) {
+    margin: 0;
+}
+
+.hero-panel :where(h1, h2) {
+    overflow-wrap: anywhere;
+    text-wrap: balance;
+}
+
+.hero-panel:not(.live-instructions-stage) h1 {
+    color: var(--navy-900);
+    font-size: clamp(2rem, 4vw, 3.25rem);
+    line-height: 1;
+}
+
+.hero-panel .lede {
+    max-inline-size: 68ch;
+    margin-top: 0.75rem;
+    color: var(--ink-muted);
+    line-height: 1.6;
+    overflow-wrap: anywhere;
+    text-wrap: pretty;
+}
+
+.hero-panel > .actions {
+    justify-content: flex-end;
+}
+
+.report-hero > *,
+.capture-progress-shell,
+.wrap {
+    min-inline-size: 0;
+}
+
+.wrap {
+    flex-wrap: wrap;
+}
+
+.wide {
+    max-inline-size: 100%;
+}
+
+@media (max-width: 1180px) {
+    .live-menti-appbar {
+        grid-template-columns: auto minmax(0, 1fr) auto;
+    }
+
+    .live-menti-title {
+        grid-column: 2;
+        grid-row: 1;
+    }
+
+    .live-menti-status {
+        grid-column: 2;
+        grid-row: 2;
+        justify-content: flex-start;
+    }
+
+    .live-menti-access {
+        grid-column: 3;
+        grid-row: 1 / span 2;
+        align-self: center;
+    }
+
+    .live-menti-actions {
+        grid-column: 1 / -1;
+        justify-content: flex-end;
+    }
+}
+
+@media (max-width: 860px) {
+    .hero-panel,
+    .grid-two {
+        grid-template-columns: 1fr;
+    }
+
+    .hero-panel > .actions {
+        justify-content: flex-start;
+    }
+
+    .live-menti-appbar {
+        grid-template-columns: 1fr;
+        gap: 0.75rem;
+        padding: 0.85rem;
+    }
+
+    .live-back-link,
+    .live-menti-title,
+    .live-menti-status,
+    .live-menti-access,
+    .live-menti-actions {
+        grid-column: auto;
+        grid-row: auto;
+    }
+
+    .live-back-link,
+    .live-menti-access {
+        justify-self: start;
+    }
+
+    .live-menti-title h1,
+    .live-menti-title p:not(.eyebrow) {
+        overflow: visible;
+        overflow-wrap: anywhere;
+        text-overflow: clip;
+        white-space: normal;
+    }
+
+    .live-menti-status,
+    .live-menti-actions {
+        justify-content: flex-start;
+    }
+
+    .live-menti-actions {
+        border-radius: var(--radius-md);
+    }
+
+    .live-menti-actions .button {
+        flex: 1 1 6.5rem;
+        min-width: 0;
+    }
+}
+
+@media (max-width: 520px) {
+    html {
+        scroll-padding-top: 6.5rem;
+    }
+
+    .card-grid {
+        grid-template-columns: 1fr;
+        gap: 1rem;
+    }
+
+    .metric-card,
+    .stat-card,
+    .insight-card,
+    .period-card,
+    .reactive-box,
+    .question-card,
+    .activity-card,
+    .session-card,
+    .role-guide-card,
+    .import-guide-card {
+        padding: 1rem;
+    }
+
+    .skip-link {
+        max-width: calc(100% - 1rem);
     }
 }

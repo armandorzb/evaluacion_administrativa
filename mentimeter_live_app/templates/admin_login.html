@@ -7,20 +7,23 @@
     <link rel="stylesheet" href="{{ url_for('static', filename='css/app.css', v=asset_version) }}">
 </head>
 <body class="join-shell">
-    <main class="join-box">
+    <main class="join-box" aria-labelledby="login-title">
         <p class="eyebrow">Presentador</p>
-        <h1>Acceso live</h1>
-        <form method="post">
+        <h1 id="login-title">Acceso live</h1>
+        <form method="post" class="login-form">
             {% if auth_mode == "password" %}
-            <input name="username" autocomplete="username" placeholder="Usuario" required>
-            <input name="password" type="password" autocomplete="current-password" placeholder="Contraseña" required>
+            <label class="visually-hidden" for="admin-username">Usuario</label>
+            <input id="admin-username" name="username" autocomplete="username" placeholder="Usuario" required autofocus>
+            <label class="visually-hidden" for="admin-password">Contraseña</label>
+            <input id="admin-password" name="password" type="password" autocomplete="current-password" placeholder="Contraseña" required>
             {% else %}
-            <input name="pin" type="password" inputmode="numeric" autocomplete="current-password" placeholder="PIN" required>
+            <label class="visually-hidden" for="admin-pin">PIN de acceso</label>
+            <input id="admin-pin" name="pin" type="password" inputmode="numeric" autocomplete="one-time-code" placeholder="PIN" required autofocus>
             {% endif %}
             <button type="submit">Entrar</button>
         </form>
         {% if error %}
-        <p class="error">{{ error }}</p>
+        <p class="error" role="alert">{{ error }}</p>
         {% endif %}
     </main>
 </body>

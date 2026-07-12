@@ -2,15 +2,17 @@
 <html lang="es">
 <head>
     <meta charset="UTF-8">
-    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0, viewport-fit=cover">
+    <meta name="theme-color" content="#cf6a17">
     <title>{% block title %}Diagnóstico ISO 9001:2015{% endblock %}</title>
     <link rel="preconnect" href="https://fonts.googleapis.com">
     <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
     <link href="https://fonts.googleapis.com/css2?family=Urbanist:wght@300;400;500;600;700;800&family=Source+Sans+3:wght@400;600;700&display=swap" rel="stylesheet">
-    <link rel="stylesheet" href="{{ url_for('static', filename='style.css') }}">
+    <link rel="stylesheet" href="{{ url_for('static', filename='style.css', v='responsive-20260711') }}">
     <script defer src="{{ url_for('static', filename='app.js', v='diagnostico-docs-20260709') }}"></script>
 </head>
 <body class="iso9001-body {% block body_class %}{% endblock %}" {% if current_user.is_authenticated %}data-heartbeat-url="{{ url_for('dashboard.heartbeat') }}"{% endif %}>
+    <a class="skip-link" href="#main-content">Saltar al contenido principal</a>
     <div class="site-shell">
         <header class="site-header" data-header-region>
             <div class="header-frame">
@@ -48,7 +50,7 @@
         </header>
         <div class="menu-scrim" data-menu-scrim aria-hidden="true"></div>
 
-        <main class="content-shell">
+        <main id="main-content" class="content-shell" tabindex="-1">
             {% with messages = get_flashed_messages(with_categories=true) %}
                 {% if messages %}
                 <div class="flash-stack">

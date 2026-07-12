@@ -7,17 +7,17 @@
     <link rel="stylesheet" href="{{ url_for('static', filename='css/app.css', v=asset_version) }}">
 </head>
 <body class="audience-shell">
-    <main class="audience-card" data-audience data-code="{{ session.code }}" data-token="{{ participant.token }}">
+    <main class="audience-card" data-audience data-code="{{ session.code }}" data-token="{{ participant.token }}" aria-labelledby="audience-title">
         <header>
             <p class="eyebrow">Código {{ session.code }}</p>
-            <h1>{{ session.title }}</h1>
-            <p data-audience-status>Conectando...</p>
+            <h1 id="audience-title">{{ session.title }}</h1>
+            <p data-audience-status role="status">Conectando...</p>
         </header>
-        <section data-question-area class="answer-area">
+        <section data-question-area class="answer-area" aria-live="polite" aria-atomic="true">
             <h2>Esperando al presentador</h2>
             <p class="muted">La pregunta activa aparecerá automáticamente.</p>
         </section>
-        <footer>
+        <footer aria-label="Estado de participación">
             <span data-score>0 pts</span>
             <span data-connected-count>0 conectados</span>
         </footer>

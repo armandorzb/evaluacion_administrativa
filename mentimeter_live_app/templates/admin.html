@@ -7,7 +7,7 @@
     <link rel="stylesheet" href="{{ url_for('static', filename='css/app.css', v=asset_version) }}">
 </head>
 <body class="deck-shell{% if present_only|default(false) %} present-only{% endif %}">
-    <header class="deck-topbar">
+    <header class="deck-topbar" aria-label="Controles de Live Studio">
         <div class="deck-brand">
             <p class="eyebrow">Live Studio</p>
             {% if selected %}
@@ -46,7 +46,7 @@
         {% endif %}
     </header>
 
-    <main class="deck-editor" data-deck-editor>
+    <main class="deck-editor" data-deck-editor aria-label="Editor de presentación">
         <aside class="slide-rail" aria-label="Presentaciones y diapositivas">
             <section class="deck-list">
                 <div class="rail-title">

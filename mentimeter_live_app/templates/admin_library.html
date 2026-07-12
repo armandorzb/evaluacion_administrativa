@@ -7,7 +7,7 @@
     <link rel="stylesheet" href="{{ url_for('static', filename='css/app.css', v=asset_version) }}">
 </head>
 <body class="deck-shell library-mode">
-    <header class="library-topbar">
+    <header class="library-topbar" aria-label="Cabecera de la biblioteca">
         <div class="deck-brand">
             <p class="eyebrow">Live Studio</p>
             <h1>Biblioteca de presentaciones</h1>
@@ -27,7 +27,7 @@
         {% endif %}
     </header>
 
-    <main class="library-shell">
+    <main class="library-shell" aria-label="Biblioteca de presentaciones">
         <aside class="library-sidebar" aria-label="Carpetas">
             <section class="library-panel">
                 <div class="library-panel-head">
@@ -72,7 +72,7 @@
             <p class="error">{{ error }}</p>
             {% endif %}
 
-            <div class="library-heading">
+            <div class="library-heading" aria-live="polite">
                 <div>
                     <p class="eyebrow">Presentaciones realizadas</p>
                     <h2>

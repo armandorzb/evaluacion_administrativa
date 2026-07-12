@@ -7,15 +7,16 @@
     <link rel="stylesheet" href="{{ url_for('static', filename='css/app.css', v=asset_version) }}">
 </head>
 <body class="join-shell">
-    <main class="join-card-main">
+    <main class="join-card-main" aria-labelledby="join-title">
         <p class="eyebrow">Participa en vivo</p>
-        <h1>Ingresa el código</h1>
+        <h1 id="join-title">Ingresa el código</h1>
         <form method="post" class="join-form">
-            <input name="code" inputmode="numeric" pattern="[0-9]{6}" maxlength="6" placeholder="123456" value="{{ code or '' }}" autofocus>
+            <label class="visually-hidden" for="session-code">Código de seis dígitos</label>
+            <input id="session-code" name="code" inputmode="numeric" autocomplete="one-time-code" pattern="[0-9]{6}" maxlength="6" placeholder="123456" value="{{ code or '' }}" aria-describedby="join-help" required autofocus>
             <button type="submit">Entrar</button>
         </form>
-        {% if error %}<p class="error">{{ error }}</p>{% endif %}
-        <p class="muted">Demo local: usa el código <strong>123456</strong>.</p>
+        {% if error %}<p class="error" role="alert">{{ error }}</p>{% endif %}
+        <p id="join-help" class="muted">Demo local: usa el código <strong>123456</strong>.</p>
     </main>
 </body>
 </html>
