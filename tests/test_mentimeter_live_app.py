@@ -1,11 +1,23 @@
+import base64
 from datetime import timedelta
 from io import BytesIO
 from pathlib import Path
+from tempfile import TemporaryDirectory
 
 from openpyxl import load_workbook
 
 from mentimeter_live_app.app import build_session_report, create_app, socketio
-from mentimeter_live_app.models import db, Participant, PresentationFolder, Question, Response, Session, SessionRun, utcnow
+from mentimeter_live_app.models import (
+    db,
+    Participant,
+    PresentationAsset,
+    PresentationFolder,
+    Question,
+    Response,
+    Session,
+    SessionRun,
+    utcnow,
+)
 
 
 class TestConfig:
@@ -17,6 +29,11 @@ class TestConfig:
 
 
 MOJIBAKE_MARKERS = ("Ã", "Â", "â€", "â€“", "â€”", "â€¦", "ðŸ", "�")
+
+
+TINY_PNG = base64.b64decode(
+    "iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAQAAAC1HAwCAAAAC0lEQVR42mNk+A8AAQUBAScY42YAAAAASUVORK5CYII="
+)
 
 
 def build_app():
@@ -73,6 +90,25 @@ def build_limited_app():
     )
 
 
+def build_asset_app(upload_folder: str, **overrides):
+    config = {
+        "TESTING": True,
+        "SECRET_KEY": "test",
+        "SQLALCHEMY_DATABASE_URI": "sqlite:///:memory:",
+        "SQLALCHEMY_TRACK_MODIFICATIONS": False,
+        "MENTI_SEED_DEMO": False,
+        "MENTI_ASSET_UPLOAD_FOLDER": upload_folder,
+        "MENTI_REQUEST_MAX_CONTENT_LENGTH": 512,
+        "MENTI_ASSET_MAX_UPLOAD": 1024 * 1024,
+    }
+    config.update(overrides)
+    return create_app(config)
+
+
+def png_upload(filename: str = "cover.png"):
+    return BytesIO(TINY_PNG), filename
+
+
 def test_mentimeter_live_sources_do_not_contain_mojibake():
     root = Path(__file__).resolve().parents[1] / "mentimeter_live_app"
     text_suffixes = {".css", ".html", ".js", ".md", ".py", ".txt"}
@@ -113,13 +149,24 @@ def test_admin_home_is_library_and_editor_uses_explicit_session_route():
     assert "data-slide-canvas" not in library_html
     assert "/admin/123456" in library_html
     assert "/present/123456" in library_html
+    assert "/admin/123456/presenter" in library_html
 
     editor_html = client.get("/admin/123456").get_data(as_text=True)
     assert "data-slide-canvas" in editor_html
-    assert "data-slide-results-stage" in editor_html
+    assert "data-canvas-stage" in editor_html
+    assert "data-slide-inspector" in editor_html
+    assert "data-editor-toolbar" in editor_html
 
     legacy_editor_html = client.get("/admin?code=123456").get_data(as_text=True)
     assert "data-slide-canvas" in legacy_editor_html
+
+    projection_html = client.get("/present/123456").get_data(as_text=True)
+    assert "data-projection-canvas" in projection_html
+    assert "data-slide-inspector" not in projection_html
+
+    presenter_html = client.get("/admin/123456/presenter").get_data(as_text=True)
+    assert "data-presenter-console" in presenter_html
+    assert "data-presenter-notes" in presenter_html
 
 
 def test_library_can_create_folders_duplicate_move_and_delete_presentations():
@@ -164,6 +211,201 @@ def test_library_can_create_folders_duplicate_move_and_delete_presentations():
         assert db.session.get(PresentationFolder, folder["id"]) is None
 
 
+def test_presentation_assets_are_validated_scoped_and_copied_with_a_presentation():
+    with TemporaryDirectory() as upload_folder:
+        app = build_asset_app(upload_folder)
+        client = app.test_client()
+        first = client.post("/api/sessions", json={"title": "Activos"}).get_json()["session"]
+        second = client.post("/api/sessions", json={"title": "Otra"}).get_json()["session"]
+
+        invalid = client.post(
+            f"/api/sessions/{first['code']}/assets",
+            data={"file": (BytesIO(b"<svg></svg>"), "cover.svg")},
+            content_type="multipart/form-data",
+        )
+        assert invalid.status_code == 400
+
+        uploaded = client.post(
+            f"/api/sessions/{first['code']}/assets",
+            data={"file": png_upload(), "alt_text": "Portada institucional"},
+            content_type="multipart/form-data",
+        )
+        assert uploaded.status_code == 201
+        asset = uploaded.get_json()["asset"]
+        assert asset["mime_type"] == "image/png"
+        assert asset["alt_text"] == "Portada institucional"
+        assert client.get(asset["url"]).status_code == 200
+
+        created = client.post(
+            f"/api/sessions/{first['code']}/questions",
+            json={
+                "type": "content_slide",
+                "title": "Bienvenida",
+                "prompt": "",
+                "config": {
+                    "background": {"asset_id": asset["id"], "color": "#ffffff"},
+                    "media_blocks": [{"asset_id": asset["id"], "x": 10, "y": 30, "w": 40, "h": 40, "locked": True}],
+                },
+            },
+        )
+        assert created.status_code == 201
+        slide = created.get_json()["question"]
+        assert slide["config"]["background"]["asset_url"] == asset["url"]
+        assert slide["config"]["media_blocks"][0]["asset_url"] == asset["url"]
+        assert slide["config"]["media_blocks"][0]["locked"] is True
+
+        foreign_asset = client.post(
+            f"/api/sessions/{second['code']}/questions",
+            json={
+                "type": "content_slide",
+                "title": "No autorizado",
+                "prompt": "",
+                "config": {"background": {"asset_id": asset["id"]}},
+            },
+        )
+        assert foreign_asset.status_code == 400
+        assert client.delete(f"/api/sessions/{first['code']}/assets/{asset['id']}").status_code == 409
+
+        duplicated = client.post(f"/api/sessions/{first['code']}/duplicate")
+        assert duplicated.status_code == 201
+        copy_session = duplicated.get_json()["session"]
+        assert len(copy_session["assets"]) == 1
+        copied_asset = copy_session["assets"][0]
+        assert copied_asset["id"] != asset["id"]
+        assert copied_asset["url"] != asset["url"]
+        assert copy_session["questions"][0]["config"]["background"]["asset_id"] == copied_asset["id"]
+        assert copy_session["questions"][0]["config"]["media_blocks"][0]["asset_id"] == copied_asset["id"]
+
+        with app.app_context():
+            assert PresentationAsset.query.filter_by(session_id=first["id"]).count() == 1
+            assert PresentationAsset.query.filter_by(session_id=copy_session["id"]).count() == 1
+
+
+def test_design_contract_is_compatible_and_keeps_presenter_notes_private():
+    app = build_app()
+    client = app.test_client()
+    session = client.post("/api/sessions", json={"title": "Contrato de diseño"}).get_json()["session"]
+
+    created = client.post(
+        f"/api/sessions/{session['code']}/questions",
+        json={
+            "type": "word_cloud",
+            "title": "Ideas",
+            "prompt": "Una palabra",
+            "config": {
+                "background": "#f4f7fb",
+                "media_url": "https://example.test/legacy.png",
+                "qr_block": {"x": 70, "y": 8, "w": 20, "h": 20, "locked": True},
+                "show_qr": True,
+                "notes": "No leer esta nota en pantalla.",
+                "result_layout": "list",
+            },
+        },
+    )
+    assert created.status_code == 201
+    question = created.get_json()["question"]
+    config = question["config"]
+    assert config["background"]["color"] == "#f4f7fb"
+    assert config["media_url"] == "https://example.test/legacy.png"
+    assert config["qr_position"] == config["qr_block"]
+    assert config["qr_position"]["locked"] is True
+    assert config["result_layout"] == "list"
+    assert config["presenter_notes"] == "No leer esta nota en pantalla."
+    assert config["notes"] == config["presenter_notes"]
+
+    public_question = client.get(f"/api/sessions/{session['code']}").get_json()["session"]["questions"][0]
+    assert "presenter_notes" not in public_question["config"]
+    assert "notes" not in public_question["config"]
+
+    private_question = client.get(
+        f"/api/sessions/{session['code']}?include_private=1"
+    ).get_json()["session"]["questions"][0]
+    assert private_question["config"]["presenter_notes"] == "No leer esta nota en pantalla."
+
+
+def test_presenter_private_state_is_not_broadcast_to_audience_sockets():
+    app = build_app()
+    client = app.test_client()
+    session = client.post("/api/sessions", json={"title": "Notas en vivo"}).get_json()["session"]
+    question = client.post(
+        f"/api/sessions/{session['code']}/questions",
+        json={
+            "type": "content_slide",
+            "title": "Portada",
+            "prompt": "",
+            "config": {"presenter_notes": "Solo para quien presenta."},
+        },
+    ).get_json()["question"]
+
+    presenter = socketio.test_client(app, flask_test_client=client)
+    audience = socketio.test_client(app)
+    projection = socketio.test_client(app)
+    presenter_ack = presenter.emit("presenter_join", {"code": session["code"]}, callback=True)
+    audience_ack = audience.emit("join_session", {"code": session["code"]}, callback=True)
+    projection_ack = projection.emit("projection_join", {"code": session["code"]}, callback=True)
+    assert presenter_ack["session"]["questions"][0]["config"]["presenter_notes"] == "Solo para quien presenta."
+    assert "presenter_notes" not in audience_ack["session"]["questions"][0]["config"]
+    assert "presenter_notes" not in projection_ack["session"]["questions"][0]["config"]
+    presenter.get_received()
+    audience.get_received()
+    projection.get_received()
+
+    changed = client.patch(
+        f"/api/sessions/{session['code']}/questions/{question['id']}",
+        json={"config": {"presenter_notes": "Nota actualizada."}, "updated_at": question["updated_at"]},
+    )
+    assert changed.status_code == 200
+
+    presenter_states = [item for item in presenter.get_received() if item["name"] == "presenter_session_state"]
+    audience_states = [item for item in audience.get_received() if item["name"] == "session_state"]
+    projection_states = [item for item in projection.get_received() if item["name"] == "session_state"]
+    assert presenter_states
+    assert presenter_states[-1]["args"][0]["questions"][0]["config"]["presenter_notes"] == "Nota actualizada."
+    assert audience_states
+    assert "presenter_notes" not in audience_states[-1]["args"][0]["questions"][0]["config"]
+    assert projection_states
+    assert "presenter_notes" not in projection_states[-1]["args"][0]["questions"][0]["config"]
+    presenter.disconnect()
+    audience.disconnect()
+    projection.disconnect()
+
+
+def test_patch_rejects_stale_updated_at_for_session_and_question():
+    app = build_app()
+    client = app.test_client()
+    session = client.post("/api/sessions", json={"title": "Autosave"}).get_json()["session"]
+
+    first_session_patch = client.patch(
+        f"/api/sessions/{session['code']}",
+        json={"title": "Autosave actualizado", "updated_at": session["updated_at"]},
+    )
+    assert first_session_patch.status_code == 200
+    stale_session_patch = client.patch(
+        f"/api/sessions/{session['code']}",
+        json={"title": "No debe sobrescribir", "if_updated_at": session["updated_at"]},
+    )
+    assert stale_session_patch.status_code == 409
+    assert stale_session_patch.get_json()["code"] == "edit_conflict"
+    assert stale_session_patch.get_json()["session"]["title"] == "Autosave actualizado"
+
+    question = client.post(
+        f"/api/sessions/{session['code']}/questions",
+        json={"type": "content_slide", "title": "Original", "prompt": ""},
+    ).get_json()["question"]
+    updated_question = client.patch(
+        f"/api/sessions/{session['code']}/questions/{question['id']}",
+        json={"title": "Cambio válido", "updated_at": question["updated_at"]},
+    )
+    assert updated_question.status_code == 200
+    stale_question = client.patch(
+        f"/api/sessions/{session['code']}/questions/{question['id']}",
+        json={"title": "Cambio perdido", "updated_at": question["updated_at"]},
+    )
+    assert stale_question.status_code == 409
+    assert stale_question.get_json()["code"] == "edit_conflict"
+    assert stale_question.get_json()["question"]["title"] == "Cambio válido"
+
+
 def test_library_web_forms_create_folder_and_open_new_presentation_editor():
     app = build_app()
     client = app.test_client()
@@ -193,25 +435,28 @@ def test_library_web_forms_create_folder_and_open_new_presentation_editor():
         assert session.folder_id == folder.id
 
 
-def test_presenter_surfaces_mount_results_inside_slide_canvas():
+def test_projection_and_presenter_surfaces_are_separate_from_the_editor():
     app = build_app()
     client = app.test_client()
 
-    for path in ["/admin?code=123456", "/present/123456"]:
-        html = client.get(path).get_data(as_text=True)
-        canvas_index = html.index("data-slide-canvas")
-        results_index = html.index("data-slide-results-stage")
-        article_end = html.index("</article>", canvas_index)
+    editor_html = client.get("/admin?code=123456").get_data(as_text=True)
+    projection_html = client.get("/present/123456").get_data(as_text=True)
+    presenter_html = client.get("/admin/123456/presenter").get_data(as_text=True)
 
-        assert "live-results-strip" not in html
-        assert canvas_index < results_index < article_end
+    assert "data-slide-canvas" in editor_html
+    assert "data-projection" in projection_html
+    assert "data-projection-canvas" in projection_html
+    assert "data-slide-inspector" not in projection_html
+    assert "data-presenter-console" in presenter_html
+    assert "data-presenter-canvas" in presenter_html
+    assert "data-presenter-notes" in presenter_html
 
 
-def test_interactive_slide_layout_blocks_render_inside_slide_canvas():
+def test_interactive_slide_layout_blocks_are_serialized_for_client_side_canvas_rendering():
     app = build_app()
     client = app.test_client()
     session = client.post("/api/sessions", json={"title": "Bloques editables"}).get_json()["session"]
-    client.post(
+    created = client.post(
         f"/api/sessions/{session['code']}/questions",
         json={
             "type": "multiple_choice",
@@ -227,28 +472,26 @@ def test_interactive_slide_layout_blocks_render_inside_slide_canvas():
             },
         },
     )
+    question = created.get_json()["question"]
+    blocks = question["config"]["layout_blocks"]
+    assert blocks["question"]["x"] == 5
+    assert blocks["activity"]["w"] == 35
+    assert blocks["results"]["h"] == 45
 
-    for path in [f"/admin?code={session['code']}", f"/present/{session['code']}"]:
-        html = client.get(path).get_data(as_text=True)
-        canvas_index = html.index("data-slide-canvas")
-        article_end = html.index("</article>", canvas_index)
-
-        for block_id in ["question", "activity", "results"]:
-            block_index = html.index(f'data-layout-block-id="{block_id}"')
-            assert canvas_index < block_index < article_end
-        assert html.index("slide-layout-block-results") < html.index("data-slide-results-stage")
+    editor_html = client.get(f"/admin?code={session['code']}").get_data(as_text=True)
+    projection_html = client.get(f"/present/{session['code']}").get_data(as_text=True)
+    assert "data-slide-canvas" in editor_html
+    assert "data-projection-canvas" in projection_html
 
 
-def test_admin_initial_canvas_marks_text_click_targets():
+def test_admin_initial_canvas_exposes_client_side_editor_targets():
     app = build_app()
     client = app.test_client()
 
     content_html = client.get("/admin?code=123456").get_data(as_text=True)
-    canvas_index = content_html.index("data-slide-canvas")
-    article_end = content_html.index("</article>", canvas_index)
-    content_canvas = content_html[canvas_index:article_end]
-    assert 'data-text-box-id="title"' in content_canvas
-    assert 'data-text-box-id="body"' in content_canvas
+    assert "data-slide-canvas" in content_html
+    assert "data-slide-inspector" in content_html
+    assert "admin.js" in content_html
 
     session = client.post("/api/sessions", json={"title": "Targets iniciales"}).get_json()["session"]
     client.post(
@@ -261,12 +504,9 @@ def test_admin_initial_canvas_marks_text_click_targets():
         },
     )
     interactive_html = client.get(f"/admin?code={session['code']}").get_data(as_text=True)
-    canvas_index = interactive_html.index("data-slide-canvas")
-    article_end = interactive_html.index("</article>", canvas_index)
-    interactive_canvas = interactive_html[canvas_index:article_end]
-    assert 'data-text-target="title"' in interactive_canvas
-    assert 'data-text-target="prompt"' in interactive_canvas
-    assert 'data-text-target="option:0"' in interactive_canvas
+    assert "data-slide-canvas" in interactive_html
+    assert "data-canvas-stage" in interactive_html
+    assert "data-slide-inspector" in interactive_html
 
 
 def test_optional_admin_pin_protects_presenter_surfaces_but_not_audience():
@@ -274,6 +514,8 @@ def test_optional_admin_pin_protects_presenter_surfaces_but_not_audience():
     client = app.test_client()
 
     assert client.get("/admin").status_code == 302
+    assert client.get("/present/123456").status_code == 302
+    assert client.get("/admin/123456/presenter").status_code == 302
     assert client.get("/api/sessions").status_code == 401
     socket_client = socketio.test_client(app, flask_test_client=client)
     control = socket_client.emit("presenter_control", {"code": "123456", "action": "start"}, callback=True)
@@ -290,6 +532,8 @@ def test_optional_admin_pin_protects_presenter_surfaces_but_not_audience():
     assert good_login.status_code == 302
     assert good_login.headers["Location"].endswith("/admin")
     assert client.get("/admin").status_code == 200
+    assert client.get("/present/123456").status_code == 200
+    assert client.get("/admin/123456/presenter").status_code == 200
     assert client.get("/api/sessions").status_code == 200
 
 
@@ -443,7 +687,7 @@ def test_interactive_question_config_forces_results_inside_slide():
                 "result_layout": "list",
                 "layout_blocks": {
                     "question": {"x": -8, "y": 120, "w": 8, "h": 4, "z": 200},
-                    "activity": {"x": 30.5, "y": 44.25, "w": 36, "h": 32, "z": 6},
+                    "activity": {"x": 30.5, "y": 44.25, "w": 36, "h": 32, "z": 6, "locked": True},
                     "legacy": {"x": 1, "y": 1, "w": 1, "h": 1},
                 },
             },
@@ -453,9 +697,18 @@ def test_interactive_question_config_forces_results_inside_slide():
     assert multiple["config"]["show_results"] is False
     assert multiple["config"]["result_layout"] == "list"
     assert set(multiple["config"]["layout_blocks"]) == {"question", "activity", "results"}
-    assert multiple["config"]["layout_blocks"]["question"] == {"id": "question", "x": 0, "y": 90.0, "w": 12, "h": 10, "z": 100}
+    assert multiple["config"]["layout_blocks"]["question"] == {
+        "id": "question",
+        "x": 0,
+        "y": 90.0,
+        "w": 12,
+        "h": 10,
+        "locked": False,
+        "z": 100,
+    }
     assert multiple["config"]["layout_blocks"]["activity"]["x"] == 30.5
     assert multiple["config"]["layout_blocks"]["activity"]["y"] == 44.25
+    assert multiple["config"]["layout_blocks"]["activity"]["locked"] is True
 
     cloud = client.post(
         f"/api/sessions/{code}/questions",
@@ -591,6 +844,7 @@ def test_content_slide_text_boxes_are_saved_sanitized_and_synced():
                         "background": "transparent",
                         "align": "center",
                         "auto_fit": False,
+                        "locked": True,
                         "z": 5,
                     },
                     {
@@ -622,7 +876,9 @@ def test_content_slide_text_boxes_are_saved_sanitized_and_synced():
     assert title_box["font_weight"] == 800
     assert title_box["color"] == "#2563eb"
     assert title_box["auto_fit"] is False
+    assert title_box["locked"] is True
     assert body_box["background"] == "#ffffff"
+    assert body_box["locked"] is False
     assert body_box["align"] == "right"
     assert config["body"] == "Partes interesadas y alcance"
 

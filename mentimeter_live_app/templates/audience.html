@@ -3,23 +3,36 @@
 <head>
     <meta charset="utf-8">
     <meta name="viewport" content="width=device-width, initial-scale=1">
-    <title>{{ session.title }}</title>
+    <title>{{ session.title }} | Participar</title>
     <link rel="stylesheet" href="{{ url_for('static', filename='css/app.css', v=asset_version) }}">
 </head>
-<body class="audience-shell">
-    <main class="audience-card" data-audience data-code="{{ session.code }}" data-token="{{ participant.token }}" aria-labelledby="audience-title">
-        <header>
-            <p class="eyebrow">Código {{ session.code }}</p>
-            <h1 id="audience-title">{{ session.title }}</h1>
-            <p data-audience-status role="status">Conectando...</p>
+<body class="audience-shell audience-shell--pro" data-theme="{{ (session.config_json or {}).get('theme', 'civic') }}">
+    <main class="audience-card audience-card--pro" data-audience data-code="{{ session.code }}" data-token="{{ participant.token }}" aria-labelledby="audience-title">
+        <header class="audience-header">
+            <div class="audience-brand-row">
+                <span class="brand-mark brand-mark--small" aria-hidden="true">L</span>
+                <span>Live Studio</span>
+                <span class="audience-code">Código {{ session.code }}</span>
+            </div>
+            <div class="audience-title-row">
+                <div>
+                    <p class="eyebrow">Participación en vivo</p>
+                    <h1 id="audience-title">{{ session.title }}</h1>
+                </div>
+                <p data-audience-status role="status">Conectando…</p>
+            </div>
         </header>
-        <section data-question-area class="answer-area" aria-live="polite" aria-atomic="true">
-            <h2>Esperando al presentador</h2>
-            <p class="muted">La pregunta activa aparecerá automáticamente.</p>
+        <section data-question-area class="answer-area answer-area--pro" aria-live="polite" aria-atomic="true">
+            <div class="audience-waiting">
+                <span class="audience-waiting-mark" aria-hidden="true">L</span>
+                <h2>Esperando al presentador</h2>
+                <p class="muted">La diapositiva activa aparecerá automáticamente.</p>
+            </div>
         </section>
-        <footer aria-label="Estado de participación">
+        <footer class="audience-footer" aria-label="Estado de participación">
             <span data-score>0 pts</span>
             <span data-connected-count>0 conectados</span>
+            <span class="audience-footer-note">Tus respuestas se envían de forma privada.</span>
         </footer>
     </main>
 

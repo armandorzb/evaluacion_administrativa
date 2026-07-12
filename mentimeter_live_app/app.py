@@ -3,7 +3,7 @@ from __future__ import annotations
 import csv
 import json
 from collections import Counter, defaultdict, deque
-from datetime import datetime
+from datetime import UTC, datetime
 from functools import wraps
 from io import BytesIO, StringIO
 from math import ceil
@@ -11,11 +11,14 @@ import os
 from pathlib import Path
 from random import randint
 import re
-from secrets import compare_digest, token_urlsafe
+from secrets import compare_digest, token_hex, token_urlsafe
+from shutil import copyfile
 from time import monotonic
 from typing import Any
+import warnings
 
 import qrcode
+from PIL import Image, UnidentifiedImageError
 from flask import (
     Flask,
     abort,
@@ -32,15 +35,38 @@ from flask import (
 from flask_socketio import SocketIO, emit, join_room
 from sqlalchemy import inspect
 from werkzeug.middleware.proxy_fix import ProxyFix
+from werkzeug.utils import secure_filename
 from openpyxl import Workbook
 from openpyxl.styles import Alignment, Font, PatternFill
 from reportlab.lib.pagesizes import letter
 from reportlab.pdfgen import canvas
 
 try:
-    from .models import db, Option, Participant, PresentationFolder, Question, Response, Session, SessionRun, utcnow
+    from .models import (
+        db,
+        Option,
+        Participant,
+        PresentationAsset,
+        PresentationFolder,
+        Question,
+        Response,
+        Session,
+        SessionRun,
+        utcnow,
+    )
 except ImportError:  # Allows `python app.py` from this folder.
-    from models import db, Option, Participant, PresentationFolder, Question, Response, Session, SessionRun, utcnow
+    from models import (
+        db,
+        Option,
+        Participant,
+        PresentationAsset,
+        PresentationFolder,
+        Question,
+        Response,
+        Session,
+        SessionRun,
+        utcnow,
+    )
 
 
 socketio = SocketIO(
@@ -52,7 +78,15 @@ socketio = SocketIO(
 QUESTION_TYPES = {"content_slide", "multiple_choice", "word_cloud", "scale", "open_text", "ranking", "quiz"}
 SINGLE_RESPONSE_TYPES = {"multiple_choice", "scale", "ranking", "quiz"}
 PARTICIPANT_COOKIE = "menti_participant_token"
-RESULT_LAYOUTS = {"auto", "chart", "list", "grid", "cloud", "cards", "leaderboard"}
+RESULT_LAYOUTS = {"chart", "list", "grid", "cloud", "cards", "leaderboard", "ranking"}
+RESULT_LAYOUTS_BY_TYPE = {
+    "multiple_choice": {"chart", "list", "grid"},
+    "scale": {"chart", "list", "grid"},
+    "word_cloud": {"cloud", "list"},
+    "open_text": {"cards", "list"},
+    "ranking": {"ranking", "chart"},
+    "quiz": {"leaderboard", "chart"},
+}
 LAYOUT_BLOCK_IDS = ("question", "activity", "results")
 DEFAULT_LAYOUT_BLOCKS = {
     "question": {"id": "question", "x": 7, "y": 12, "w": 86, "h": 25, "z": 1},
@@ -63,6 +97,13 @@ TEXT_BOX_HEX_RE = re.compile(r"^#[0-9a-fA-F]{6}$")
 TEXT_BOX_MAX_ITEMS = 24
 TEXT_BOX_MAX_TEXT = 1200
 TEXT_BOX_TOTAL_TEXT = 3000
+MEDIA_BLOCK_MAX_ITEMS = 24
+ASSET_MIME_BY_FORMAT = {
+    "PNG": ("image/png", ".png", {".png"}),
+    "JPEG": ("image/jpeg", ".jpg", {".jpg", ".jpeg"}),
+    "WEBP": ("image/webp", ".webp", {".webp"}),
+}
+ASSET_UPLOAD_OVERHEAD = 64 * 1024
 socket_participants: dict[str, tuple[int, str]] = {}
 public_rate_buckets: dict[str, deque[float]] = {}
 
@@ -74,11 +115,14 @@ def default_asset_version() -> str:
         app_root / "static" / "css" / "app.css",
         app_root / "static" / "js" / "admin.js",
         app_root / "static" / "js" / "audience.js",
+        app_root / "static" / "js" / "presenter.js",
         app_root / "templates" / "admin.html",
         app_root / "templates" / "admin_library.html",
         app_root / "templates" / "admin_login.html",
         app_root / "templates" / "audience.html",
         app_root / "templates" / "join.html",
+        app_root / "templates" / "present.html",
+        app_root / "templates" / "presenter.html",
     ]
     mtimes = [path.stat().st_mtime for path in candidates if path.exists()]
     return str(int(max(mtimes, default=0)))
@@ -88,11 +132,23 @@ def create_app(test_config: dict[str, Any] | None = None) -> Flask:
     app = Flask(__name__, instance_relative_config=True)
     database_url = os.getenv("DATABASE_URL")
     local_database = Path(os.getenv("MENTI_DB_PATH", str(Path(app.instance_path) / "mentimeter.sqlite3")))
+    request_max_content_length = int(os.getenv("MENTI_MAX_CONTENT_LENGTH", str(1024 * 1024)))
+    asset_max_upload = int(os.getenv("MENTI_ASSET_MAX_UPLOAD", str(8 * 1024 * 1024)))
     app.config.update(
         SECRET_KEY=os.getenv("SECRET_KEY", "dev-mentimeter-local"),
         SQLALCHEMY_DATABASE_URI=database_url or f"sqlite:///{local_database}",
         SQLALCHEMY_TRACK_MODIFICATIONS=False,
-        MAX_CONTENT_LENGTH=int(os.getenv("MENTI_MAX_CONTENT_LENGTH", str(1024 * 1024))),
+        # Flask needs a ceiling high enough for multipart image uploads.  The
+        # before-request guard below still applies the tighter JSON/request
+        # limit to every route other than the asset upload endpoint.
+        MAX_CONTENT_LENGTH=max(request_max_content_length, asset_max_upload + ASSET_UPLOAD_OVERHEAD),
+        MENTI_REQUEST_MAX_CONTENT_LENGTH=request_max_content_length,
+        MENTI_ASSET_MAX_UPLOAD=asset_max_upload,
+        MENTI_ASSET_MAX_PIXELS=int(os.getenv("MENTI_ASSET_MAX_PIXELS", "20000000")),
+        MENTI_ASSET_UPLOAD_FOLDER=os.getenv(
+            "MENTI_ASSET_UPLOAD_FOLDER",
+            str(Path(app.instance_path) / "presentation_assets"),
+        ),
         MENTI_SEED_DEMO=os.getenv("MENTI_SEED_DEMO", "true").lower() in {"1", "true", "yes", "si"},
         MENTI_SOCKETIO_CORS=os.getenv("MENTI_SOCKETIO_CORS", "*"),
         MENTI_ADMIN_PIN=os.getenv("MENTI_ADMIN_PIN"),
@@ -105,9 +161,26 @@ def create_app(test_config: dict[str, Any] | None = None) -> Flask:
     if test_config:
         app.config.update(test_config)
 
+    # Existing deployments and tests may only define MAX_CONTENT_LENGTH.  Keep
+    # that setting meaningful for ordinary payloads while still allowing the
+    # dedicated, configurable image limit on the multipart endpoint.
+    if test_config and "MAX_CONTENT_LENGTH" in test_config and "MENTI_REQUEST_MAX_CONTENT_LENGTH" not in test_config:
+        app.config["MENTI_REQUEST_MAX_CONTENT_LENGTH"] = int(test_config["MAX_CONTENT_LENGTH"])
+    app.config["MENTI_REQUEST_MAX_CONTENT_LENGTH"] = max(
+        1,
+        int(app.config.get("MENTI_REQUEST_MAX_CONTENT_LENGTH") or request_max_content_length),
+    )
+    app.config["MENTI_ASSET_MAX_UPLOAD"] = max(1, int(app.config.get("MENTI_ASSET_MAX_UPLOAD") or asset_max_upload))
+    app.config["MENTI_ASSET_MAX_PIXELS"] = max(1, int(app.config.get("MENTI_ASSET_MAX_PIXELS") or 20_000_000))
+    app.config["MAX_CONTENT_LENGTH"] = max(
+        app.config["MENTI_REQUEST_MAX_CONTENT_LENGTH"],
+        app.config["MENTI_ASSET_MAX_UPLOAD"] + ASSET_UPLOAD_OVERHEAD,
+    )
+
     Path(app.instance_path).mkdir(parents=True, exist_ok=True)
     if not database_url:
         local_database.parent.mkdir(parents=True, exist_ok=True)
+    Path(str(app.config["MENTI_ASSET_UPLOAD_FOLDER"])).mkdir(parents=True, exist_ok=True)
     db.init_app(app)
     if os.getenv("MENTI_PROXY_FIX", "false").lower() in {"1", "true", "yes", "si"}:
         app.wsgi_app = ProxyFix(app.wsgi_app, x_for=1, x_proto=1, x_host=1, x_prefix=1)
@@ -223,7 +296,7 @@ def rate_limited_response(retry_after: int):
 
 
 def socket_payload_too_large(payload: Any) -> bool:
-    max_size = int(current_app.config.get("MAX_CONTENT_LENGTH") or 0)
+    max_size = int(current_app.config.get("MENTI_REQUEST_MAX_CONTENT_LENGTH") or 0)
     if not max_size:
         return False
     try:
@@ -236,7 +309,11 @@ def socket_payload_too_large(payload: Any) -> bool:
 def register_routes(app: Flask) -> None:
     @app.before_request
     def reject_oversized_payload():
-        max_size = int(current_app.config.get("MAX_CONTENT_LENGTH") or 0)
+        max_size = (
+            int(current_app.config.get("MENTI_ASSET_MAX_UPLOAD") or 0) + ASSET_UPLOAD_OVERHEAD
+            if is_asset_upload_request()
+            else int(current_app.config.get("MENTI_REQUEST_MAX_CONTENT_LENGTH") or 0)
+        )
         if max_size and request.content_length and request.content_length > max_size:
             return jsonify({"ok": False, "error": "Payload demasiado grande."}), 413
 
@@ -274,6 +351,21 @@ def register_routes(app: Flask) -> None:
         return render_template(
             "admin_library.html",
             **build_admin_library_context(request.args.get("folder")),
+            admin_auth_required=admin_auth_mode() != "open",
+        )
+
+    @app.get("/admin/<code>/presenter")
+    @admin_required
+    def presenter(code: str):
+        selected = find_session(code)
+        if selected is None:
+            abort(404)
+        return render_template(
+            "presenter.html",
+            session=selected,
+            selected=selected,
+            question_types=sorted(QUESTION_TYPES),
+            presenter_only=True,
             admin_auth_required=admin_auth_mode() != "open",
         )
 
@@ -379,8 +471,8 @@ def register_routes(app: Flask) -> None:
         if session is None:
             abort(404)
         return render_template(
-            "admin.html",
-            sessions=[session],
+            "present.html",
+            session=session,
             selected=session,
             question_types=sorted(QUESTION_TYPES),
             present_only=True,
@@ -427,7 +519,7 @@ def register_routes(app: Flask) -> None:
             {
                 "ok": True,
                 "folders": [serialize_folder(folder) for folder in PresentationFolder.query.order_by(PresentationFolder.name.asc())],
-                "sessions": [serialize_session(item) for item in Session.query.order_by(Session.updated_at.desc())],
+                "sessions": [serialize_session(item, include_private=True) for item in Session.query.order_by(Session.updated_at.desc())],
             }
         )
 
@@ -463,7 +555,7 @@ def register_routes(app: Flask) -> None:
         try:
             session = create_session_from_payload(request.get_json(silent=True) or {})
             db.session.commit()
-            return jsonify({"ok": True, "session": serialize_session(session)}), 201
+            return jsonify({"ok": True, "session": serialize_session(session, include_private=True)}), 201
         except ValueError as exc:
             db.session.rollback()
             return json_error(exc)
@@ -473,7 +565,83 @@ def register_routes(app: Flask) -> None:
         session = require_session(code)
         refresh_session_timers(session)
         db.session.commit()
-        return jsonify({"ok": True, "session": serialize_session(session)})
+        include_private = is_admin_authenticated() and (
+            admin_auth_mode() != "open" or request.args.get("include_private") == "1"
+        )
+        return jsonify({"ok": True, "session": serialize_session(session, include_private=include_private)})
+
+    @app.get("/api/sessions/<code>/assets")
+    @admin_required
+    def api_presentation_assets(code: str):
+        session = require_session(code)
+        return jsonify({"ok": True, "assets": [serialize_asset(asset) for asset in session.assets]})
+
+    @app.post("/api/sessions/<code>/assets")
+    @admin_required
+    def api_upload_presentation_asset(code: str):
+        session = require_session(code)
+        try:
+            asset = create_presentation_asset(
+                session,
+                request.files.get("file"),
+                alt_text=request.form.get("alt_text", request.form.get("alt", "")),
+            )
+            db.session.commit()
+            return jsonify({"ok": True, "asset": serialize_asset(asset)}), 201
+        except ValueError as exc:
+            db.session.rollback()
+            return json_error(exc)
+
+    @app.get("/api/sessions/<code>/assets/<int:asset_id>/file")
+    def api_presentation_asset_file(code: str, asset_id: int):
+        session = require_session(code)
+        asset = require_presentation_asset(session, asset_id)
+        path = presentation_asset_file_path(asset)
+        if not path.exists() or not path.is_file():
+            abort(404)
+        return send_file(path, mimetype=asset.mime_type, conditional=True, max_age=3600)
+
+    @app.patch("/api/sessions/<code>/assets/<int:asset_id>")
+    @admin_required
+    def api_update_presentation_asset(code: str, asset_id: int):
+        session = require_session(code)
+        asset = require_presentation_asset(session, asset_id)
+        payload = request.get_json(silent=True) or {}
+        try:
+            assert_updated_at(asset, payload, resource="activo")
+            if "alt_text" in payload or "alt" in payload:
+                asset.alt_text = clean_text(payload.get("alt_text", payload.get("alt")), 500)
+            touch_session(session)
+            db.session.commit()
+            return jsonify({"ok": True, "asset": serialize_asset(asset)})
+        except EditConflictError:
+            db.session.rollback()
+            return edit_conflict_response(session, asset=asset)
+        except ValueError as exc:
+            db.session.rollback()
+            return json_error(exc)
+
+    @app.delete("/api/sessions/<code>/assets/<int:asset_id>")
+    @admin_required
+    def api_delete_presentation_asset(code: str, asset_id: int):
+        session = require_session(code)
+        asset = require_presentation_asset(session, asset_id)
+        references = asset_references(session, asset.id)
+        if references:
+            return jsonify(
+                {
+                    "ok": False,
+                    "code": "asset_in_use",
+                    "error": "El activo sigue siendo usado por una diapositiva.",
+                    "question_ids": references,
+                }
+            ), 409
+        path = presentation_asset_file_path(asset)
+        db.session.delete(asset)
+        touch_session(session)
+        db.session.commit()
+        remove_asset_file(path)
+        return jsonify({"ok": True})
 
     @app.patch("/api/sessions/<code>")
     @admin_required
@@ -481,6 +649,7 @@ def register_routes(app: Flask) -> None:
         session = require_session(code)
         payload = request.get_json(silent=True) or {}
         try:
+            assert_updated_at(session, payload, resource="presentación")
             if "title" in payload:
                 session.title = clean_text(payload.get("title"), 180, required=True)
             if "theme" in payload:
@@ -491,7 +660,10 @@ def register_routes(app: Flask) -> None:
                 session.folder_id = normalize_folder_id(payload.get("folder_id"))
             db.session.commit()
             broadcast_session(session)
-            return jsonify({"ok": True, "session": serialize_session(session)})
+            return jsonify({"ok": True, "session": serialize_session(session, include_private=True)})
+        except EditConflictError:
+            db.session.rollback()
+            return edit_conflict_response(session)
         except ValueError as exc:
             db.session.rollback()
             return json_error(exc)
@@ -503,7 +675,7 @@ def register_routes(app: Flask) -> None:
         try:
             duplicate = duplicate_session(session, request.get_json(silent=True) or {})
             db.session.commit()
-            return jsonify({"ok": True, "session": serialize_session(duplicate)}), 201
+            return jsonify({"ok": True, "session": serialize_session(duplicate, include_private=True)}), 201
         except ValueError as exc:
             db.session.rollback()
             return json_error(exc)
@@ -524,7 +696,7 @@ def register_routes(app: Flask) -> None:
             question = add_question(session, request.get_json(silent=True) or {})
             db.session.commit()
             broadcast_session(session)
-            return jsonify({"ok": True, "question": serialize_question(question), "session": serialize_session(session)}), 201
+            return jsonify({"ok": True, "question": serialize_question(question, include_private=True), "session": serialize_session(session, include_private=True)}), 201
         except ValueError as exc:
             db.session.rollback()
             return json_error(exc)
@@ -534,11 +706,17 @@ def register_routes(app: Flask) -> None:
     def api_update_question(code: str, question_id: int):
         session = require_session(code)
         question = require_question(session, question_id)
+        payload = request.get_json(silent=True) or {}
         try:
-            update_question(question, request.get_json(silent=True) or {})
+            assert_updated_at(question, payload, resource="diapositiva")
+            update_question(question, payload)
+            touch_session(session)
             db.session.commit()
             broadcast_session(session)
-            return jsonify({"ok": True, "question": serialize_question(question), "session": serialize_session(session)})
+            return jsonify({"ok": True, "question": serialize_question(question, include_private=True), "session": serialize_session(session, include_private=True)})
+        except EditConflictError:
+            db.session.rollback()
+            return edit_conflict_response(session, question=question)
         except ValueError as exc:
             db.session.rollback()
             return json_error(exc)
@@ -551,7 +729,7 @@ def register_routes(app: Flask) -> None:
         duplicate = duplicate_question(session, question)
         db.session.commit()
         broadcast_session(session)
-        return jsonify({"ok": True, "question": serialize_question(duplicate), "session": serialize_session(session)}), 201
+        return jsonify({"ok": True, "question": serialize_question(duplicate, include_private=True), "session": serialize_session(session, include_private=True)}), 201
 
     @app.delete("/api/sessions/<code>/questions/<int:question_id>")
     @admin_required
@@ -562,9 +740,10 @@ def register_routes(app: Flask) -> None:
         db.session.flush()
         normalize_question_positions(session)
         clamp_active_index(session)
+        touch_session(session)
         db.session.commit()
         broadcast_session(session)
-        return jsonify({"ok": True, "session": serialize_session(session)})
+        return jsonify({"ok": True, "session": serialize_session(session, include_private=True)})
 
     @app.post("/api/sessions/<code>/questions/reorder")
     @admin_required
@@ -573,9 +752,10 @@ def register_routes(app: Flask) -> None:
         payload = request.get_json(silent=True) or {}
         try:
             reorder_questions(session, payload.get("question_ids") or [])
+            touch_session(session)
             db.session.commit()
             broadcast_session(session)
-            return jsonify({"ok": True, "session": serialize_session(session)})
+            return jsonify({"ok": True, "session": serialize_session(session, include_private=True)})
         except ValueError as exc:
             db.session.rollback()
             return json_error(exc)
@@ -669,7 +849,7 @@ def register_routes(app: Flask) -> None:
             refresh_session_timers(session)
             db.session.commit()
             broadcast_session(session)
-            return jsonify({"ok": True, "session": serialize_session(session)})
+            return jsonify({"ok": True, "session": serialize_session(session, include_private=True)})
         except ValueError as exc:
             db.session.rollback()
             return json_error(exc)
@@ -718,8 +898,25 @@ def register_socket_events() -> None:
             return {"ok": False, "error": "Sesion no encontrada."}
         refresh_session_timers(session)
         join_room(room_name(session.code))
+        join_room(presenter_room_name(session.code))
         db.session.commit()
-        return {"ok": True, "session": serialize_session(session)}
+        return {"ok": True, "session": serialize_session(session, include_private=True)}
+
+    @socketio.on("projection_join")
+    def socket_projection_join(data):
+        """Join the public live room without creating a participant record.
+
+        The projection is often placed in a room visible to attendees.  It
+        needs the same real-time state as the presenter, but must never
+        receive speaker notes or the private presenter event stream.
+        """
+        session = find_session((data or {}).get("code"))
+        if session is None:
+            return {"ok": False, "error": "Sesi\u00f3n no encontrada."}
+        refresh_session_timers(session)
+        join_room(room_name(session.code))
+        db.session.commit()
+        return {"ok": True, "session": serialize_session(session, include_private=False)}
 
     @socketio.on("join_session")
     def socket_join_session(data):
@@ -733,7 +930,7 @@ def register_socket_events() -> None:
         socket_participants[request.sid] = (session.id, participant.token)
         db.session.commit()
         emit_live_status(session)
-        return {"ok": True, "session": serialize_session(session), "participant_token": participant.token}
+        return {"ok": True, "session": serialize_session(session, include_private=False), "participant_token": participant.token}
 
     @socketio.on("submit_response")
     def socket_submit_response(data):
@@ -756,7 +953,7 @@ def register_socket_events() -> None:
         try:
             if refresh_session_timers(session):
                 db.session.commit()
-                emit("session_state", serialize_session(session), to=room_name(session.code))
+                broadcast_session(session)
                 raise ValueError("Tiempo agotado para esta pregunta.")
             response_record = record_response(session, question, participant, (data or {}).get("payload") or {})
             db.session.commit()
@@ -784,9 +981,9 @@ def register_socket_events() -> None:
             apply_control(session, data or {})
             refresh_session_timers(session)
             db.session.commit()
-            state = serialize_session(session)
-            emit("session_state", state, to=room_name(session.code))
-            return {"ok": True, "session": state}
+            presenter_state = serialize_session(session, include_private=True)
+            broadcast_session(session)
+            return {"ok": True, "session": presenter_state}
         except ValueError as exc:
             db.session.rollback()
             return {"ok": False, "error": str(exc)}
@@ -805,7 +1002,7 @@ def register_socket_events() -> None:
             response_record = moderate_response(question, int((data or {}).get("response_id") or 0), data or {})
             db.session.commit()
             emit_results(session, question)
-            emit("session_state", serialize_session(session), to=room_name(session.code))
+            broadcast_session(session)
             return {"ok": True, "response_id": response_record.id, "results": aggregate_question(question)}
         except ValueError as exc:
             db.session.rollback()
@@ -913,9 +1110,11 @@ def duplicate_session(source: Session, payload: dict[str, Any] | None = None) ->
     )
     db.session.add(duplicate)
     db.session.flush()
+    asset_id_map = duplicate_presentation_assets(source, duplicate)
     for question in sorted(source.questions, key=lambda item: item.position):
         config = dict(question.config_json or {})
         config.pop("timer_started_at", None)
+        config = remap_asset_references(config, asset_id_map)
         add_question(
             duplicate,
             {
@@ -931,11 +1130,269 @@ def duplicate_session(source: Session, payload: dict[str, Any] | None = None) ->
 
 
 def delete_session_record(session: Session) -> None:
+    for asset in list(session.assets):
+        try:
+            remove_asset_file(presentation_asset_file_path(asset))
+        except ValueError:
+            # A malformed legacy storage key must never point outside the
+            # configured asset directory; leave it alone rather than guessing.
+            pass
     db.session.delete(session)
+
+
+class EditConflictError(ValueError):
+    """A client attempted to autosave a stale editor revision."""
+
+
+def is_asset_upload_request() -> bool:
+    return request.method == "POST" and bool(re.fullmatch(r"/api/sessions/[^/]+/assets/?", request.path))
+
+
+def presentation_asset_storage_root() -> Path:
+    root = Path(str(current_app.config["MENTI_ASSET_UPLOAD_FOLDER"])).expanduser().resolve()
+    root.mkdir(parents=True, exist_ok=True)
+    return root
+
+
+def presentation_asset_file_path(asset: PresentationAsset) -> Path:
+    storage_key = str(asset.storage_key or "")
+    if not re.fullmatch(r"[a-f0-9]{48}\.(?:png|jpg|webp)", storage_key):
+        raise ValueError("Clave de almacenamiento de activo inválida.")
+    root = presentation_asset_storage_root()
+    path = (root / storage_key).resolve()
+    try:
+        path.relative_to(root)
+    except ValueError as exc:
+        raise ValueError("Ruta de activo inválida.") from exc
+    return path
+
+
+def remove_asset_file(path: Path) -> None:
+    try:
+        path.unlink(missing_ok=True)
+    except OSError:
+        # A missing or locked file must not make the database record unusable.
+        # The filename is opaque, so it is safe to leave a later cleanup job to
+        # remove any orphan rather than retrying an arbitrary user path.
+        pass
+
+
+def uploaded_image_metadata(upload: Any) -> dict[str, Any]:
+    if upload is None or not getattr(upload, "filename", ""):
+        raise ValueError("Selecciona una imagen PNG, JPEG o WebP.")
+    filename = secure_filename(str(upload.filename))
+    if not filename:
+        raise ValueError("El nombre del archivo no es válido.")
+    suffix = Path(filename).suffix.lower()
+    supported_suffixes = {extension for _, _, extensions in ASSET_MIME_BY_FORMAT.values() for extension in extensions}
+    if suffix not in supported_suffixes:
+        raise ValueError("Solo se permiten imágenes PNG, JPEG o WebP.")
+
+    max_size = int(current_app.config["MENTI_ASSET_MAX_UPLOAD"])
+    image_bytes = upload.stream.read(max_size + 1)
+    if not image_bytes:
+        raise ValueError("La imagen está vacía.")
+    if len(image_bytes) > max_size:
+        raise ValueError("La imagen supera el límite de carga permitido.")
+
+    try:
+        with warnings.catch_warnings():
+            warnings.simplefilter("error", Image.DecompressionBombWarning)
+            with Image.open(BytesIO(image_bytes)) as image:
+                image_format = str(image.format or "").upper()
+                width, height = image.size
+                image.verify()
+    except (UnidentifiedImageError, OSError, ValueError, Warning):
+        raise ValueError("El archivo no es una imagen válida.") from None
+
+    format_metadata = ASSET_MIME_BY_FORMAT.get(image_format)
+    if format_metadata is None:
+        raise ValueError("Solo se permiten imágenes PNG, JPEG o WebP.")
+    mime_type, generated_suffix, allowed_suffixes = format_metadata
+    if suffix not in allowed_suffixes:
+        raise ValueError("La extensión no coincide con el tipo real de la imagen.")
+    declared_mime = str(getattr(upload, "mimetype", "") or "").lower()
+    if declared_mime and declared_mime not in {mime_type, "application/octet-stream"}:
+        raise ValueError("El tipo MIME no coincide con el tipo real de la imagen.")
+    if width < 1 or height < 1 or width * height > int(current_app.config["MENTI_ASSET_MAX_PIXELS"]):
+        raise ValueError("La imagen excede las dimensiones permitidas.")
+    return {
+        "original_filename": filename[:255],
+        "mime_type": mime_type,
+        "suffix": generated_suffix,
+        "size_bytes": len(image_bytes),
+        "width": width,
+        "height": height,
+        "content": image_bytes,
+    }
+
+
+def create_presentation_asset(session: Session, upload: Any, *, alt_text: Any = "") -> PresentationAsset:
+    metadata = uploaded_image_metadata(upload)
+    for _ in range(5):
+        storage_key = f"{token_hex(24)}{metadata['suffix']}"
+        asset = PresentationAsset(
+            session=session,
+            storage_key=storage_key,
+            original_filename=metadata["original_filename"],
+            mime_type=metadata["mime_type"],
+            size_bytes=metadata["size_bytes"],
+            width=metadata["width"],
+            height=metadata["height"],
+            alt_text=clean_text(alt_text, 500),
+        )
+        path = presentation_asset_file_path(asset)
+        try:
+            with path.open("xb") as destination:
+                destination.write(metadata["content"])
+        except FileExistsError:
+            continue
+        except OSError as exc:
+            raise ValueError("No fue posible guardar la imagen.") from exc
+        db.session.add(asset)
+        touch_session(session)
+        return asset
+    raise ValueError("No fue posible preparar un nombre seguro para la imagen.")
+
+
+def duplicate_presentation_assets(source: Session, target: Session) -> dict[int, int]:
+    asset_id_map: dict[int, int] = {}
+    for source_asset in source.assets:
+        source_path = presentation_asset_file_path(source_asset)
+        if not source_path.exists():
+            raise ValueError("No se puede duplicar una presentación con imágenes faltantes.")
+        duplicate = PresentationAsset(
+            session=target,
+            storage_key=f"{token_hex(24)}{Path(source_asset.storage_key).suffix}",
+            original_filename=source_asset.original_filename,
+            mime_type=source_asset.mime_type,
+            size_bytes=source_asset.size_bytes,
+            width=source_asset.width,
+            height=source_asset.height,
+            alt_text=source_asset.alt_text,
+        )
+        destination_path = presentation_asset_file_path(duplicate)
+        try:
+            copyfile(source_path, destination_path)
+        except OSError as exc:
+            raise ValueError("No se pudo copiar una imagen de la presentación.") from exc
+        db.session.add(duplicate)
+        db.session.flush()
+        asset_id_map[source_asset.id] = duplicate.id
+    return asset_id_map
+
+
+def remap_asset_references(config: dict[str, Any], asset_id_map: dict[int, int]) -> dict[str, Any]:
+    if not asset_id_map:
+        return dict(config or {})
+    remapped = dict(config or {})
+    background = remapped.get("background")
+    if isinstance(background, dict):
+        background = dict(background)
+        for key in ("asset_id", "image_asset_id"):
+            current_id = normalize_asset_id(background.get(key))
+            if current_id in asset_id_map:
+                background[key] = asset_id_map[current_id]
+                # A visual editor may have cached the old session's file URL.
+                # Let the serialized asset ID resolve to the clone instead.
+                background["image_url"] = ""
+        remapped["background"] = background
+    for key in ("media_blocks", "media"):
+        raw_blocks = remapped.get(key)
+        if not isinstance(raw_blocks, list):
+            continue
+        blocks: list[Any] = []
+        for raw_block in raw_blocks:
+            if not isinstance(raw_block, dict):
+                blocks.append(raw_block)
+                continue
+            block = dict(raw_block)
+            current_id = normalize_asset_id(block.get("asset_id"))
+            if current_id in asset_id_map:
+                block["asset_id"] = asset_id_map[current_id]
+                block["url"] = ""
+            blocks.append(block)
+        remapped[key] = blocks
+    return remapped
+
+
+def referenced_asset_ids(config: dict[str, Any]) -> set[int]:
+    references: set[int] = set()
+    background = (config or {}).get("background")
+    if isinstance(background, dict):
+        for key in ("asset_id", "image_asset_id"):
+            asset_id = normalize_asset_id(background.get(key))
+            if asset_id:
+                references.add(asset_id)
+    raw_blocks = (config or {}).get("media_blocks", (config or {}).get("media"))
+    if isinstance(raw_blocks, dict):
+        raw_blocks = [raw_blocks]
+    if isinstance(raw_blocks, list):
+        for block in raw_blocks:
+            if isinstance(block, dict):
+                asset_id = normalize_asset_id(block.get("asset_id"))
+                if asset_id:
+                    references.add(asset_id)
+    return references
+
+
+def validate_presentation_asset_references(session: Session, config: dict[str, Any]) -> None:
+    references = referenced_asset_ids(config)
+    if not references:
+        return
+    available = {asset.id for asset in session.assets}
+    if not references.issubset(available):
+        raise ValueError("Una imagen seleccionada no pertenece a esta presentación.")
+
+
+def asset_references(session: Session, asset_id: int) -> list[int]:
+    return [question.id for question in session.questions if asset_id in referenced_asset_ids(question.config_json or {})]
+
+
+def touch_session(session: Session) -> None:
+    session.updated_at = utcnow()
+
+
+def normalize_revision_timestamp(value: Any) -> datetime | None:
+    parsed = parse_datetime(value)
+    if parsed is None:
+        return None
+    if parsed.tzinfo is not None:
+        return parsed.astimezone(UTC).replace(tzinfo=None)
+    return parsed
+
+
+def assert_updated_at(record: Any, payload: dict[str, Any], *, resource: str) -> None:
+    supplied = payload.get("if_updated_at", payload.get("updated_at"))
+    if supplied in (None, ""):
+        # Legacy API clients remain supported; the professional editor always
+        # sends one of the two revision field names.
+        return
+    expected = normalize_revision_timestamp(supplied)
+    if expected is None:
+        raise ValueError("La marca updated_at no es válida.")
+    current = getattr(record, "updated_at", None)
+    if current is None or expected != current:
+        raise EditConflictError(f"La {resource} cambió en otra pestaña. Recarga antes de guardar.")
+
+
+def edit_conflict_response(session: Session, *, question: Question | None = None, asset: PresentationAsset | None = None):
+    payload: dict[str, Any] = {
+        "ok": False,
+        "code": "edit_conflict",
+        "error": "La presentación cambió en otra pestaña. Recarga antes de guardar.",
+        "session": serialize_session(session, include_private=True),
+    }
+    if question is not None:
+        payload["question"] = serialize_question(question, include_private=True)
+    if asset is not None:
+        payload["asset"] = serialize_asset(asset)
+    return jsonify(payload), 409
 
 
 def add_question(session: Session, payload: dict[str, Any]) -> Question:
     normalized = normalize_question_payload(payload)
+    validate_presentation_asset_references(session, normalized["config"])
     question = Question(
         session=session,
         type=normalized["type"],
@@ -948,15 +1405,17 @@ def add_question(session: Session, payload: dict[str, Any]) -> Question:
     db.session.add(question)
     db.session.flush()
     replace_options(question, normalized["options"], normalized.get("correct_option_labels") or [])
+    touch_session(session)
     return question
 
 
 def update_question(question: Question, payload: dict[str, Any]) -> Question:
+    merged_config = merge_question_config(question.config_json or {}, payload.get("config") or {})
     merged = {
         "type": payload.get("type", question.type),
         "title": payload.get("title", question.title),
         "prompt": payload.get("prompt", question.prompt),
-        "config": {**(question.config_json or {}), **(payload.get("config") or {})},
+        "config": merged_config,
         "options": payload.get("options", [option.label for option in question.options]),
         "correct_option_labels": payload.get(
             "correct_option_labels",
@@ -964,6 +1423,7 @@ def update_question(question: Question, payload: dict[str, Any]) -> Question:
         ),
     }
     normalized = normalize_question_payload(merged)
+    validate_presentation_asset_references(question.session, normalized["config"])
     question.type = normalized["type"]
     question.title = normalized["title"]
     question.prompt = normalized["prompt"]
@@ -1006,6 +1466,7 @@ def default_text_boxes(title: str, body: str) -> list[dict[str, Any]]:
             "background": "transparent",
             "align": "left",
             "auto_fit": True,
+            "locked": False,
             "z": 1,
         }
     ]
@@ -1024,6 +1485,7 @@ def default_text_boxes(title: str, body: str) -> list[dict[str, Any]]:
                 "background": "transparent",
                 "align": "left",
                 "auto_fit": True,
+                "locked": False,
                 "z": 2,
             }
         )
@@ -1058,6 +1520,7 @@ def sanitize_text_boxes(raw_boxes: Any, *, title: str, body: str) -> list[dict[s
                 "background": sanitize_box_background(item.get("background")),
                 "align": normalize_choice(item.get("align"), {"left", "center", "right"}, "left"),
                 "auto_fit": as_bool(item.get("auto_fit"), True),
+                "locked": as_bool(item.get("locked"), False),
                 "z": clamp_int(item.get("z", index), 0, 100),
             }
         )
@@ -1101,6 +1564,7 @@ def sanitize_layout_blocks(raw_blocks: Any) -> dict[str, dict[str, Any]]:
             "y": y,
             "w": width,
             "h": height,
+            "locked": as_bool(item.get("locked"), False),
             "z": clamp_int(item.get("z", defaults["z"]), 0, 100),
         }
     return blocks
@@ -1134,6 +1598,140 @@ def sanitize_text_styles(raw_styles: Any) -> dict[str, dict[str, Any]]:
     return styles
 
 
+def normalize_asset_id(value: Any) -> int | None:
+    try:
+        asset_id = int(value)
+    except (TypeError, ValueError):
+        return None
+    return asset_id if asset_id > 0 else None
+
+
+def sanitize_slide_background_color(value: Any, default: str = "#ffffff") -> str:
+    if value in (None, ""):
+        return default
+    if str(value).strip().lower() == "transparent":
+        return "transparent"
+    return sanitize_hex_color(value, default)
+
+
+def default_slide_background() -> dict[str, Any]:
+    return {
+        "color": "#ffffff",
+        "asset_id": None,
+        "image_asset_id": None,
+        "image_url": "",
+        "fit": "cover",
+        "opacity": 100,
+    }
+
+
+def sanitize_slide_background(raw_background: Any) -> dict[str, Any]:
+    if isinstance(raw_background, str):
+        raw_background = {"color": raw_background}
+    if not isinstance(raw_background, dict):
+        raw_background = {}
+    defaults = default_slide_background()
+    asset_id = normalize_asset_id(raw_background.get("asset_id", raw_background.get("image_asset_id")))
+    return {
+        "color": sanitize_slide_background_color(raw_background.get("color"), defaults["color"]),
+        "asset_id": asset_id,
+        # Keep the earlier name as a read/write alias while clients migrate.
+        "image_asset_id": asset_id,
+        "image_url": clean_text(raw_background.get("image_url", raw_background.get("url")), 800),
+        "fit": normalize_choice(raw_background.get("fit"), {"cover", "contain"}, "cover"),
+        "opacity": clamp_int(raw_background.get("opacity", 100), 0, 100),
+    }
+
+
+def sanitize_media_blocks(raw_blocks: Any) -> list[dict[str, Any]]:
+    if isinstance(raw_blocks, dict):
+        raw_blocks = [raw_blocks]
+    if not isinstance(raw_blocks, list):
+        return []
+
+    blocks: list[dict[str, Any]] = []
+    for index, raw_item in enumerate(raw_blocks[:MEDIA_BLOCK_MAX_ITEMS], start=1):
+        if not isinstance(raw_item, dict):
+            continue
+        asset_id = normalize_asset_id(raw_item.get("asset_id"))
+        media_url = clean_text(raw_item.get("url", raw_item.get("media_url")), 800)
+        if asset_id is None and not media_url:
+            continue
+        width = clamp_float(raw_item.get("w"), 5, 100, 32)
+        height = clamp_float(raw_item.get("h"), 5, 100, 32)
+        blocks.append(
+            {
+                "id": sanitize_text_box_id(raw_item.get("id", f"media-{index}"), index),
+                "asset_id": asset_id,
+                "url": media_url,
+                "alt_text": clean_text(raw_item.get("alt_text", raw_item.get("alt")), 500),
+                "x": clamp_float(raw_item.get("x"), 0, max(0, 100 - width), 60),
+                "y": clamp_float(raw_item.get("y"), 0, max(0, 100 - height), 42),
+                "w": width,
+                "h": height,
+                "fit": normalize_choice(raw_item.get("fit"), {"cover", "contain"}, "contain"),
+                "locked": as_bool(raw_item.get("locked"), False),
+                "z": clamp_int(raw_item.get("z", index + 3), 0, 100),
+            }
+        )
+    return blocks
+
+
+def default_qr_position() -> dict[str, Any]:
+    return {"x": 76, "y": 10, "w": 16, "h": 16, "z": 10, "locked": False}
+
+
+def sanitize_qr_position(raw_position: Any) -> dict[str, Any]:
+    raw_position = raw_position if isinstance(raw_position, dict) else {}
+    defaults = default_qr_position()
+    width = clamp_float(raw_position.get("w"), 5, 50, defaults["w"])
+    height = clamp_float(raw_position.get("h"), 5, 50, defaults["h"])
+    return {
+        "x": clamp_float(raw_position.get("x"), 0, max(0, 100 - width), defaults["x"]),
+        "y": clamp_float(raw_position.get("y"), 0, max(0, 100 - height), defaults["y"]),
+        "w": width,
+        "h": height,
+        "z": clamp_int(raw_position.get("z", defaults["z"]), 0, 100),
+        "locked": as_bool(raw_position.get("locked"), defaults["locked"]),
+    }
+
+
+def normalize_design_contract(config: dict[str, Any]) -> dict[str, Any]:
+    raw_media_blocks = config.get("media_blocks")
+    if raw_media_blocks is None:
+        raw_media_blocks = config.get("media")
+    media_blocks = sanitize_media_blocks(raw_media_blocks)
+    qr_position = sanitize_qr_position(config.get("qr_position", config.get("qr_block")))
+    presenter_notes = clean_text(config.get("presenter_notes", config.get("notes")), 5000)
+    return {
+        "background": sanitize_slide_background(config.get("background")),
+        "media_url": clean_text(config.get("media_url"), 800),
+        "media_blocks": media_blocks,
+        # `media` and `qr_block` are aliases used by the first visual editor
+        # rollout.  Persisting both prevents an old tab from erasing layout.
+        "media": media_blocks,
+        "show_qr": as_bool(config.get("show_qr"), False),
+        "qr_position": qr_position,
+        "qr_block": dict(qr_position),
+        "presenter_notes": presenter_notes,
+        "notes": presenter_notes,
+    }
+
+
+def merge_question_config(current: dict[str, Any], incoming: dict[str, Any]) -> dict[str, Any]:
+    if not isinstance(current, dict):
+        current = {}
+    if not isinstance(incoming, dict):
+        raise ValueError("La configuración de la diapositiva debe ser un objeto.")
+    merged = {**current, **incoming}
+    for key in ("background", "qr_position", "qr_block"):
+        current_value = (current or {}).get(key)
+        incoming_value = (incoming or {}).get(key)
+        if isinstance(current_value, dict) and isinstance(incoming_value, dict):
+            merged[key] = {**current_value, **incoming_value}
+    return merged
+
+
 def default_result_layout(question_type: str) -> str:
     if question_type == "word_cloud":
         return "cloud"
@@ -1150,21 +1748,60 @@ def normalize_result_contract(question_type: str, config: dict[str, Any]) -> dic
         "show_results": as_bool(config.get("show_results"), True),
         "result_layout": normalize_choice(
             config.get("result_layout"),
-            RESULT_LAYOUTS,
+            RESULT_LAYOUTS_BY_TYPE.get(question_type, {default_result_layout(question_type)}),
             default_result_layout(question_type),
         ),
     }
 
 
-def serialized_question_config(question: Question) -> dict[str, Any]:
+def hydrate_asset_urls(question: Question, config: dict[str, Any]) -> dict[str, Any]:
+    """Expose server-generated URLs without persisting redundant URLs in JSON."""
+    assets = {asset.id: asset for asset in question.session.assets}
+    hydrated = dict(config)
+    background = dict(hydrated.get("background") or {})
+    background_asset = assets.get(normalize_asset_id(background.get("asset_id")) or 0)
+    if background_asset:
+        background["asset_url"] = serialize_asset(background_asset)["url"]
+    hydrated["background"] = background
+
+    hydrated_blocks: list[dict[str, Any]] = []
+    for block in hydrated.get("media_blocks") or []:
+        item = dict(block)
+        asset = assets.get(normalize_asset_id(item.get("asset_id")) or 0)
+        if asset:
+            item["asset_url"] = serialize_asset(asset)["url"]
+            if not item.get("alt_text"):
+                item["alt_text"] = asset.alt_text
+        hydrated_blocks.append(item)
+    hydrated["media_blocks"] = hydrated_blocks
+    hydrated["media"] = [dict(item) for item in hydrated_blocks]
+    return hydrated
+
+
+def serialized_question_config(question: Question, *, include_private: bool = False) -> dict[str, Any]:
     config = dict(question.config_json or {})
+    design = normalize_design_contract(config)
     if question.type == "content_slide":
-        return config
-    return {
-        **config,
-        **normalize_result_contract(question.type, config),
-        "layout_blocks": sanitize_layout_blocks(config.get("layout_blocks")),
-    }
+        body = clean_text(config.get("body"), 1800)
+        text_boxes = sanitize_text_boxes(config.get("text_boxes"), title=question.title, body=body)
+        serialized = {
+            "layout": normalize_choice(config.get("layout"), {"title", "text", "instructions", "qr"}, "title"),
+            "body": body_from_text_boxes(text_boxes, body),
+            "text_boxes": text_boxes,
+            **design,
+        }
+    else:
+        serialized = {
+            **config,
+            **design,
+            **normalize_result_contract(question.type, config),
+            "layout_blocks": sanitize_layout_blocks(config.get("layout_blocks")),
+            "text_styles": sanitize_text_styles(config.get("text_styles")),
+        }
+    if not include_private:
+        serialized.pop("presenter_notes", None)
+        serialized.pop("notes", None)
+    return hydrate_asset_urls(question, serialized)
 
 
 def normalize_question_payload(payload: dict[str, Any]) -> dict[str, Any]:
@@ -1173,9 +1810,13 @@ def normalize_question_payload(payload: dict[str, Any]) -> dict[str, Any]:
         raise ValueError("Tipo de pregunta no soportado.")
     title = clean_text(payload.get("title"), 180, required=True)
     prompt = clean_text(payload.get("prompt"), 1200, required=question_type != "content_slide")
-    config = dict(payload.get("config") or {})
+    raw_config = payload.get("config") or {}
+    if not isinstance(raw_config, dict):
+        raise ValueError("La configuración de la diapositiva debe ser un objeto.")
+    config = dict(raw_config)
     options = parse_lines(payload.get("options"))
     correct_labels = set(parse_lines(payload.get("correct_option_labels") or config.get("correct_options")))
+    design_contract = normalize_design_contract(config)
     result_contract = normalize_result_contract(question_type, config) if question_type != "content_slide" else {}
     layout_blocks = sanitize_layout_blocks(config.get("layout_blocks")) if question_type != "content_slide" else {}
     text_styles = sanitize_text_styles(config.get("text_styles")) if question_type != "content_slide" else {}
@@ -1186,9 +1827,8 @@ def normalize_question_payload(payload: dict[str, Any]) -> dict[str, Any]:
         config = {
             "layout": normalize_choice(config.get("layout"), {"title", "text", "instructions", "qr"}, "title"),
             "body": body_from_text_boxes(text_boxes, body),
-            "media_url": clean_text(config.get("media_url"), 800, required=False),
-            "show_qr": as_bool(config.get("show_qr"), False),
             "text_boxes": text_boxes,
+            **design_contract,
         }
         options = []
         correct_labels = set()
@@ -1203,7 +1843,14 @@ def normalize_question_payload(payload: dict[str, Any]) -> dict[str, Any]:
         maximum = clamp_int(config.get("max", 5), 2, 10)
         if maximum <= minimum:
             raise ValueError("La escala requiere un máximo mayor al mínimo.")
-        config = {**result_contract, "layout_blocks": layout_blocks, "text_styles": text_styles, "min": minimum, "max": maximum}
+        config = {
+            **result_contract,
+            "layout_blocks": layout_blocks,
+            "text_styles": text_styles,
+            "min": minimum,
+            "max": maximum,
+            **design_contract,
+        }
     elif question_type == "quiz":
         config = {
             **result_contract,
@@ -1211,6 +1858,7 @@ def normalize_question_payload(payload: dict[str, Any]) -> dict[str, Any]:
             "text_styles": text_styles,
             "timer_seconds": clamp_int(config.get("timer_seconds", 30), 5, 600),
             "points": clamp_int(config.get("points", 100), 1, 1000),
+            **design_contract,
         }
     elif question_type in {"word_cloud", "open_text"}:
         config = {
@@ -1218,6 +1866,7 @@ def normalize_question_payload(payload: dict[str, Any]) -> dict[str, Any]:
             "layout_blocks": layout_blocks,
             "text_styles": text_styles,
             "moderation": normalize_choice(config.get("moderation"), {"none", "manual"}, "none"),
+            **design_contract,
         }
     else:
         config = {
@@ -1225,6 +1874,7 @@ def normalize_question_payload(payload: dict[str, Any]) -> dict[str, Any]:
             "layout_blocks": layout_blocks,
             "text_styles": text_styles,
             **({"max_entries": config.get("max_entries")} if config.get("max_entries") is not None else {}),
+            **design_contract,
         }
 
     return {
@@ -1580,7 +2230,7 @@ def aggregate_question(question: Question, run=RUN_DEFAULT) -> dict[str, Any]:
     return {"type": question.type, "total": len(responses)}
 
 
-def serialize_session(session: Session) -> dict[str, Any]:
+def serialize_session(session: Session, *, include_private: bool = False) -> dict[str, Any]:
     refresh_session_timers(session)
     active = session.active_question
     active_run = active_session_run(session)
@@ -1607,8 +2257,14 @@ def serialize_session(session: Session) -> dict[str, Any]:
         "response_monitor": response_monitor,
         "join_url": url_for("audience", code=session.code, _external=True),
         "qr_url": url_for("qr_png", code=session.code),
+        "present_url": url_for("present", code=session.code),
+        "presenter_url": url_for("presenter", code=session.code),
+        "assets": [serialize_asset(asset) for asset in session.assets],
         "runs": [serialize_run(run) for run in sorted_runs(session)],
-        "questions": [serialize_question(question) for question in sorted(session.questions, key=lambda item: item.position)],
+        "questions": [
+            serialize_question(question, include_private=include_private)
+            for question in sorted(session.questions, key=lambda item: item.position)
+        ],
     }
 
 
@@ -1619,6 +2275,26 @@ def serialize_folder(folder: PresentationFolder) -> dict[str, Any]:
         "session_count": len(folder.sessions),
         "created_at": folder.created_at.isoformat() if folder.created_at else None,
         "updated_at": folder.updated_at.isoformat() if folder.updated_at else None,
+    }
+
+
+def serialize_asset(asset: PresentationAsset) -> dict[str, Any]:
+    return {
+        "id": asset.id,
+        "filename": asset.original_filename,
+        "original_filename": asset.original_filename,
+        "mime_type": asset.mime_type,
+        "size_bytes": asset.size_bytes,
+        "width": asset.width,
+        "height": asset.height,
+        "alt_text": asset.alt_text,
+        "url": url_for(
+            "api_presentation_asset_file",
+            code=asset.session.code,
+            asset_id=asset.id,
+        ),
+        "created_at": asset.created_at.isoformat() if asset.created_at else None,
+        "updated_at": asset.updated_at.isoformat() if asset.updated_at else None,
     }
 
 
@@ -1638,7 +2314,7 @@ def serialize_run(run: SessionRun) -> dict[str, Any]:
     }
 
 
-def serialize_question(question: Question) -> dict[str, Any]:
+def serialize_question(question: Question, *, include_private: bool = False) -> dict[str, Any]:
     return {
         "id": question.id,
         "type": question.type,
@@ -1646,7 +2322,9 @@ def serialize_question(question: Question) -> dict[str, Any]:
         "prompt": question.prompt,
         "position": question.position,
         "is_open": question.is_open,
-        "config": serialized_question_config(question),
+        "config": serialized_question_config(question, include_private=include_private),
+        "created_at": question.created_at.isoformat() if question.created_at else None,
+        "updated_at": question.updated_at.isoformat() if question.updated_at else None,
         "timer": timer_state(question),
         "options": [
             {"id": option.id, "label": option.label, "position": option.position, "is_correct": option.is_correct}
@@ -2330,6 +3008,13 @@ def require_question(session: Session, question_id: int) -> Question:
     return question
 
 
+def require_presentation_asset(session: Session, asset_id: int) -> PresentationAsset:
+    asset = db.session.get(PresentationAsset, asset_id)
+    if asset is None or asset.session_id != session.id:
+        abort(404)
+    return asset
+
+
 def get_or_create_participant(session: Session, token: str | None) -> Participant:
     participant = None
     if token:
@@ -2382,6 +3067,10 @@ def room_name(code: str) -> str:
     return f"session:{code}"
 
 
+def presenter_room_name(code: str) -> str:
+    return f"presenter:{code}"
+
+
 def participant_count(session: Session) -> dict[str, int | str]:
     monitor = response_monitor_status(session)
     return {
@@ -2393,7 +3082,12 @@ def participant_count(session: Session) -> dict[str, int | str]:
 
 
 def broadcast_session(session: Session) -> None:
-    socketio.emit("session_state", serialize_session(session), to=room_name(session.code))
+    socketio.emit("session_state", serialize_session(session, include_private=False), to=room_name(session.code))
+    socketio.emit(
+        "presenter_session_state",
+        serialize_session(session, include_private=True),
+        to=presenter_room_name(session.code),
+    )
 
 
 def emit_live_status(session: Session) -> None:

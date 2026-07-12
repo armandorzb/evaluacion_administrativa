@@ -14,13 +14,33 @@
     layoutBlockDrag: null,
     saveTimer: null,
     sessionSaveTimer: null,
+    sessionSaveInFlight: false,
     fitTimer: null,
     lastSaveKey: "",
+    history: [],
+    future: [],
+    historyInputAt: 0,
+    clipboard: null,
+    selectedElementKeys: [],
+    selectedMediaId: null,
+    selectedQr: false,
+    mediaDrag: null,
+    zoom: 100,
+    grid: false,
+    snap: true,
+    assets: [],
+    assetsSupported: null,
+    assetUploadBusy: false,
+    dirtyQuestionId: null,
+    saveInFlight: false,
+    conflict: null,
   };
 
   const $ = (selector, root = document) => root.querySelector(selector);
   const $$ = (selector, root = document) => Array.from(root.querySelectorAll(selector));
   const LAYOUT_BLOCK_IDS = ["question", "activity", "results"];
+  const GRID_STEP = 5;
+  const HISTORY_LIMIT = 60;
   const DEFAULT_LAYOUT_BLOCKS = {
     question: { id: "question", x: 7, y: 12, w: 86, h: 25, z: 1 },
     activity: { id: "activity", x: 7, y: 42, w: 42, h: 43, z: 2 },
@@ -36,9 +56,14 @@
   const addMenu = $("[data-add-menu]");
   const slideList = $("[data-slide-list]");
   const canvas = $("[data-slide-canvas]");
+  const canvasStage = $("[data-canvas-stage]");
   const inspector = $("[data-slide-inspector]");
   const saveState = $("[data-save-state]");
   const joinCardTemplate = $("[data-join-card-template]");
+  const editorToolbar = $("[data-editor-toolbar]");
+  const liveEditWarning = $("[data-live-edit-warning]");
+  const editConflict = $("[data-edit-conflict]");
+  const zoomLabel = $("[data-zoom-label]");
   const activeSelectionControlActions = new Set(["start", "next_slide", "previous_slide", "go_to_slide", "reset"]);
 
   bindGlobalEvents();
@@ -46,6 +71,7 @@
   if (code) {
     connectSocket();
     loadTemplates();
+    loadAssets();
     loadSession();
   } else {
     setSaveState("Sin presentación");
@@ -69,6 +95,7 @@
       setSaveState("Guardando título...");
       window.clearTimeout(state.sessionSaveTimer);
       state.sessionSaveTimer = window.setTimeout(() => {
+        state.sessionSaveTimer = null;
         patchSession({ title: deckTitleInput.value.trim() || "Presentación sin título" });
       }, 450);
     });
@@ -106,7 +133,7 @@
         return;
       }
 
-      selectSlide(id, true);
+      selectSlide(id, false);
     });
 
     canvas?.addEventListener("input", (event) => {
@@ -114,6 +141,10 @@
       updateLocalQuestionFromCanvas();
       scheduleSlideTextFit();
       scheduleQuestionSave();
+    });
+
+    canvas?.addEventListener("beforeinput", (event) => {
+      if (event.target.closest("[contenteditable='true']")) rememberUndo("texto", { coalesce: true });
     });
 
     canvas?.addEventListener("blur", (event) => {
@@ -127,12 +158,16 @@
       const question = selectedQuestion();
       const textSelection = canvasTextSelectionFromEvent(event, question);
       const layoutBlock = event.target.closest("[data-layout-block-id]");
-      if (textSelection) {
+      const canvasElement = event.target.closest("[data-canvas-element]");
+      if (question?.type === "content_slide" && canvasElement) {
+        // La selección se resolvió en pointerdown para preservar Mayús + clic y el arrastre.
+      } else if (textSelection) {
         selectCanvasTextSelection(textSelection);
       } else if (layoutBlock && question?.type !== "content_slide") {
         selectLayoutBlock(layoutBlock.dataset.layoutBlockId);
       } else if (!event.target.closest("button[data-canvas-action]") && !event.target.closest("[contenteditable='true']")) {
         selectTextBox(null);
+        clearCanvasElementSelection();
         selectCanvasTextTarget(null, { render: false });
         if (question?.type !== "content_slide") selectLayoutBlock(null);
       }
@@ -147,6 +182,10 @@
       handleInspectorInput(target, false);
     });
 
+    inspector?.addEventListener("beforeinput", (event) => {
+      if (event.target instanceof HTMLElement) rememberUndo("propiedad", { coalesce: true });
+    });
+
     inspector?.addEventListener("change", (event) => {
       const target = event.target;
       if (!(target instanceof HTMLElement)) return;
@@ -154,6 +193,11 @@
     });
 
     inspector?.addEventListener("click", (event) => {
+      const assetButton = event.target.closest("button[data-asset-action], button[data-background-action], button[data-element-action]");
+      if (assetButton) {
+        handleAssetOrElementAction(assetButton);
+        return;
+      }
       const textButton = event.target.closest("button[data-text-box-action], button[data-text-align], button[data-text-color]");
       if (textButton) {
         handleTextInspectorButton(textButton);
@@ -179,6 +223,18 @@
       handleInspectorAction(button.dataset.inspectorAction);
     });
 
+    inspector?.addEventListener("change", (event) => {
+      const target = event.target;
+      if (target instanceof HTMLInputElement && target.matches("[data-asset-upload]")) uploadSelectedAsset(target);
+    });
+
+    editorToolbar?.addEventListener("click", (event) => {
+      const button = event.target.closest("button[data-editor-command]");
+      if (button) handleEditorCommand(button.dataset.editorCommand);
+    });
+
+    $("[data-conflict-reload]")?.addEventListener("click", () => resolveConflictByReload());
+
     document.addEventListener("click", (event) => {
       if (!addMenu || addMenu.hidden) return;
       if (event.target.closest("[data-add-menu]") || event.target.closest("[data-add-slide]")) return;
@@ -188,6 +244,7 @@
     document.addEventListener("pointermove", handleCanvasPointerMove);
     document.addEventListener("pointerup", finishCanvasDrag);
     document.addEventListener("keydown", handleDocumentKeydown);
+    window.addEventListener("resize", updateCanvasZoom);
   }
 
   function connectSocket() {
@@ -201,6 +258,11 @@
       });
     });
     state.socket.on("session_state", (next) => {
+      if (state.saveInFlight || state.sessionSaveInFlight) return;
+      if (hasUnsavedLocalChanges() && state.session?.updated_at && next?.updated_at && next.updated_at !== state.session.updated_at) {
+        showConflict({ session: next, error: "La presentación cambió en otra ventana." });
+        return;
+      }
       state.session = next;
       if (isEditing()) {
         renderChrome();
@@ -237,9 +299,22 @@
     renderInspector();
   }
 
+  async function loadAssets() {
+    if (!code || window.MENTI_PRESENT_ONLY) return;
+    const json = await getJson(`/api/sessions/${code}/assets`);
+    if (!json.ok) {
+      state.assetsSupported = false;
+      return;
+    }
+    state.assetsSupported = true;
+    state.assets = Array.isArray(json.assets) ? json.assets : [];
+    renderInspector();
+  }
+
   async function loadSession(fullRender = true) {
     if (!code) return;
-    const json = await getJson(`/api/sessions/${code}`);
+    const privateQuery = window.MENTI_PRESENT_ONLY ? "" : "?include_private=1";
+    const json = await getJson(`/api/sessions/${code}${privateQuery}`);
     if (!json.ok) return;
     state.session = json.session;
     if (fullRender) render();
@@ -262,8 +337,10 @@
     renderResults();
     renderInsights();
     setupSortable();
+    renderEditorToolbar();
+    updateCanvasZoom();
     scheduleSlideTextFit();
-    setSaveState("Listo");
+    if (!state.conflict) setSaveState("Listo");
   }
 
   function renderChrome() {
@@ -277,6 +354,10 @@
       const runLabel = state.session.active_run_id ? "ejecucion activa" : `${runCount} ejec.`;
       statusPill.textContent = `${state.session.code} - ${state.session.status} - ${runLabel}`;
     }
+    if (liveEditWarning) {
+      liveEditWarning.hidden = !(state.session.active_run_id || ["live", "active", "running"].includes(String(state.session.status || "").toLowerCase()));
+    }
+    renderConflictNotice();
     renderLiveCounters();
   }
 
@@ -300,12 +381,270 @@
       : "La pregunta activa no esta recibiendo respuestas.";
   }
 
+  function cloneValue(value) {
+    return JSON.parse(JSON.stringify(value));
+  }
+
+  function historySnapshot(question = selectedQuestion()) {
+    if (!question) return null;
+    return {
+      questionId: question.id,
+      question: cloneValue(question),
+      selectedTextBoxId: state.selectedTextBoxId,
+      selectedMediaId: state.selectedMediaId,
+      selectedQr: state.selectedQr,
+      selectedElementKeys: [...state.selectedElementKeys],
+      selectedLayoutBlockId: state.selectedLayoutBlockId,
+    };
+  }
+
+  function rememberUndo(label = "edición", options = {}) {
+    if (window.MENTI_PRESENT_ONLY || !state.session || state.conflict) return;
+    const snapshot = historySnapshot();
+    if (!snapshot) return;
+    const now = Date.now();
+    const latest = state.history[state.history.length - 1];
+    if (options.coalesce && latest?.questionId === snapshot.questionId && now - state.historyInputAt < 850) return;
+    const serialized = JSON.stringify(snapshot.question);
+    if (latest && latest.questionId === snapshot.questionId && JSON.stringify(latest.question) === serialized) return;
+    state.history.push({ ...snapshot, label, at: now });
+    if (state.history.length > HISTORY_LIMIT) state.history.shift();
+    state.future = [];
+    state.historyInputAt = now;
+    renderEditorToolbar();
+  }
+
+  function restoreHistorySnapshot(snapshot) {
+    if (!snapshot || !state.session) return;
+    const index = state.session.questions.findIndex((item) => item.id === snapshot.questionId);
+    if (index < 0) return;
+    const current = state.session.questions[index];
+    state.session.questions[index] = {
+      ...current,
+      ...cloneValue(snapshot.question),
+      id: current.id,
+      position: current.position,
+    };
+    state.selectedQuestionId = current.id;
+    state.selectedTextBoxId = snapshot.selectedTextBoxId || null;
+    state.selectedMediaId = snapshot.selectedMediaId || null;
+    state.selectedQr = Boolean(snapshot.selectedQr);
+    state.selectedElementKeys = Array.isArray(snapshot.selectedElementKeys) ? snapshot.selectedElementKeys : [];
+    state.selectedLayoutBlockId = snapshot.selectedLayoutBlockId || null;
+    state.lastSaveKey = "";
+    state.dirtyQuestionId = current.id;
+    render();
+    scheduleQuestionSave({ rerender: false, force: true });
+  }
+
+  function undoLocal() {
+    const snapshot = state.history.pop();
+    if (!snapshot) return;
+    const current = historySnapshot(state.session?.questions?.find((item) => item.id === snapshot.questionId));
+    if (current) state.future.push({ ...current, label: snapshot.label, at: Date.now() });
+    restoreHistorySnapshot(snapshot);
+    renderEditorToolbar();
+  }
+
+  function redoLocal() {
+    const snapshot = state.future.pop();
+    if (!snapshot) return;
+    const current = historySnapshot(state.session?.questions?.find((item) => item.id === snapshot.questionId));
+    if (current) state.history.push({ ...current, label: snapshot.label, at: Date.now() });
+    restoreHistorySnapshot(snapshot);
+    renderEditorToolbar();
+  }
+
+  function renderEditorToolbar() {
+    if (!editorToolbar) return;
+    const command = (name) => $("[data-editor-command='" + name + "']", editorToolbar);
+    const undo = command("undo");
+    const redo = command("redo");
+    if (undo) undo.disabled = !state.history.length || Boolean(state.conflict);
+    if (redo) redo.disabled = !state.future.length || Boolean(state.conflict);
+    if (zoomLabel) zoomLabel.textContent = `${Math.round(state.zoom)}%`;
+    const grid = command("grid");
+    const snap = command("snap");
+    if (grid) {
+      grid.setAttribute("aria-pressed", String(state.grid));
+      grid.classList.toggle("is-active", state.grid);
+    }
+    if (snap) {
+      snap.setAttribute("aria-pressed", String(state.snap));
+      snap.classList.toggle("is-active", state.snap);
+    }
+  }
+
+  function updateCanvasZoom() {
+    if (!canvas || !canvasStage || window.MENTI_PRESENT_ONLY) return;
+    const stageWidth = canvasStage.clientWidth;
+    const stageHeight = canvasStage.clientHeight;
+    if (!stageWidth || !stageHeight) return;
+    const availableWidth = Math.max(320, stageWidth - 56);
+    const availableHeight = Math.max(180, stageHeight - 56);
+    const baseWidth = Math.min(1120, availableWidth, availableHeight * (16 / 9));
+    const width = Math.max(320, baseWidth * (state.zoom / 100));
+    canvas.style.width = `${Math.round(width)}px`;
+    canvas.style.maxWidth = "none";
+    canvas.style.maxHeight = "none";
+    renderEditorToolbar();
+  }
+
+  function handleEditorCommand(command) {
+    if (command === "undo") return undoLocal();
+    if (command === "redo") return redoLocal();
+    if (command === "copy") return copySelection();
+    if (command === "paste") return pasteSelection();
+    if (command === "duplicate") return duplicateSelection();
+    if (command === "zoom-in") state.zoom = Math.min(200, state.zoom + 10);
+    if (command === "zoom-out") state.zoom = Math.max(50, state.zoom - 10);
+    if (command === "fit") state.zoom = 100;
+    if (command === "grid") {
+      state.grid = !state.grid;
+      renderCanvas();
+    }
+    if (command === "snap") state.snap = !state.snap;
+    updateCanvasZoom();
+    renderEditorToolbar();
+  }
+
+  function copySelection() {
+    const question = selectedQuestion();
+    if (!question) return;
+    if (question.type === "content_slide") {
+      const element = selectedCanvasElement(question);
+      if (element) {
+        state.clipboard = { kind: "element", element: cloneValue(element) };
+        setSaveState("Elemento copiado");
+        return;
+      }
+    } else if (state.selectedLayoutBlockId) {
+      const block = selectedLayoutBlock(question);
+      if (block) {
+        state.clipboard = { kind: "layout-block", block: cloneValue(block) };
+        setSaveState("Bloque copiado");
+        return;
+      }
+    }
+    state.clipboard = { kind: "slide", payload: cloneValue(payloadForQuestion(question)) };
+    setSaveState("Diapositiva copiada");
+  }
+
+  async function pasteSelection() {
+    const question = selectedQuestion();
+    const clipboard = state.clipboard;
+    if (!question || !clipboard) return;
+    if (clipboard.kind === "element" && question.type === "content_slide") {
+      pasteCanvasElement(question, clipboard.element);
+      return;
+    }
+    if (clipboard.kind === "layout-block" && question.type !== "content_slide") {
+      const id = state.selectedLayoutBlockId || "question";
+      const blocks = ensureLayoutBlocks(question);
+      if (!blocks[id]) return;
+      rememberUndo("pegar bloque");
+      question.config.layout_blocks[id] = normalizeLayoutBlock({ ...clipboard.block, id, x: clipboard.block.x + 3, y: clipboard.block.y + 3 }, id, LAYOUT_BLOCK_IDS.indexOf(id));
+      renderCanvas();
+      renderInspector();
+      scheduleQuestionSave({ rerender: false });
+      return;
+    }
+    if (clipboard.kind === "slide" && state.session) {
+      const json = await postJson(`/api/sessions/${state.session.code}/questions`, clipboard.payload);
+      if (!json.ok) {
+        alert(json.error || "No se pudo pegar la diapositiva.");
+        return;
+      }
+      state.session = json.session;
+      state.selectedQuestionId = json.question.id;
+      render();
+    }
+  }
+
+  function pasteCanvasElement(question, copied) {
+    const source = copied?.element || copied;
+    if (!source?.kind) return;
+    if (source.kind === "text") {
+      const boxes = ensureTextBoxes(question);
+      rememberUndo("pegar texto");
+      const clone = normalizeTextBox({ ...source.value, id: makeTextBoxId(), x: source.value.x + 4, y: source.value.y + 4, z: Math.max(...boxes.map((item) => item.z), 0) + 1 }, boxes.length, question);
+      question.config.text_boxes = [...boxes, clone];
+      state.selectedElementKeys = [canvasElementKey("text", clone.id)];
+      state.selectedTextBoxId = clone.id;
+    } else if (source.kind === "media") {
+      const blocks = ensureMediaBlocks(question);
+      rememberUndo("pegar imagen");
+      const clone = normalizeMediaBlock({ ...source.value, id: `media-${Date.now().toString(36)}`, x: source.value.x + 4, y: source.value.y + 4, z: Math.max(...blocks.map((item) => item.z), 0) + 1 }, blocks.length);
+      question.config.media_blocks = [...blocks, clone];
+      state.selectedElementKeys = [canvasElementKey("media", clone.id)];
+      state.selectedTextBoxId = null;
+      state.selectedMediaId = clone.id;
+    } else if (source.kind === "qr") {
+      rememberUndo("pegar QR");
+      question.config.show_qr = true;
+      const clone = { id: "qr", ...normalizeCanvasBox({ ...source.value, x: source.value.x + 4, y: source.value.y + 4 }, { x: 66, y: 54, w: 27, h: 29, z: 20 }, 20) };
+      question.config.qr_position = clone;
+      question.config.qr_block = clone;
+      state.selectedElementKeys = [canvasElementKey("qr", "qr")];
+      state.selectedTextBoxId = null;
+      state.selectedMediaId = null;
+      state.selectedQr = true;
+    }
+    renderCanvas();
+    renderInspector();
+    renderSlideList();
+    scheduleQuestionSave({ rerender: false });
+  }
+
+  function duplicateSelection() {
+    const question = selectedQuestion();
+    if (!question) return;
+    if (question.type === "content_slide") {
+      const element = selectedCanvasElement(question);
+      if (element) return pasteCanvasElement(question, element);
+    }
+    duplicateSlide(question.id);
+  }
+
+  function nudgeSelectionWithKeyboard(question, event) {
+    const delta = event.shiftKey ? 5 : 1;
+    const horizontal = event.key === "ArrowLeft" || event.key === "ArrowRight";
+    const sign = event.key === "ArrowLeft" || event.key === "ArrowUp" ? -1 : 1;
+    if (question.type === "content_slide") {
+      const selected = selectedCanvasElements(question).filter((element) => !element.value.locked);
+      if (!selected.length) return false;
+      rememberUndo("ajuste con teclado", { coalesce: true });
+      selected.forEach((element) => {
+        const patch = event.altKey
+          ? (horizontal ? { w: element.value.w + sign * delta } : { h: element.value.h + sign * delta })
+          : (horizontal ? { x: element.value.x + sign * delta } : { y: element.value.y + sign * delta });
+        updateCanvasElement(question, element, snapGeometryPatch({ ...element.value, ...patch }), { save: false });
+      });
+      renderCanvas();
+      renderInspector();
+      scheduleQuestionSave({ rerender: false });
+      return true;
+    }
+    const block = selectedLayoutBlock(question);
+    if (!block || block.locked) return false;
+    rememberUndo("ajuste con teclado", { coalesce: true });
+    const patch = event.altKey
+      ? (horizontal ? { w: block.w + sign * delta } : { h: block.h + sign * delta })
+      : (horizontal ? { x: block.x + sign * delta } : { y: block.y + sign * delta });
+    updateSelectedLayoutBlock(question, snapGeometryPatch({ ...block, ...patch }), { save: false });
+    renderCanvas();
+    renderInspector();
+    scheduleQuestionSave({ rerender: false });
+    return true;
+  }
+
   function renderSlideList() {
     if (!slideList || !state.session) return;
     const activeId = state.session.active_question_id;
     slideList.innerHTML = questions().map((question, index) => {
       const selected = question.id === state.selectedQuestionId ? " is-selected" : "";
       const live = question.id === activeId ? " is-live" : "";
+      const background = thumbnailBackgroundStyle(question);
       const optionPreview = question.options?.length
         ? `<div class="thumb-lines">${question.options.slice(0, 3).map((option) => `<span>${escapeHtml(option.label)}</span>`).join("")}</div>`
         : `<p>${escapeHtml(question.prompt || question.config?.body || "Diapositiva de contenido")}</p>`;
@@ -313,10 +652,11 @@
         <article class="slide-thumb${selected}${live}" data-question-id="${question.id}">
           <button type="button" class="slide-drag" aria-label="Reordenar">::</button>
           <div class="thumb-number">${index + 1}</div>
-          <div class="thumb-preview">
+          <div class="thumb-preview" style="${background}">
             <span class="thumb-type">${escapeHtml(labelForType(question.type))}</span>
             <strong>${escapeHtml(question.title)}</strong>
             ${optionPreview}
+            ${thumbnailMediaMarkup(question)}
           </div>
           <div class="thumb-actions">
             <button type="button" data-slide-action="duplicate" title="Duplicar">+</button>
@@ -363,36 +703,33 @@
     const layout = question.config?.layout || "title";
     const boxes = ensureTextBoxes(question);
     const showQr = Boolean(question.config?.show_qr || layout === "qr");
-    const joinCard = showQr ? joinCardMarkup() : "";
-    const media = question.config?.media_url
-      ? `<figure class="slide-media"><img src="${escapeHtml(question.config.media_url)}" alt=""></figure>`
-      : "";
+    const media = ensureMediaBlocks(question);
+    const qr = showQr ? ensureQrBlock(question) : null;
+    const background = backgroundStyle(question);
     return `
-      <div class="slide-canvas-inner content-layout-${escapeHtml(layout)}">
+      <div class="slide-canvas-inner content-layout-${escapeHtml(layout)}" style="${background}">
+        ${gridOverlayMarkup()}
         <div class="slide-type-row">
           <span>${escapeHtml(labelForType(question.type))}</span>
           <strong>${escapeHtml(layoutLabel(layout))}</strong>
         </div>
         <div class="slide-text-layer">
           ${boxes.map((box) => textBoxMarkup(box)).join("")}
+          ${media.map((block) => mediaBlockMarkup(block)).join("")}
+          ${qr ? qrBlockMarkup(qr) : ""}
         </div>
-        ${media}
-        ${joinCard}
         ${resultsStageMarkup(true)}
       </div>
     `;
   }
 
   function textBoxMarkup(box) {
-    const selected = box.id === state.selectedTextBoxId ? " is-selected" : "";
+    const selected = state.selectedElementKeys.includes(canvasElementKey("text", box.id)) || box.id === state.selectedTextBoxId ? " is-selected" : "";
+    const locked = box.locked ? " is-locked" : "";
     return `
-      <div class="slide-text-box${selected}" data-text-box-id="${escapeAttr(box.id)}" data-auto-fit="${box.auto_fit ? "true" : "false"}" style="${textBoxStyle(box)}">
-        <div class="slide-text-content" contenteditable="true" spellcheck="true" data-text-box-content>${escapeHtml(box.text)}</div>
-        <button type="button" class="slide-text-move" data-text-move-handle aria-label="Mover cuadro"></button>
-        <button type="button" class="slide-text-resize handle-nw" data-resize-handle="nw" aria-label="Redimensionar"></button>
-        <button type="button" class="slide-text-resize handle-ne" data-resize-handle="ne" aria-label="Redimensionar"></button>
-        <button type="button" class="slide-text-resize handle-sw" data-resize-handle="sw" aria-label="Redimensionar"></button>
-        <button type="button" class="slide-text-resize handle-se" data-resize-handle="se" aria-label="Redimensionar"></button>
+      <div class="slide-text-box${selected}${locked}" data-canvas-element="text:${escapeAttr(box.id)}" data-text-box-id="${escapeAttr(box.id)}" data-auto-fit="${box.auto_fit ? "true" : "false"}" data-locked="${box.locked ? "true" : "false"}" style="${textBoxStyle(box)}">
+        <div class="slide-text-content" contenteditable="${box.locked ? "false" : "true"}" spellcheck="true" data-text-box-content>${escapeHtml(box.text)}</div>
+        ${elementHandleMarkup("cuadro de texto", box.locked)}
       </div>
     `;
   }
@@ -409,7 +746,167 @@
       `color:${box.color}`,
       `background:${box.background}`,
       `text-align:${box.align}`,
+      `right:auto`,
+      `bottom:auto`,
     ].join(";");
+  }
+
+  function gridOverlayMarkup() {
+    if (!state.grid || window.MENTI_PRESENT_ONLY) return "";
+    return `<div data-grid-overlay aria-hidden="true" style="position:absolute;inset:0;pointer-events:none;z-index:99;background-image:linear-gradient(to right,rgba(37,99,235,.12) 1px,transparent 1px),linear-gradient(to bottom,rgba(37,99,235,.12) 1px,transparent 1px);background-size:${GRID_STEP}% ${GRID_STEP}%;"></div>`;
+  }
+
+  function elementHandleMarkup(label, locked) {
+    if (locked) return "";
+    return `
+      <button type="button" class="slide-text-move" data-element-move-handle aria-label="Mover ${escapeAttr(label)}"></button>
+      <button type="button" class="slide-text-resize handle-nw" data-element-resize-handle="nw" aria-label="Redimensionar ${escapeAttr(label)}"></button>
+      <button type="button" class="slide-text-resize handle-ne" data-element-resize-handle="ne" aria-label="Redimensionar ${escapeAttr(label)}"></button>
+      <button type="button" class="slide-text-resize handle-sw" data-element-resize-handle="sw" aria-label="Redimensionar ${escapeAttr(label)}"></button>
+      <button type="button" class="slide-text-resize handle-se" data-element-resize-handle="se" aria-label="Redimensionar ${escapeAttr(label)}"></button>
+    `;
+  }
+
+  function normalizeCanvasBox(raw, defaults = {}, index = 0) {
+    const width = roundPercent(clampNumber(raw?.w, 5, 100, defaults.w || 25));
+    const height = roundPercent(clampNumber(raw?.h, 5, 100, defaults.h || 20));
+    return {
+      x: roundPercent(clampNumber(raw?.x, 0, Math.max(0, 100 - width), defaults.x || 0)),
+      y: roundPercent(clampNumber(raw?.y, 0, Math.max(0, 100 - height), defaults.y || 0)),
+      w: width,
+      h: height,
+      z: Math.round(clampNumber(raw?.z, 0, 100, defaults.z || index + 1)),
+      locked: raw?.locked === true || raw?.locked === "true",
+    };
+  }
+
+  function mediaBlockId(raw, index) {
+    const candidate = String(raw?.id || "").replace(/[^a-zA-Z0-9_-]+/g, "-").replace(/^-+|-+$/g, "").slice(0, 48);
+    return candidate || `media-${Date.now().toString(36)}-${index}`;
+  }
+
+  function normalizeMediaBlock(raw, index = 0) {
+    const geometry = normalizeCanvasBox(raw, { x: 65, y: 15, w: 27, h: 35, z: index + 3 }, index);
+    return {
+      id: mediaBlockId(raw, index),
+      asset_id: raw?.asset_id || raw?.assetId || null,
+      url: String(raw?.url || raw?.media_url || raw?.asset_url || raw?.src || "").trim().slice(0, 1400),
+      alt_text: String(raw?.alt_text || raw?.alt || "").trim().slice(0, 280),
+      fit: ["cover", "contain"].includes(raw?.fit) ? raw.fit : "cover",
+      ...geometry,
+    };
+  }
+
+  function ensureMediaBlocks(question) {
+    if (!question) return [];
+    question.config = question.config || {};
+    let source = Array.isArray(question.config.media_blocks) ? question.config.media_blocks : null;
+    if (!source && Array.isArray(question.config.media)) source = question.config.media;
+    if (!source && question.config.media_url) source = [{ id: "legacy-media", url: question.config.media_url }];
+    const blocks = (source || []).map((block, index) => normalizeMediaBlock(block, index)).filter((block) => block.url);
+    question.config.media_blocks = blocks;
+    return blocks;
+  }
+
+  function mediaBlockStyle(block) {
+    return [
+      "position:absolute",
+      `left:${block.x}%`,
+      `top:${block.y}%`,
+      `width:${block.w}%`,
+      `height:${block.h}%`,
+      `z-index:${block.z}`,
+      "right:auto",
+      "bottom:auto",
+      "margin:0",
+      "padding:0",
+      "display:block",
+      "overflow:hidden",
+    ].join(";");
+  }
+
+  function mediaBlockMarkup(block) {
+    const selected = block.id === state.selectedMediaId ? " is-selected" : "";
+    const locked = block.locked ? " is-locked" : "";
+    return `
+      <figure class="slide-text-box slide-media slide-media-block${selected}${locked}" data-canvas-element="media:${escapeAttr(block.id)}" data-media-block-id="${escapeAttr(block.id)}" data-locked="${block.locked ? "true" : "false"}" style="${mediaBlockStyle(block)}">
+        <img src="${escapeAttr(block.url)}" alt="${escapeAttr(block.alt_text)}" style="width:100%;height:100%;object-fit:${block.fit};display:block">
+        ${elementHandleMarkup("imagen", block.locked)}
+      </figure>
+    `;
+  }
+
+  function ensureQrBlock(question) {
+    if (!question) return null;
+    question.config = question.config || {};
+    const raw = question.config.qr_position || question.config.qr_block || {};
+    const block = { id: "qr", ...normalizeCanvasBox(raw, { x: 66, y: 54, w: 27, h: 29, z: 20 }, 20) };
+    question.config.qr_position = { ...block };
+    question.config.qr_block = { ...block };
+    return block;
+  }
+
+  function qrBlockStyle(block) {
+    return [
+      "position:absolute",
+      `left:${block.x}%`,
+      `top:${block.y}%`,
+      `width:${block.w}%`,
+      `height:${block.h}%`,
+      `z-index:${block.z}`,
+      "right:auto",
+      "bottom:auto",
+      "margin:0",
+    ].join(";");
+  }
+
+  function qrBlockMarkup(block) {
+    const selected = state.selectedQr ? " is-selected" : "";
+    const locked = block.locked ? " is-locked" : "";
+    const qrUrl = state.session?.qr_url || `/qr/${encodeURIComponent(state.session?.code || code || "")}.png`;
+    const joinUrl = state.session?.join_url || "";
+    return `
+      <div class="slide-text-box slide-join-card slide-qr-block${selected}${locked}" data-canvas-element="qr:qr" data-qr-block data-locked="${block.locked ? "true" : "false"}" style="${qrBlockStyle(block)}">
+        <span>Código</span>
+        <strong>${escapeHtml(state.session?.code || "")}</strong>
+        <img src="${escapeAttr(qrUrl)}" alt="QR para unirse">
+        <code>${escapeHtml(joinUrl)}</code>
+        ${elementHandleMarkup("código QR", block.locked)}
+      </div>
+    `;
+  }
+
+  function normalizedBackground(question) {
+    const raw = question?.config?.background;
+    const object = raw && typeof raw === "object" ? raw : {};
+    const color = normalizeHexColor(typeof raw === "string" ? raw : object.color, "#ffffff");
+    return {
+      color,
+      image_url: String(object.image_url || object.url || object.asset_url || "").trim().slice(0, 1400),
+      asset_id: object.asset_id || null,
+      fit: ["cover", "contain"].includes(object.fit) ? object.fit : "cover",
+    };
+  }
+
+  function cssUrl(value) {
+    return String(value || "").replace(/[\\"'()\n\r]/g, (character) => encodeURIComponent(character));
+  }
+
+  function backgroundStyle(question) {
+    const background = normalizedBackground(question);
+    const declarations = [`background-color:${background.color}`];
+    if (background.image_url) declarations.push(`background-image:url("${cssUrl(background.image_url)}")`, `background-size:${background.fit}`, "background-position:center", "background-repeat:no-repeat");
+    return declarations.join(";");
+  }
+
+  function thumbnailBackgroundStyle(question) {
+    return `${backgroundStyle(question)};position:relative;overflow:hidden;`;
+  }
+
+  function thumbnailMediaMarkup(question) {
+    const media = ensureMediaBlocks(question)[0];
+    if (!media) return "";
+    return `<img src="${escapeAttr(media.url)}" alt="" style="position:absolute;right:.35rem;bottom:.35rem;width:24%;height:38%;object-fit:${media.fit};border-radius:3px;opacity:.78">`;
   }
 
   function optionTextTargetId(index) {
@@ -621,17 +1118,19 @@
 
   function interactiveSlideMarkup(question) {
     const blocks = ensureLayoutBlocks(question);
+    const background = backgroundStyle(question);
     return `
-      <div class="slide-canvas-inner interactive-layout">
+      <div class="slide-canvas-inner interactive-layout" style="${background}">
+        ${gridOverlayMarkup()}
         <div class="slide-type-row">
           <span>${escapeHtml(labelForType(question.type))}</span>
           <strong>${question.is_open ? "Voto abierto" : "Voto cerrado"}</strong>
         </div>
         ${layoutBlockMarkup("question", blocks.question, `
-          <h2 contenteditable="true" spellcheck="false" data-edit-field="title"${textTargetAttrs(question, "title")}>${escapeHtml(question.title)}</h2>
-          <p class="slide-prompt" contenteditable="true" spellcheck="true" data-edit-field="prompt"${textTargetAttrs(question, "prompt")}>${escapeHtml(question.prompt)}</p>
+          <h2 contenteditable="${blocks.question.locked ? "false" : "true"}" spellcheck="false" data-edit-field="title"${textTargetAttrs(question, "title")}>${escapeHtml(question.title)}</h2>
+          <p class="slide-prompt" contenteditable="${blocks.question.locked ? "false" : "true"}" spellcheck="true" data-edit-field="prompt"${textTargetAttrs(question, "prompt")}>${escapeHtml(question.prompt)}</p>
         `)}
-        ${layoutBlockMarkup("activity", blocks.activity, visualEditorFor(question))}
+        ${layoutBlockMarkup("activity", blocks.activity, visualEditorFor(question, blocks.activity.locked))}
         ${layoutBlockMarkup("results", blocks.results, resultsStageMarkup(false))}
       </div>
     `;
@@ -639,14 +1138,17 @@
 
   function layoutBlockMarkup(id, block, content) {
     const selected = id === state.selectedLayoutBlockId ? " is-selected" : "";
+    const locked = block.locked ? " is-locked" : "";
     return `
-      <section class="slide-layout-block slide-layout-block-${escapeAttr(id)}${selected}" data-layout-block-id="${escapeAttr(id)}" style="${layoutBlockStyle(block)}">
-        <button type="button" class="slide-block-move" data-block-move-handle aria-label="Mover bloque"></button>
+      <section class="slide-layout-block slide-layout-block-${escapeAttr(id)}${selected}${locked}" data-layout-block-id="${escapeAttr(id)}" data-locked="${block.locked ? "true" : "false"}" style="${layoutBlockStyle(block)}">
+        ${block.locked ? "" : `<button type="button" class="slide-block-move" data-block-move-handle aria-label="Mover bloque"></button>`}
         <div class="slide-layout-block-content" data-layout-block-content>${content}</div>
-        <button type="button" class="slide-block-resize handle-nw" data-block-resize-handle="nw" aria-label="Redimensionar bloque"></button>
-        <button type="button" class="slide-block-resize handle-ne" data-block-resize-handle="ne" aria-label="Redimensionar bloque"></button>
-        <button type="button" class="slide-block-resize handle-sw" data-block-resize-handle="sw" aria-label="Redimensionar bloque"></button>
-        <button type="button" class="slide-block-resize handle-se" data-block-resize-handle="se" aria-label="Redimensionar bloque"></button>
+        ${block.locked ? "" : `
+          <button type="button" class="slide-block-resize handle-nw" data-block-resize-handle="nw" aria-label="Redimensionar bloque"></button>
+          <button type="button" class="slide-block-resize handle-ne" data-block-resize-handle="ne" aria-label="Redimensionar bloque"></button>
+          <button type="button" class="slide-block-resize handle-sw" data-block-resize-handle="sw" aria-label="Redimensionar bloque"></button>
+          <button type="button" class="slide-block-resize handle-se" data-block-resize-handle="se" aria-label="Redimensionar bloque"></button>
+        `}
       </section>
     `;
   }
@@ -676,23 +1178,23 @@
     `;
   }
 
-  function visualEditorFor(question) {
+  function visualEditorFor(question, locked = false) {
     if (["multiple_choice", "quiz", "ranking"].includes(question.type)) {
       const cards = (question.options || []).map((option, index) => {
         const correct = option.is_correct ? " is-correct" : "";
         return `
           <div class="option-card${correct}" data-option-index="${index}">
             <span class="option-order">${index + 1}</span>
-            <span class="option-label" contenteditable="true" spellcheck="true"${textTargetAttrs(question, optionTextTargetId(index))}>${escapeHtml(option.label)}</span>
-            ${question.type === "quiz" ? `<button type="button" data-canvas-action="toggle-correct" data-option-index="${index}">Correcta</button>` : ""}
-            <button type="button" data-canvas-action="remove-option" data-option-index="${index}" aria-label="Eliminar opción">x</button>
+            <span class="option-label" contenteditable="${locked ? "false" : "true"}" spellcheck="true"${textTargetAttrs(question, optionTextTargetId(index))}>${escapeHtml(option.label)}</span>
+            ${question.type === "quiz" && !locked ? `<button type="button" data-canvas-action="toggle-correct" data-option-index="${index}">Correcta</button>` : ""}
+            ${locked ? "" : `<button type="button" data-canvas-action="remove-option" data-option-index="${index}" aria-label="Eliminar opción">x</button>`}
           </div>
         `;
       }).join("");
       return `
         <div class="option-grid ${question.type === "ranking" ? "ranking-preview" : ""}">
           ${cards}
-          <button type="button" class="add-option-card" data-canvas-action="add-option">+ Agregar opción</button>
+          ${locked ? "" : '<button type="button" class="add-option-card" data-canvas-action="add-option">+ Agregar opción</button>'}
         </div>
       `;
     }
@@ -747,10 +1249,14 @@
         </label>
       </section>
 
+      ${backgroundInspectorMarkup(question)}
       ${typeSpecificInspector(question)}
       ${question.type === "content_slide" ? "" : textTargetInspectorMarkup(question, selectedTextTarget(question))}
+      ${elementInspectorMarkup(question)}
       ${resultPresentationInspector(question)}
       ${layoutBlockInspectorMarkup(question)}
+      ${presenterNotesInspectorMarkup(question)}
+      ${assetLibraryInspectorMarkup(question)}
       ${runHistoryMarkup()}
 
       <section class="inspector-section">
@@ -828,8 +1334,8 @@
               <option value="qr"${layout === "qr" ? " selected" : ""}>QR de acceso</option>
             </select>
           </label>
-          <label>URL de imagen
-            <input data-config-key="media_url" value="${escapeAttr(question.config?.media_url || "")}" maxlength="800" placeholder="https://...">
+          <label>URL de imagen (compatibilidad)
+            <input data-media-url value="${escapeAttr(question.config?.media_url || "")}" maxlength="800" placeholder="https://...">
           </label>
           <label class="check-row">
             <input type="checkbox" data-config-key="show_qr" data-rerender="true"${question.config?.show_qr ? " checked" : ""}>
@@ -891,9 +1397,134 @@
     `;
   }
 
+  function backgroundInspectorMarkup(question) {
+    const background = normalizedBackground(question);
+    const assetButtons = state.assets.slice(0, 18).map((asset) => `
+      <button type="button" class="inspector-chip" data-background-action="asset" data-asset-id="${escapeAttr(asset.id)}" title="Usar ${escapeAttr(asset.original_filename || asset.filename || "imagen")}">
+        ${escapeHtml(asset.original_filename || asset.filename || "Imagen")}
+      </button>
+    `).join("");
+    return `
+      <section class="inspector-section">
+        <h3>Fondo</h3>
+        <label>Color
+          <input type="color" data-background-key="color" value="${escapeAttr(background.color)}">
+        </label>
+        <label>Imagen de fondo
+          <input data-background-key="image_url" value="${escapeAttr(background.image_url)}" maxlength="1400" placeholder="https://…">
+        </label>
+        <label>Ajuste
+          <select data-background-key="fit">
+            <option value="cover"${background.fit === "cover" ? " selected" : ""}>Cubrir</option>
+            <option value="contain"${background.fit === "contain" ? " selected" : ""}>Contener</option>
+          </select>
+        </label>
+        ${assetButtons ? `<div class="template-buttons"><span class="muted">Usar imagen cargada</span>${assetButtons}</div>` : ""}
+        ${background.image_url ? '<button type="button" data-background-action="clear">Quitar imagen de fondo</button>' : ""}
+      </section>
+    `;
+  }
+
+  function elementInspectorMarkup(question) {
+    if (question.type !== "content_slide") return "";
+    const element = selectedCanvasElement(question);
+    if (!element) {
+      return `
+        <section class="inspector-section">
+          <h3>Capas y posición</h3>
+          <p class="muted">Selecciona texto, una imagen o el código QR. Usa Mayús + clic para alinear varios elementos.</p>
+        </section>
+      `;
+    }
+    const multi = selectedCanvasElements(question);
+    const label = element.kind === "text" ? "Cuadro de texto" : element.kind === "media" ? "Imagen" : "Código QR";
+    const geometry = element.value;
+    const assetControls = element.kind === "media" ? `
+      <label>Texto alternativo
+        <input data-media-field="alt_text" value="${escapeAttr(geometry.alt_text || "")}" maxlength="280" placeholder="Describe la imagen">
+      </label>
+      <label>Ajuste de imagen
+        <select data-media-field="fit">
+          <option value="cover"${geometry.fit === "cover" ? " selected" : ""}>Cubrir</option>
+          <option value="contain"${geometry.fit === "contain" ? " selected" : ""}>Contener</option>
+        </select>
+      </label>
+    ` : "";
+    return `
+      <section class="inspector-section">
+        <h3>${label}</h3>
+        <label class="check-row">
+          <input type="checkbox" data-element-lock${geometry.locked ? " checked" : ""}>
+          Bloquear elemento
+        </label>
+        <div class="two-columns">
+          <label>X<input type="number" min="0" max="100" step="0.5" data-element-geometry="x" value="${Number(geometry.x || 0)}"></label>
+          <label>Y<input type="number" min="0" max="100" step="0.5" data-element-geometry="y" value="${Number(geometry.y || 0)}"></label>
+          <label>Ancho<input type="number" min="5" max="100" step="0.5" data-element-geometry="w" value="${Number(geometry.w || 0)}"></label>
+          <label>Alto<input type="number" min="5" max="100" step="0.5" data-element-geometry="h" value="${Number(geometry.h || 0)}"></label>
+        </div>
+        ${assetControls}
+        <div class="inspector-actions">
+          <button type="button" data-element-action="forward">Subir capa</button>
+          <button type="button" data-element-action="backward">Bajar capa</button>
+          <button type="button" data-element-action="front">Al frente</button>
+          <button type="button" data-element-action="back">Al fondo</button>
+        </div>
+        <div class="segmented-controls" aria-label="Alinear elementos">
+          <button type="button" data-element-action="align-left">Izq.</button>
+          <button type="button" data-element-action="align-center">Centro</button>
+          <button type="button" data-element-action="align-right">Der.</button>
+          <button type="button" data-element-action="align-top">Arriba</button>
+          <button type="button" data-element-action="align-middle">Medio</button>
+          <button type="button" data-element-action="align-bottom">Abajo</button>
+        </div>
+        ${multi.length > 1 ? `<div class="inspector-actions"><button type="button" data-element-action="distribute-horizontal">Distribuir horizontal</button><button type="button" data-element-action="distribute-vertical">Distribuir vertical</button></div>` : ""}
+      </section>
+    `;
+  }
+
+  function presenterNotesInspectorMarkup(question) {
+    const notes = String(question.config?.presenter_notes ?? question.config?.notes ?? "");
+    return `
+      <section class="inspector-section">
+        <h3>Notas del presentador</h3>
+        <label>
+          <textarea data-presenter-notes rows="4" maxlength="4000" placeholder="Solo visibles para la persona que presenta.">${escapeHtml(notes)}</textarea>
+        </label>
+      </section>
+    `;
+  }
+
+  function assetLibraryInspectorMarkup(question) {
+    if (state.assetsSupported === false) {
+      return `<section class="inspector-section"><h3>Imágenes</h3><p class="muted">Esta versión aún no tiene biblioteca de imágenes. Puedes usar una URL en las diapositivas de contenido.</p></section>`;
+    }
+    const cards = state.assets.map((asset) => `
+      <article class="run-history-row">
+        <div><strong>${escapeHtml(asset.original_filename || asset.filename || "Imagen")}</strong><span>${escapeHtml(asset.alt_text || "Sin texto alternativo")}</span></div>
+        <div class="run-export-actions">
+          ${question.type === "content_slide" ? `<button type="button" data-asset-action="insert" data-asset-id="${escapeAttr(asset.id)}">Insertar</button>` : ""}
+          <button type="button" data-asset-action="delete" data-asset-id="${escapeAttr(asset.id)}" class="danger">Eliminar</button>
+        </div>
+      </article>
+    `).join("");
+    return `
+      <section class="inspector-section">
+        <h3>Biblioteca de imágenes</h3>
+        <label>Texto alternativo para la carga
+          <input data-asset-upload-alt maxlength="280" placeholder="Descripción de la imagen">
+        </label>
+        <label>Cargar PNG, JPEG o WebP
+          <input type="file" accept="image/png,image/jpeg,image/webp" data-asset-upload${state.assetUploadBusy ? " disabled" : ""}>
+        </label>
+        ${state.assetsSupported === null ? '<p class="muted">Cargando biblioteca…</p>' : (cards || '<p class="muted">Aún no hay imágenes en esta presentación.</p>')}
+      </section>
+    `;
+  }
+
   function resultPresentationInspector(question) {
     if (question.type === "content_slide") return "";
-    const layout = question.config?.result_layout || defaultResultLayout(question.type);
+    const layout = normalizeResultLayout(question.type, question.config?.result_layout);
     return `
       <section class="inspector-section">
         <h3>Resultados</h3>
@@ -903,7 +1534,7 @@
         </label>
         <label>Vista
           <select data-config-key="result_layout" data-rerender="true">
-            ${resultLayoutOptions(layout)}
+            ${resultLayoutOptions(question.type, layout)}
           </select>
         </label>
       </section>
@@ -942,6 +1573,16 @@
           <label>Alto
             <input type="number" min="10" max="100" step="0.5" data-layout-block-key="h" value="${Number(block.h || 0)}">
           </label>
+        </div>
+        <label class="check-row">
+          <input type="checkbox" data-layout-block-lock${block.locked ? " checked" : ""}>
+          Bloquear bloque
+        </label>
+        <div class="inspector-actions">
+          <button type="button" data-layout-block-action="forward">Subir capa</button>
+          <button type="button" data-layout-block-action="backward">Bajar capa</button>
+          <button type="button" data-layout-block-action="front">Al frente</button>
+          <button type="button" data-layout-block-action="back">Al fondo</button>
         </div>
         <button type="button" class="wide-action" data-layout-block-action="reset">Restablecer layout</button>
       </section>
@@ -1101,37 +1742,68 @@
       if (altNode) altNode.innerHTML = `<p class="muted">Resultados ocultos para esta diapositiva.</p>`;
       return;
     }
+    const layout = normalizeResultLayout(question.type, question.config?.result_layout);
     if (question.type === "multiple_choice" || question.type === "quiz") {
+      const items = (results.options || []).map((item) => ({ label: item.label, value: item.count }));
+      if (question.type === "quiz" && layout === "leaderboard") {
+        if (results.leaderboard?.length) renderLeaderboard(results.leaderboard);
+        else renderResultList(items, "Respuestas de quiz");
+        return;
+      }
+      if (layout === "list") {
+        renderResultList(items, question.type === "quiz" ? "Respuestas de quiz" : "Votos");
+        return;
+      }
+      if (layout === "grid") {
+        renderResultGrid(items);
+        return;
+      }
       renderBarChart(
-        results.options.map((item) => item.label),
-        results.options.map((item) => item.count),
+        items.map((item) => item.label),
+        items.map((item) => item.value),
         question.type === "quiz" ? "Respuestas de quiz" : "Votos",
       );
       if (question.type === "quiz" && results.leaderboard?.length) renderLeaderboard(results.leaderboard);
       return;
     }
     if (question.type === "scale") {
+      const items = (results.values || []).map((item) => ({ label: String(item.value), value: item.count }));
+      if (layout === "list") {
+        renderResultList(items, `Promedio ${results.average || 0}`);
+        return;
+      }
+      if (layout === "grid") {
+        renderResultGrid(items);
+        return;
+      }
       renderBarChart(
-        results.values.map((item) => String(item.value)),
-        results.values.map((item) => item.count),
+        items.map((item) => item.label),
+        items.map((item) => item.value),
         `Promedio ${results.average || 0}`,
       );
       return;
     }
     if (question.type === "ranking") {
+      const items = (results.options || []).map((item) => ({ label: item.label, value: item.score }));
+      if (layout === "ranking") {
+        renderResultList(items, "Puntaje ranking");
+        return;
+      }
       renderBarChart(
-        results.options.map((item) => item.label),
-        results.options.map((item) => item.score),
+        items.map((item) => item.label),
+        items.map((item) => item.value),
         "Puntaje ranking",
       );
       return;
     }
     if (question.type === "word_cloud") {
-      renderWordResults(results.words || []);
+      if (layout === "list") renderWordList(results.words || []);
+      else renderWordResults(results.words || []);
       return;
     }
     if (question.type === "open_text") {
-      renderOpenText(results.cards || []);
+      if (layout === "list") renderOpenTextList(results.cards || []);
+      else renderOpenText(results.cards || []);
     }
   }
 
@@ -1168,7 +1840,6 @@
     state.session = json.session;
     state.selectedQuestionId = json.question.id;
     render();
-    await controlSession("go_to_slide", { index: slideIndex(json.question.id) }, false);
   }
 
   async function createFromTemplate(template) {
@@ -1181,17 +1852,28 @@
     state.session = json.session;
     state.selectedQuestionId = json.question.id;
     render();
-    await controlSession("go_to_slide", { index: slideIndex(json.question.id) }, false);
   }
 
   async function patchSession(payload) {
     if (!state.session) return;
-    const json = await patchJson(`/api/sessions/${state.session.code}`, payload);
+    state.sessionSaveInFlight = true;
+    const json = await patchJson(`/api/sessions/${state.session.code}`, {
+      ...payload,
+      updated_at: state.session.updated_at,
+      if_updated_at: state.session.updated_at,
+    });
     if (!json.ok) {
+      if (json.status === 409 || json.code === "edit_conflict") {
+        state.sessionSaveInFlight = false;
+        showConflict(json);
+        return;
+      }
+      state.sessionSaveInFlight = false;
       setSaveState("Error al guardar");
       alert(json.error || "No se pudo guardar la presentación.");
       return;
     }
+    state.sessionSaveInFlight = false;
     state.session = json.session;
     renderChrome();
     renderSlideList();
@@ -1208,17 +1890,21 @@
 
   function scheduleQuestionSave(options = {}) {
     const question = selectedQuestion();
-    if (!question) return;
+    if (!question || state.conflict) return;
     const payload = collectCanvasPayload(question);
     if (!payloadIsReady(payload)) {
       setSaveState("Completa la diapositiva");
       return;
     }
-    const saveKey = JSON.stringify(payload);
-    if (saveKey === state.lastSaveKey) return;
+    const saveKey = `${question.id}:${JSON.stringify(payload)}`;
+    if (!options.force && saveKey === state.lastSaveKey) return;
+    state.dirtyQuestionId = question.id;
     setSaveState("Guardando...");
     window.clearTimeout(state.saveTimer);
-    state.saveTimer = window.setTimeout(() => saveQuestion(payload, options), 500);
+    state.saveTimer = window.setTimeout(() => {
+      state.saveTimer = null;
+      saveQuestion(payload, options);
+    }, 500);
   }
 
   function flushQuestionSave() {
@@ -1234,15 +1920,27 @@
   async function saveQuestion(payload, options = {}) {
     const question = selectedQuestion();
     if (!state.session || !question) return;
-    const saveKey = JSON.stringify(payload);
+    const saveKey = `${question.id}:${JSON.stringify(payload)}`;
     state.lastSaveKey = saveKey;
-    const json = await patchJson(`/api/sessions/${state.session.code}/questions/${question.id}`, payload);
+    state.saveInFlight = true;
+    const json = await patchJson(`/api/sessions/${state.session.code}/questions/${question.id}`, {
+      ...payload,
+      updated_at: question.updated_at || state.session.updated_at,
+      if_updated_at: question.updated_at || state.session.updated_at,
+    });
+    state.saveInFlight = false;
     if (!json.ok) {
+      state.lastSaveKey = "";
+      if (json.status === 409 || json.code === "edit_conflict") {
+        showConflict(json);
+        return;
+      }
       setSaveState("Error al guardar");
       return;
     }
     state.session = json.session;
     state.selectedQuestionId = json.question.id;
+    state.dirtyQuestionId = null;
     if (options.rerender && !isEditing()) renderCanvas();
     renderChrome();
     renderSlideList();
@@ -1257,15 +1955,24 @@
     if (question.type === "content_slide") {
       const boxes = collectTextBoxesFromCanvas(question);
       config.text_boxes = boxes;
+      config.background = normalizedBackground(question);
+      config.media_blocks = ensureMediaBlocks(question);
+      config.media = config.media_blocks;
+      if (config.show_qr || config.layout === "qr") {
+        const qr = ensureQrBlock(question);
+        config.qr_position = qr;
+        config.qr_block = qr;
+      }
       config.body = bodyFromTextBoxes(boxes, config.body || "");
       const title = titleFromTextBoxes(boxes, question.title);
       return payloadForQuestion(question, { title, prompt: "", config, options: [], correct_option_labels: [] });
     }
     const title = textValue("[data-edit-field='title']", canvas) || question.title;
     const prompt = textValue("[data-edit-field='prompt']", canvas);
+    config.background = normalizedBackground(question);
     config.result_placement = "slide";
     config.show_results = config.show_results !== false;
-    config.result_layout = config.result_layout || defaultResultLayout(question.type);
+    config.result_layout = normalizeResultLayout(question.type, config.result_layout);
     config.layout_blocks = collectLayoutBlocksFromCanvas(question);
     const options = $$(".option-label", canvas).map((node) => node.textContent.trim()).filter(Boolean);
     const correct = $$(".option-card.is-correct .option-label", canvas).map((node) => node.textContent.trim()).filter(Boolean);
@@ -1333,6 +2040,7 @@
       w: roundPercent(width),
       h: roundPercent(height),
       z: Math.round(clampNumber(block.z, 0, 100, index + 1)),
+      locked: block.locked === true || block.locked === "true",
     };
   }
 
@@ -1623,6 +2331,7 @@
       align: ["left", "center", "right"].includes(box.align) ? box.align : "left",
       auto_fit: box.auto_fit !== false && box.auto_fit !== "false",
       z: Math.round(clampNumber(box.z, 0, 100, index + 1)),
+      locked: box.locked === true || box.locked === "true",
     };
   }
 
@@ -1640,17 +2349,154 @@
     return ensureTextBoxes(question).find((box) => box.id === state.selectedTextBoxId) || null;
   }
 
+  function canvasElementKey(kind, id) {
+    return `${kind}:${id}`;
+  }
+
+  function contentCanvasElements(question) {
+    if (!question || question.type !== "content_slide") return [];
+    const elements = ensureTextBoxes(question).map((value) => ({ kind: "text", id: value.id, value }));
+    ensureMediaBlocks(question).forEach((value) => elements.push({ kind: "media", id: value.id, value }));
+    if (question.config?.show_qr || question.config?.layout === "qr") {
+      const value = ensureQrBlock(question);
+      if (value) elements.push({ kind: "qr", id: "qr", value });
+    }
+    return elements;
+  }
+
+  function selectedCanvasElements(question) {
+    const all = contentCanvasElements(question);
+    const keys = state.selectedElementKeys.length
+      ? state.selectedElementKeys
+      : (state.selectedTextBoxId ? [canvasElementKey("text", state.selectedTextBoxId)]
+        : state.selectedMediaId ? [canvasElementKey("media", state.selectedMediaId)]
+          : state.selectedQr ? [canvasElementKey("qr", "qr")] : []);
+    return keys.map((key) => all.find((item) => canvasElementKey(item.kind, item.id) === key)).filter(Boolean);
+  }
+
+  function selectedCanvasElement(question) {
+    return selectedCanvasElements(question)[0] || null;
+  }
+
+  function clearCanvasElementSelection(options = {}) {
+    state.selectedElementKeys = [];
+    state.selectedMediaId = null;
+    state.selectedQr = false;
+    if (options.keepText !== true) state.selectedTextBoxId = null;
+    syncCanvasElementSelection();
+    if (options.render !== false) renderInspector();
+  }
+
+  function selectCanvasElement(kind, id, multi = false, options = {}) {
+    const question = selectedQuestion();
+    if (!question || question.type !== "content_slide") return;
+    const key = canvasElementKey(kind, id);
+    const exists = contentCanvasElements(question).some((item) => canvasElementKey(item.kind, item.id) === key);
+    if (!exists) return;
+    if (multi) {
+      state.selectedElementKeys = state.selectedElementKeys.includes(key)
+        ? state.selectedElementKeys.filter((item) => item !== key)
+        : [...state.selectedElementKeys, key];
+    } else {
+      state.selectedElementKeys = [key];
+    }
+    const primary = selectedCanvasElement(question);
+    state.selectedTextBoxId = primary?.kind === "text" ? primary.id : null;
+    state.selectedMediaId = primary?.kind === "media" ? primary.id : null;
+    state.selectedQr = primary?.kind === "qr";
+    state.selectedTextTargetId = null;
+    syncCanvasElementSelection();
+    if (options.render !== false) renderInspector();
+  }
+
+  function selectCanvasElementFromNode(node, multi = false) {
+    const [kind, ...parts] = String(node?.dataset.canvasElement || "").split(":");
+    const id = parts.join(":");
+    if (!kind || !id) return;
+    selectCanvasElement(kind, id, multi);
+  }
+
+  function syncCanvasElementSelection() {
+    if (!canvas) return;
+    $$("[data-canvas-element]", canvas).forEach((node) => {
+      node.classList.toggle("is-selected", state.selectedElementKeys.includes(node.dataset.canvasElement));
+    });
+  }
+
+  function updateCanvasElement(question, element, patch, options = {}) {
+    if (!question || !element) return null;
+    if (element.kind === "text") {
+      const boxes = ensureTextBoxes(question);
+      const index = boxes.findIndex((box) => box.id === element.id);
+      if (index < 0) return null;
+      const next = normalizeTextBox({ ...boxes[index], ...patch }, index, question);
+      question.config.text_boxes[index] = next;
+      syncTitleAndBodyFromBoxes(question);
+      applyTextBoxDom(next, { fit: true });
+      if (options.save !== false) scheduleQuestionSave({ rerender: false });
+      return { kind: "text", id: next.id, value: next };
+    }
+    if (element.kind === "media") {
+      const blocks = ensureMediaBlocks(question);
+      const index = blocks.findIndex((block) => block.id === element.id);
+      if (index < 0) return null;
+      const next = normalizeMediaBlock({ ...blocks[index], ...patch }, index);
+      question.config.media_blocks[index] = next;
+      applyMediaBlockDom(next);
+      if (options.save !== false) scheduleQuestionSave({ rerender: false });
+      return { kind: "media", id: next.id, value: next };
+    }
+    if (element.kind === "qr") {
+      const current = ensureQrBlock(question);
+      const next = { id: "qr", ...normalizeCanvasBox({ ...current, ...patch }, { x: 66, y: 54, w: 27, h: 29, z: 20 }, 20) };
+      question.config.qr_position = { ...next };
+      question.config.qr_block = { ...next };
+      applyQrBlockDom(next);
+      if (options.save !== false) scheduleQuestionSave({ rerender: false });
+      return { kind: "qr", id: "qr", value: next };
+    }
+    return null;
+  }
+
+  function applyMediaBlockDom(block) {
+    const node = $$('[data-media-block-id]', canvas).find((item) => item.dataset.mediaBlockId === block.id);
+    if (!node) return;
+    node.style.cssText = mediaBlockStyle(block);
+    node.dataset.locked = block.locked ? "true" : "false";
+    const image = $("img", node);
+    if (image) {
+      image.alt = block.alt_text || "";
+      image.style.objectFit = block.fit;
+    }
+  }
+
+  function applyQrBlockDom(block) {
+    const node = $("[data-qr-block]", canvas);
+    if (!node) return;
+    node.style.cssText = qrBlockStyle(block);
+    node.dataset.locked = block.locked ? "true" : "false";
+  }
+
   function selectTextBox(id) {
     state.selectedTextBoxId = id || null;
-    if (state.selectedTextBoxId) state.selectedTextTargetId = null;
+    if (state.selectedTextBoxId) {
+      state.selectedTextTargetId = null;
+      state.selectedMediaId = null;
+      state.selectedQr = false;
+      state.selectedElementKeys = [canvasElementKey("text", state.selectedTextBoxId)];
+    } else {
+      state.selectedElementKeys = [];
+    }
     syncTextBoxSelection();
+    syncCanvasElementSelection();
     renderInspector();
   }
 
   function syncTextBoxSelection() {
     if (!canvas) return;
     $$(".slide-text-box", canvas).forEach((node) => {
-      node.classList.toggle("is-selected", node.dataset.textBoxId === state.selectedTextBoxId);
+      const key = node.dataset.canvasElement || (node.dataset.textBoxId ? canvasElementKey("text", node.dataset.textBoxId) : "");
+      node.classList.toggle("is-selected", state.selectedElementKeys.includes(key) || node.dataset.textBoxId === state.selectedTextBoxId);
     });
   }
 
@@ -1686,6 +2532,7 @@
   }
 
   function addTextBox(question) {
+    rememberUndo("agregar texto");
     const boxes = ensureTextBoxes(question);
     const topZ = Math.max(...boxes.map((box) => Number(box.z || 0)), 0);
     const next = normalizeTextBox({
@@ -1705,6 +2552,7 @@
     }, boxes.length, question);
     question.config.text_boxes = [...boxes, next];
     state.selectedTextBoxId = next.id;
+    state.selectedElementKeys = [canvasElementKey("text", next.id)];
     renderCanvas();
     renderInspector();
     scheduleQuestionSave({ rerender: false });
@@ -1713,6 +2561,7 @@
   function duplicateSelectedTextBox(question) {
     const box = selectedTextBox(question);
     if (!box) return;
+    rememberUndo("duplicar texto");
     const boxes = ensureTextBoxes(question);
     const clone = normalizeTextBox({
       ...box,
@@ -1723,6 +2572,7 @@
     }, boxes.length, question);
     question.config.text_boxes = [...boxes, clone];
     state.selectedTextBoxId = clone.id;
+    state.selectedElementKeys = [canvasElementKey("text", clone.id)];
     renderCanvas();
     renderInspector();
     scheduleQuestionSave({ rerender: false });
@@ -1731,9 +2581,11 @@
   function deleteSelectedTextBox(question) {
     const boxes = ensureTextBoxes(question);
     if (!state.selectedTextBoxId || boxes.length <= 1) return;
+    rememberUndo("eliminar texto");
     const index = boxes.findIndex((box) => box.id === state.selectedTextBoxId);
     question.config.text_boxes = boxes.filter((box) => box.id !== state.selectedTextBoxId);
     state.selectedTextBoxId = question.config.text_boxes[Math.max(index - 1, 0)]?.id || null;
+    state.selectedElementKeys = state.selectedTextBoxId ? [canvasElementKey("text", state.selectedTextBoxId)] : [];
     syncTitleAndBodyFromBoxes(question);
     renderCanvas();
     renderInspector();
@@ -1745,6 +2597,7 @@
     const boxes = ensureTextBoxes(question);
     const index = boxes.findIndex((box) => box.id === state.selectedTextBoxId);
     if (index < 0) return;
+    if (boxes[index].locked && !Object.prototype.hasOwnProperty.call(patch, "locked")) return;
     const next = normalizeTextBox({ ...boxes[index], ...patch }, index, question);
     question.config.text_boxes[index] = next;
     syncTitleAndBodyFromBoxes(question);
@@ -1768,28 +2621,29 @@
 
   function handleCanvasPointerDown(event) {
     const question = selectedQuestion();
-    if (!question) return;
+    if (!question || state.conflict) return;
     if (question.type !== "content_slide") {
       handleLayoutBlockPointerDown(event, question);
       return;
     }
-    const node = event.target.closest("[data-text-box-id]");
+    const node = event.target.closest("[data-canvas-element]");
     if (!node) return;
-    state.selectedTextBoxId = node.dataset.textBoxId;
-    syncTextBoxSelection();
-    renderInspector();
-    const handle = event.target.closest("[data-resize-handle]");
-    const moveHandle = event.target.closest("[data-text-move-handle]");
+    selectCanvasElementFromNode(node, event.shiftKey);
+    if (event.shiftKey) return;
+    const element = selectedCanvasElement(question);
+    if (!element || element.value.locked || !canvas) return;
+    const handle = event.target.closest("[data-element-resize-handle]");
+    const moveHandle = event.target.closest("[data-element-move-handle]");
     if (!handle && !moveHandle && event.target.closest("[data-text-box-content]")) return;
-    const box = selectedTextBox(question);
-    if (!box || !canvas) return;
+    rememberUndo("mover o redimensionar");
     state.textDrag = {
-      id: box.id,
+      kind: element.kind,
+      id: element.id,
       mode: handle ? "resize" : "move",
-      handle: handle?.dataset.resizeHandle || "se",
+      handle: handle?.dataset.elementResizeHandle || "se",
       startX: event.clientX,
       startY: event.clientY,
-      startBox: { ...box },
+      startBox: { ...element.value },
       rect: canvas.getBoundingClientRect(),
     };
     event.preventDefault();
@@ -1807,7 +2661,8 @@
     const moveHandle = event.target.closest("[data-block-move-handle]");
     if (!resizeHandle && !moveHandle) return;
     const block = selectedLayoutBlock(question);
-    if (!block) return;
+    if (!block || block.locked) return;
+    rememberUndo("mover bloque");
     state.layoutBlockDrag = {
       id: block.id,
       mode: resizeHandle ? "resize" : "move",
@@ -1835,12 +2690,14 @@
     }
     if (!state.textDrag || question.type !== "content_slide") return;
     const drag = state.textDrag;
+    const element = contentCanvasElements(question).find((item) => item.kind === drag.kind && item.id === drag.id);
+    if (!element) return;
     const dx = ((event.clientX - drag.startX) / drag.rect.width) * 100;
     const dy = ((event.clientY - drag.startY) / drag.rect.height) * 100;
     const patch = drag.mode === "move"
       ? movedTextBoxPatch(drag.startBox, dx, dy)
       : resizedTextBoxPatch(drag.startBox, drag.handle, dx, dy);
-    updateSelectedTextBox(question, patch, { save: false, renderList: false });
+    updateCanvasElement(question, element, patch, { save: false });
   }
 
   function finishCanvasDrag() {
@@ -1856,11 +2713,29 @@
     }
   }
 
-  function movedTextBoxPatch(box, dx, dy) {
+  function snapGeometryPatch(patch) {
+    if (!state.snap) return patch;
+    const step = GRID_STEP;
+    const w = patch.w === undefined ? undefined : clampNumber(Math.round(patch.w / step) * step, 5, 100, patch.w);
+    const h = patch.h === undefined ? undefined : clampNumber(Math.round(patch.h / step) * step, 5, 100, patch.h);
+    const maxX = 100 - (w === undefined ? 0 : w);
+    const maxY = 100 - (h === undefined ? 0 : h);
     return {
+      ...patch,
+      ...(w === undefined ? {} : { w: roundPercent(w) }),
+      ...(h === undefined ? {} : { h: roundPercent(h) }),
+      ...(patch.x === undefined ? {} : { x: roundPercent(clampNumber(Math.round(patch.x / step) * step, 0, maxX, patch.x)) }),
+      ...(patch.y === undefined ? {} : { y: roundPercent(clampNumber(Math.round(patch.y / step) * step, 0, maxY, patch.y)) }),
+    };
+  }
+
+  function movedTextBoxPatch(box, dx, dy) {
+    return snapGeometryPatch({
       x: clampNumber(box.x + dx, 0, Math.max(0, 100 - box.w), box.x),
       y: clampNumber(box.y + dy, 0, Math.max(0, 100 - box.h), box.y),
-    };
+      w: box.w,
+      h: box.h,
+    });
   }
 
   function resizedTextBoxPatch(box, handle, dx, dy) {
@@ -1887,14 +2762,16 @@
       const scale = Math.max(0.4, Math.min(w / box.w, h / box.h));
       patch.font_size = Math.round(clampNumber(box.font_size * scale, 12, 120, box.font_size));
     }
-    return patch;
+    return snapGeometryPatch(patch);
   }
 
   function movedLayoutBlockPatch(block, dx, dy) {
-    return {
+    return snapGeometryPatch({
       x: clampNumber(block.x + dx, 0, Math.max(0, 100 - block.w), block.x),
       y: clampNumber(block.y + dy, 0, Math.max(0, 100 - block.h), block.y),
-    };
+      w: block.w,
+      h: block.h,
+    });
   }
 
   function resizedLayoutBlockPatch(block, handle, dx, dy) {
@@ -1916,24 +2793,60 @@
     h = clampNumber(h, 10, 100, block.h);
     x = clampNumber(x, 0, Math.max(0, 100 - w), block.x);
     y = clampNumber(y, 0, Math.max(0, 100 - h), block.y);
-    return { x, y, w, h };
+    return snapGeometryPatch({ x, y, w, h });
   }
 
   function handleDocumentKeydown(event) {
     const question = selectedQuestion();
+    const modifier = event.ctrlKey || event.metaKey;
+    if (modifier && !isEditing()) {
+      const key = String(event.key || "").toLowerCase();
+      if (key === "z") {
+        event.preventDefault();
+        if (event.shiftKey) redoLocal();
+        else undoLocal();
+        return;
+      }
+      if (key === "y") {
+        event.preventDefault();
+        redoLocal();
+        return;
+      }
+      if (key === "c") {
+        event.preventDefault();
+        copySelection();
+        return;
+      }
+      if (key === "v") {
+        event.preventDefault();
+        pasteSelection();
+        return;
+      }
+      if (key === "d") {
+        event.preventDefault();
+        duplicateSelection();
+        return;
+      }
+    }
     if (event.key === "Escape") {
       document.activeElement?.blur?.();
-      selectTextBox(null);
+      clearCanvasElementSelection({ render: false });
       if (question?.type !== "content_slide") {
         selectCanvasTextTarget(null, { render: false });
         selectLayoutBlock(null);
       }
+      renderInspector();
       return;
     }
-    if (!question || question.type !== "content_slide") return;
-    if (!["Delete", "Backspace"].includes(event.key) || isEditing()) return;
+    if (!question || isEditing()) return;
+    if (["ArrowLeft", "ArrowRight", "ArrowUp", "ArrowDown"].includes(event.key)) {
+      if (nudgeSelectionWithKeyboard(question, event)) event.preventDefault();
+      return;
+    }
+    if (!["Delete", "Backspace"].includes(event.key)) return;
     event.preventDefault();
-    deleteSelectedTextBox(question);
+    if (question.type === "content_slide") deleteSelectedCanvasElement(question);
+    else if (state.selectedLayoutBlockId) resetLayoutBlocks(question);
   }
 
   async function handleSlideAction(action, id) {
@@ -1991,11 +2904,13 @@
       return;
     }
     if (button.dataset.textAlign) {
+      rememberUndo("estilo de texto");
       updateSelectedTextStyle(question, { align: button.dataset.textAlign }, { renderInspector: true });
       return;
     }
     if (button.dataset.textColor) {
       const key = button.dataset.textColorTarget || "color";
+      rememberUndo("estilo de texto");
       updateSelectedTextStyle(question, { [key]: button.dataset.textColor }, { renderInspector: true });
     }
   }
@@ -2006,6 +2921,7 @@
     const key = target.dataset.textStyleKey;
     let value = target instanceof HTMLInputElement && target.type === "checkbox" ? target.checked : target.value;
     const patch = {};
+    rememberUndo("estilo de texto", { coalesce: true });
     if (key === "font_size") patch.font_size = clampNumber(value, 8, 120);
     if (key === "font_weight") patch.font_weight = value ? 800 : 400;
     if (key === "color") patch.color = normalizeHexColor(value, "#17212f");
@@ -2031,19 +2947,265 @@
       state.selectedLayoutBlockId = "question";
       syncLayoutBlockSelection();
     }
+    rememberUndo("posición de bloque", { coalesce: true });
     updateSelectedLayoutBlock(question, { [key]: Number(target.value || 0) }, { renderInspector: false });
   }
 
   function handleLayoutBlockButton(button) {
     const question = selectedQuestion();
     if (!question || question.type === "content_slide") return;
-    if (button.dataset.layoutBlockAction === "reset") resetLayoutBlocks(question);
+    const action = button.dataset.layoutBlockAction;
+    if (action === "reset") {
+      rememberUndo("restablecer diseño");
+      resetLayoutBlocks(question);
+      return;
+    }
+    const block = selectedLayoutBlock(question);
+    if (!block || block.locked) return;
+    const values = Object.values(ensureLayoutBlocks(question));
+    const maxZ = Math.max(...values.map((item) => Number(item.z || 0)), 0);
+    const minZ = Math.min(...values.map((item) => Number(item.z || 0)), 0);
+    const z = action === "front" ? maxZ + 1
+      : action === "back" ? Math.max(0, minZ - 1)
+        : action === "forward" ? block.z + 1
+          : action === "backward" ? Math.max(0, block.z - 1)
+            : block.z;
+    rememberUndo("orden de bloque");
+    updateSelectedLayoutBlock(question, { z }, { renderInspector: true });
+  }
+
+  function handleAssetOrElementAction(button) {
+    const question = selectedQuestion();
+    if (!question) return;
+    const asset = state.assets.find((item) => String(item.id) === String(button.dataset.assetId));
+    if (button.dataset.assetAction === "insert" && asset) {
+      insertAssetIntoSlide(question, asset);
+      return;
+    }
+    if (button.dataset.assetAction === "delete" && asset) {
+      deleteAsset(asset);
+      return;
+    }
+    if (button.dataset.backgroundAction === "asset" && asset) {
+      rememberUndo("fondo");
+      const current = normalizedBackground(question);
+      question.config = {
+        ...(question.config || {}),
+        background: { ...current, image_url: asset.url, asset_id: asset.id },
+      };
+      renderCanvas();
+      renderSlideList();
+      scheduleQuestionSave({ rerender: false });
+      return;
+    }
+    if (button.dataset.backgroundAction === "clear") {
+      rememberUndo("fondo");
+      const current = normalizedBackground(question);
+      question.config = { ...(question.config || {}), background: { ...current, image_url: "", asset_id: null } };
+      renderCanvas();
+      renderSlideList();
+      scheduleQuestionSave({ rerender: false });
+      return;
+    }
+    const action = button.dataset.elementAction;
+    if (!action) return;
+    if (action.startsWith("align-")) {
+      alignCanvasElements(question, action.slice("align-".length));
+      return;
+    }
+    if (action.startsWith("distribute-")) {
+      distributeCanvasElements(question, action.slice("distribute-".length));
+      return;
+    }
+    const selected = selectedCanvasElement(question);
+    if (!selected) return;
+    if (action === "duplicate") {
+      duplicateSelection();
+      return;
+    }
+    if (selected.value.locked) return;
+    const elements = contentCanvasElements(question);
+    const maxZ = Math.max(...elements.map((item) => Number(item.value.z || 0)), 0);
+    const minZ = Math.min(...elements.map((item) => Number(item.value.z || 0)), 0);
+    const z = action === "front" ? maxZ + 1
+      : action === "back" ? Math.max(0, minZ - 1)
+        : action === "forward" ? selected.value.z + 1
+          : action === "backward" ? Math.max(0, selected.value.z - 1)
+            : selected.value.z;
+    rememberUndo("orden de capa");
+    updateCanvasElement(question, selected, { z }, { save: false });
+    renderCanvas();
+    renderInspector();
+    scheduleQuestionSave({ rerender: false });
+  }
+
+  function updateBackground(question, key, value) {
+    if (!["color", "image_url", "fit"].includes(key)) return;
+    rememberUndo("fondo", { coalesce: true });
+    const next = { ...normalizedBackground(question), [key]: key === "color" ? normalizeHexColor(value, "#ffffff") : String(value || "") };
+    question.config = { ...(question.config || {}), background: next };
+    renderCanvas();
+    renderSlideList();
+    scheduleQuestionSave({ rerender: false });
+  }
+
+  function setLegacyMediaUrl(question, value) {
+    const url = String(value || "").trim().slice(0, 1400);
+    rememberUndo("imagen", { coalesce: true });
+    question.config = { ...(question.config || {}), media_url: url };
+    const blocks = ensureMediaBlocks(question);
+    const legacyIndex = blocks.findIndex((block) => block.id === "legacy-media");
+    if (url) {
+      const next = normalizeMediaBlock({ ...(blocks[legacyIndex] || {}), id: "legacy-media", url }, legacyIndex >= 0 ? legacyIndex : blocks.length);
+      question.config.media_blocks = legacyIndex >= 0
+        ? blocks.map((block, index) => index === legacyIndex ? next : block)
+        : [...blocks, next];
+    } else if (legacyIndex >= 0) {
+      question.config.media_blocks = blocks.filter((block) => block.id !== "legacy-media");
+    }
+    renderCanvas();
+    renderSlideList();
+    scheduleQuestionSave({ rerender: false });
+  }
+
+  function insertAssetIntoSlide(question, asset) {
+    if (question.type !== "content_slide") return;
+    rememberUndo("insertar imagen");
+    const blocks = ensureMediaBlocks(question);
+    const block = normalizeMediaBlock({
+      id: `media-${Date.now().toString(36)}`,
+      asset_id: asset.id,
+      url: asset.url,
+      alt_text: asset.alt_text || asset.original_filename || "",
+      x: 58,
+      y: 19,
+      w: 30,
+      h: 40,
+      z: Math.max(...blocks.map((item) => Number(item.z || 0)), 1) + 1,
+    }, blocks.length);
+    question.config.media_blocks = [...blocks, block];
+    state.selectedTextBoxId = null;
+    state.selectedMediaId = block.id;
+    state.selectedQr = false;
+    state.selectedElementKeys = [canvasElementKey("media", block.id)];
+    renderCanvas();
+    renderInspector();
+    renderSlideList();
+    scheduleQuestionSave({ rerender: false });
+  }
+
+  async function uploadSelectedAsset(input) {
+    const file = input.files?.[0];
+    if (!file || !state.session || state.assetUploadBusy) return;
+    const allowed = ["image/png", "image/jpeg", "image/webp"];
+    if (!allowed.includes(file.type)) {
+      alert("Usa una imagen PNG, JPEG o WebP.");
+      input.value = "";
+      return;
+    }
+    const altText = String($("[data-asset-upload-alt]", inspector)?.value || "").trim();
+    state.assetUploadBusy = true;
+    renderInspector();
+    const form = new FormData();
+    form.append("file", file);
+    form.append("alt_text", altText);
+    const json = await fetchJson(`/api/sessions/${state.session.code}/assets`, { method: "POST", body: form });
+    state.assetUploadBusy = false;
+    if (!json.ok) {
+      if (json.status === 404) state.assetsSupported = false;
+      alert(json.error || "No se pudo cargar la imagen.");
+      renderInspector();
+      return;
+    }
+    state.assetsSupported = true;
+    state.assets = [...state.assets, json.asset].filter(Boolean);
+    renderInspector();
+  }
+
+  async function deleteAsset(asset) {
+    if (!state.session || !window.confirm(`¿Eliminar ${asset.original_filename || asset.filename || "esta imagen"}?`)) return;
+    const json = await fetchJson(`/api/sessions/${state.session.code}/assets/${asset.id}`, { method: "DELETE" });
+    if (!json.ok && json.status !== 204) {
+      alert(json.error || "No se pudo eliminar la imagen.");
+      return;
+    }
+    state.assets = state.assets.filter((item) => String(item.id) !== String(asset.id));
+    renderInspector();
+  }
+
+  function deleteSelectedCanvasElement(question) {
+    const selected = selectedCanvasElement(question);
+    if (!selected || selected.value.locked) return;
+    if (selected.kind === "text") {
+      deleteSelectedTextBox(question);
+      return;
+    }
+    rememberUndo("eliminar elemento");
+    if (selected.kind === "media") {
+      question.config.media_blocks = ensureMediaBlocks(question).filter((block) => block.id !== selected.id);
+    } else if (selected.kind === "qr") {
+      question.config.show_qr = false;
+    }
+    clearCanvasElementSelection({ render: false });
+    renderCanvas();
+    renderInspector();
+    renderSlideList();
+    scheduleQuestionSave({ rerender: false });
+  }
+
+  function alignCanvasElements(question, alignment) {
+    const selected = selectedCanvasElements(question).filter((element) => !element.value.locked);
+    if (!selected.length) return;
+    rememberUndo("alinear elementos");
+    const horizontal = ["left", "center", "right"].includes(alignment);
+    const starts = selected.map((element) => horizontal ? element.value.x : element.value.y);
+    const ends = selected.map((element) => horizontal ? element.value.x + element.value.w : element.value.y + element.value.h);
+    const groupStart = Math.min(...starts);
+    const groupEnd = Math.max(...ends);
+    const groupMiddle = (groupStart + groupEnd) / 2;
+    selected.forEach((element) => {
+      let patch = {};
+      if (alignment === "left") patch = { x: selected.length === 1 ? 0 : groupStart };
+      if (alignment === "center") patch = { x: (selected.length === 1 ? 50 : groupMiddle) - element.value.w / 2 };
+      if (alignment === "right") patch = { x: (selected.length === 1 ? 100 : groupEnd) - element.value.w };
+      if (alignment === "top") patch = { y: selected.length === 1 ? 0 : groupStart };
+      if (alignment === "middle") patch = { y: (selected.length === 1 ? 50 : groupMiddle) - element.value.h / 2 };
+      if (alignment === "bottom") patch = { y: (selected.length === 1 ? 100 : groupEnd) - element.value.h };
+      updateCanvasElement(question, element, snapGeometryPatch({ ...element.value, ...patch }), { save: false });
+    });
+    renderCanvas();
+    renderInspector();
+    scheduleQuestionSave({ rerender: false });
+  }
+
+  function distributeCanvasElements(question, direction) {
+    const selected = selectedCanvasElements(question).filter((element) => !element.value.locked);
+    if (selected.length < 3) return;
+    rememberUndo("distribuir elementos");
+    const horizontal = direction === "horizontal";
+    const ordered = selected.slice().sort((a, b) => (horizontal ? a.value.x - b.value.x : a.value.y - b.value.y));
+    const first = ordered[0].value;
+    const last = ordered[ordered.length - 1].value;
+    const start = horizontal ? first.x : first.y;
+    const end = horizontal ? last.x + last.w : last.y + last.h;
+    const totalSize = ordered.reduce((total, element) => total + (horizontal ? element.value.w : element.value.h), 0);
+    const gap = Math.max(0, (end - start - totalSize) / (ordered.length - 1));
+    let cursor = start;
+    ordered.forEach((element) => {
+      const patch = horizontal ? { x: cursor } : { y: cursor };
+      updateCanvasElement(question, element, snapGeometryPatch({ ...element.value, ...patch }), { save: false });
+      cursor += (horizontal ? element.value.w : element.value.h) + gap;
+    });
+    renderCanvas();
+    renderInspector();
+    scheduleQuestionSave({ rerender: false });
   }
 
   function handleCanvasAction(action, button) {
     const question = selectedQuestion();
     if (!question) return;
     if (action === "add-option") {
+      rememberUndo("agregar opción");
       question.options = [...(question.options || []), { id: `tmp-${Date.now()}`, label: `Opción ${(question.options || []).length + 1}`, is_correct: false }];
       renderCanvas();
       scheduleQuestionSave({ rerender: false });
@@ -2052,12 +3214,14 @@
     const index = Number(button.dataset.optionIndex || -1);
     if (index < 0) return;
     if (action === "remove-option") {
+      rememberUndo("eliminar opción");
       question.options.splice(index, 1);
       renderCanvas();
       scheduleQuestionSave({ rerender: false });
       return;
     }
     if (action === "toggle-correct") {
+      rememberUndo("respuesta correcta");
       question.options[index].is_correct = !question.options[index].is_correct;
       renderCanvas();
       scheduleQuestionSave({ rerender: false });
@@ -2066,7 +3230,7 @@
 
   function handleInspectorInput(target, fromChange) {
     const question = selectedQuestion();
-    if (!state.session || !question) return;
+    if (!state.session || !question || state.conflict) return;
 
     if (target.matches("[data-text-style-key]")) {
       handleTextStyleInput(target);
@@ -2083,6 +3247,54 @@
       return;
     }
 
+    if (target.matches("[data-layout-block-lock]")) {
+      if (question.type !== "content_slide") {
+        rememberUndo("bloquear bloque");
+        updateSelectedLayoutBlock(question, { locked: Boolean(target.checked) }, { renderInspector: true });
+      }
+      return;
+    }
+
+    if (target.matches("[data-element-geometry]")) {
+      const element = selectedCanvasElement(question);
+      if (element && !element.value.locked) {
+        updateCanvasElement(question, element, { [target.dataset.elementGeometry]: Number(target.value || 0) });
+      }
+      return;
+    }
+
+    if (target.matches("[data-element-lock]")) {
+      const element = selectedCanvasElement(question);
+      if (element) {
+        rememberUndo("bloquear elemento");
+        updateCanvasElement(question, element, { locked: Boolean(target.checked) }, { renderInspector: true });
+        renderCanvas();
+      }
+      return;
+    }
+
+    if (target.matches("[data-media-field]")) {
+      const element = selectedCanvasElement(question);
+      if (element?.kind === "media") updateCanvasElement(question, element, { [target.dataset.mediaField]: target.value });
+      return;
+    }
+
+    if (target.matches("[data-media-url]")) {
+      setLegacyMediaUrl(question, target.value);
+      return;
+    }
+
+    if (target.matches("[data-background-key]")) {
+      updateBackground(question, target.dataset.backgroundKey, target.value);
+      return;
+    }
+
+    if (target.matches("[data-presenter-notes]")) {
+      question.config = { ...(question.config || {}), presenter_notes: String(target.value || "").slice(0, 4000) };
+      scheduleQuestionSave({ rerender: false });
+      return;
+    }
+
     if (target.matches("[data-session-theme]")) {
       patchSession({ theme: target.value });
       return;
@@ -2095,6 +3307,7 @@
 
     const key = target.dataset.configKey;
     if (!key) return;
+    rememberUndo("propiedad", { coalesce: !fromChange });
     const value = target instanceof HTMLInputElement && target.type === "checkbox"
       ? target.checked
       : target.value;
@@ -2111,6 +3324,7 @@
   function changeSlideType(type) {
     const question = selectedQuestion();
     if (!question) return;
+    rememberUndo("tipo de diapositiva");
     const defaults = defaultSlidePayload(type, type === "content_slide" ? "title" : "");
     const payload = {
       ...defaults,
@@ -2228,6 +3442,47 @@
         },
       },
     });
+  }
+
+  function renderResultList(items, heading = "Resultados") {
+    const { altNode } = resultNodes();
+    if (!altNode) return;
+    const max = Math.max(...items.map((item) => Number(item.value || 0)), 1);
+    altNode.innerHTML = `
+      <div class="leaderboard-panel" data-result-layout="list">
+        <strong>${escapeHtml(heading)}</strong>
+        ${items.map((item, index) => {
+          const value = Number(item.value || 0);
+          return `<div><span>${index + 1}. ${escapeHtml(item.label)}</span><b>${value}</b><i style="display:block;width:${Math.max(3, (value / max) * 100)}%;height:.28rem;background:var(--primary);border-radius:999px"></i></div>`;
+        }).join("") || '<p class="muted">Aún no hay resultados.</p>'}
+      </div>
+    `;
+  }
+
+  function renderResultGrid(items) {
+    const { altNode } = resultNodes();
+    if (!altNode) return;
+    altNode.innerHTML = `
+      <div class="response-card-grid" data-result-layout="grid">
+        ${items.map((item) => `<article><strong>${escapeHtml(item.label)}</strong><b>${Number(item.value || 0)}</b></article>`).join("") || '<p class="muted">Aún no hay resultados.</p>'}
+      </div>
+    `;
+  }
+
+  function renderWordList(words) {
+    const items = words.map((word) => ({ label: word.text, value: word.count }));
+    renderResultList(items, "Palabras más mencionadas");
+  }
+
+  function renderOpenTextList(cards) {
+    const { altNode } = resultNodes();
+    if (!altNode) return;
+    altNode.innerHTML = `
+      <div class="leaderboard-panel" data-result-layout="list">
+        <strong>Respuestas abiertas</strong>
+        ${(cards || []).map((card, index) => `<div><span>${index + 1}. ${escapeHtml(card.text)}</span></div>`).join("") || '<p class="muted">Sin respuestas abiertas todavía.</p>'}
+      </div>
+    `;
   }
 
   function renderWordResults(words) {
@@ -2355,6 +3610,7 @@
     if (type === "word_cloud") return "cloud";
     if (type === "open_text") return "cards";
     if (type === "quiz") return "leaderboard";
+    if (type === "ranking") return "ranking";
     return "chart";
   }
 
@@ -2363,6 +3619,8 @@
       show_results: true,
       result_layout: defaultResultLayout(type),
       layout_blocks: defaultLayoutBlocks(),
+      background: { color: "#ffffff", image_url: "", fit: "cover" },
+      presenter_notes: "",
       ...overrides,
       result_placement: "slide",
     };
@@ -2375,16 +3633,24 @@
     }, {});
   }
 
-  function resultLayoutOptions(current) {
-    return [
-      ["auto", "Automatica"],
-      ["chart", "Grafica"],
-      ["list", "Lista"],
-      ["grid", "Matriz"],
-      ["cloud", "Nube"],
-      ["cards", "Tarjetas"],
-      ["leaderboard", "Ranking"],
-    ].map(([value, label]) => `<option value="${value}"${value === current ? " selected" : ""}>${label}</option>`).join("");
+  function resultLayoutsForType(type) {
+    if (type === "word_cloud") return [["cloud", "Nube"], ["list", "Lista"]];
+    if (type === "open_text") return [["cards", "Tarjetas"], ["list", "Lista"]];
+    if (type === "quiz") return [["leaderboard", "Ranking"], ["chart", "Gráfica"]];
+    if (type === "ranking") return [["ranking", "Ranking"], ["chart", "Gráfica"]];
+    return [["chart", "Gráfica"], ["list", "Lista"], ["grid", "Matriz"]];
+  }
+
+  function normalizeResultLayout(type, value) {
+    const choices = resultLayoutsForType(type).map(([key]) => key);
+    return choices.includes(value) ? value : defaultResultLayout(type);
+  }
+
+  function resultLayoutOptions(type, current) {
+    const normalized = normalizeResultLayout(type, current);
+    return resultLayoutsForType(type)
+      .map(([value, label]) => `<option value="${value}"${value === normalized ? " selected" : ""}>${label}</option>`)
+      .join("");
   }
 
   function defaultSlidePayload(type, layout = "") {
@@ -2399,6 +3665,9 @@
             layout: "qr",
             body: "Escanea el QR o entra con el código de la presentación.",
             show_qr: true,
+            background: { color: "#ffffff", image_url: "", fit: "cover" },
+            media_blocks: [],
+            presenter_notes: "",
           },
           options: [],
         };
@@ -2411,6 +3680,9 @@
           layout: finalLayout,
           body: finalLayout === "text" ? "Escribe aquí el contenido de la diapositiva." : "Subtítulo o contexto del taller.",
           show_qr: false,
+          background: { color: "#ffffff", image_url: "", fit: "cover" },
+          media_blocks: [],
+          presenter_notes: "",
         },
         options: [],
       };
@@ -2502,6 +3774,34 @@
     if (saveState) saveState.textContent = message;
   }
 
+  function hasUnsavedLocalChanges() {
+    return Boolean(state.dirtyQuestionId || state.saveTimer || state.saveInFlight || state.sessionSaveTimer || state.sessionSaveInFlight);
+  }
+
+  function showConflict(payload = {}) {
+    state.conflict = payload;
+    window.clearTimeout(state.saveTimer);
+    state.saveTimer = null;
+    setSaveState("Cambios externos detectados");
+    renderConflictNotice();
+    renderEditorToolbar();
+  }
+
+  function renderConflictNotice() {
+    if (!editConflict) return;
+    editConflict.hidden = !state.conflict;
+  }
+
+  async function resolveConflictByReload() {
+    state.conflict = null;
+    state.dirtyQuestionId = null;
+    state.lastSaveKey = "";
+    renderConflictNotice();
+    setSaveState("Recargando versión actual…");
+    await loadSession(true);
+    renderEditorToolbar();
+  }
+
   async function getJson(url) {
     return fetchJson(url, { method: "GET" });
   }
@@ -2525,7 +3825,9 @@
   async function fetchJson(url, options) {
     try {
       const response = await fetch(url, options);
-      return await response.json();
+      const contentType = response.headers.get("content-type") || "";
+      const payload = contentType.includes("application/json") ? await response.json() : {};
+      return { ...payload, ok: payload.ok === true, status: response.status };
     } catch (error) {
       return { ok: false, error: "Error de conexión." };
     }

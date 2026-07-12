@@ -3,20 +3,25 @@
 <head>
     <meta charset="utf-8">
     <meta name="viewport" content="width=device-width, initial-scale=1">
-    <title>Unirse</title>
+    <title>Unirse a Live Studio</title>
     <link rel="stylesheet" href="{{ url_for('static', filename='css/app.css', v=asset_version) }}">
 </head>
-<body class="join-shell">
-    <main class="join-card-main" aria-labelledby="join-title">
-        <p class="eyebrow">Participa en vivo</p>
-        <h1 id="join-title">Ingresa el código</h1>
+<body class="join-shell join-shell--pro">
+    <main class="join-card-main join-card-main--pro" aria-labelledby="join-title">
+        <div class="join-orbit" aria-hidden="true">
+            <span class="join-orbit-core">L</span>
+            <i></i><i></i><i></i>
+        </div>
+        <p class="eyebrow">Live Studio</p>
+        <h1 id="join-title">Participa en la conversación</h1>
+        <p class="join-intro">Escribe el código de seis dígitos que comparte tu presentador.</p>
         <form method="post" class="join-form">
             <label class="visually-hidden" for="session-code">Código de seis dígitos</label>
             <input id="session-code" name="code" inputmode="numeric" autocomplete="one-time-code" pattern="[0-9]{6}" maxlength="6" placeholder="123456" value="{{ code or '' }}" aria-describedby="join-help" required autofocus>
-            <button type="submit">Entrar</button>
+            <button type="submit">Entrar a la sesión <span aria-hidden="true">→</span></button>
         </form>
         {% if error %}<p class="error" role="alert">{{ error }}</p>{% endif %}
-        <p id="join-help" class="muted">Demo local: usa el código <strong>123456</strong>.</p>
+        <p id="join-help" class="muted">Tu código solo identifica la presentación; no necesitas crear una cuenta.</p>
     </main>
 </body>
 </html>

@@ -1,0 +1,114 @@
+<!doctype html>
+<html lang="es">
+<head>
+    <meta charset="utf-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1">
+    <title>{{ session.title }} | Consola del presentador</title>
+    <link rel="stylesheet" href="{{ url_for('static', filename='css/app.css', v=asset_version) }}">
+</head>
+<body class="presenter-shell" data-theme="{{ (session.config_json or {}).get('theme', 'civic') }}">
+    <header class="presenter-topbar" aria-label="Consola del presentador">
+        <a class="presenter-brand" href="{{ url_for('admin_session', code=session.code) }}" aria-label="Volver al editor">
+            <span class="brand-mark" aria-hidden="true">L</span>
+            <span>
+                <strong>Live Studio</strong>
+                <small>Consola del presentador</small>
+            </span>
+        </a>
+        <div class="presenter-session-name">
+            <p class="eyebrow">En vivo</p>
+            <h1 data-presenter-title>{{ session.title }}</h1>
+        </div>
+        <div class="presenter-top-actions">
+            <span class="presenter-code">Código <strong>{{ session.code }}</strong></span>
+            <a class="button-link" href="{{ url_for('audience', code=session.code) }}" target="_blank" rel="noreferrer">Audiencia</a>
+            <a class="button-link primary-link" href="{{ url_for('present', code=session.code) }}" target="_blank" rel="noreferrer">Proyectar</a>
+            {% if admin_auth_required|default(false) %}
+            <form class="admin-logout" method="post" action="{{ url_for('admin_logout') }}">
+                <button type="submit" class="secondary">Salir</button>
+            </form>
+            {% endif %}
+        </div>
+    </header>
+
+    <main class="presenter-workspace" data-presenter-console data-code="{{ session.code }}" aria-label="Controles de presentación">
+        <aside class="presenter-rail" aria-label="Diapositivas">
+            <div class="presenter-rail-head">
+                <div>
+                    <p class="eyebrow">Recorrido</p>
+                    <h2>Diapositivas</h2>
+                </div>
+                <span data-presenter-slide-count>0</span>
+            </div>
+            <div class="presenter-slide-list" data-presenter-slide-list>
+                <p class="muted">Cargando diapositivas…</p>
+            </div>
+        </aside>
+
+        <section class="presenter-stage" aria-label="Vista previa de la diapositiva activa">
+            <div class="presenter-stage-meta">
+                <span class="status-pill" data-presenter-status>Conectando</span>
+                <span class="participant-meter"><strong data-presenter-connected>0</strong> conectados</span>
+                <span class="presenter-stage-position" data-presenter-position>—</span>
+            </div>
+            <article class="projection-canvas projection-canvas--preview" data-presenter-canvas aria-live="polite" aria-busy="true">
+                <div class="projection-loading"><p>Preparando vista previa…</p></div>
+            </article>
+        </section>
+
+        <aside class="presenter-panel" aria-label="Controles y notas">
+            <section class="presenter-panel-section presenter-control-section">
+                <div class="presenter-panel-heading">
+                    <div>
+                        <p class="eyebrow">Control</p>
+                        <h2>Sesión</h2>
+                    </div>
+                    <span data-presenter-live-state></span>
+                </div>
+                <div class="presenter-primary-controls">
+                    <button type="button" class="primary-link" data-presenter-action="start">Iniciar sesión</button>
+                    <button type="button" class="secondary" data-presenter-action="close">Cerrar sesión</button>
+                </div>
+                <div class="presenter-navigation-controls" aria-label="Navegación">
+                    <button type="button" class="secondary" data-presenter-action="previous" aria-label="Diapositiva anterior">←</button>
+                    <button type="button" class="secondary" data-presenter-action="next" aria-label="Diapositiva siguiente">→</button>
+                </div>
+                <div class="presenter-vote-controls">
+                    <button type="button" class="secondary" data-presenter-action="open_question">Abrir participación</button>
+                    <button type="button" class="secondary" data-presenter-action="close_question">Cerrar participación</button>
+                </div>
+                <button type="button" class="presenter-reset" data-presenter-action="reset">Preparar una nueva ejecución</button>
+                <p class="presenter-feedback" data-presenter-feedback role="status"></p>
+            </section>
+
+            <section class="presenter-panel-section" data-presenter-notes-section>
+                <div class="presenter-panel-heading">
+                    <div>
+                        <p class="eyebrow">Privado</p>
+                        <h2>Notas del presentador</h2>
+                    </div>
+                </div>
+                <p class="presenter-notes" data-presenter-notes>Sin notas para esta diapositiva.</p>
+            </section>
+
+            <section class="presenter-panel-section" data-presenter-moderation-section hidden>
+                <div class="presenter-panel-heading">
+                    <div>
+                        <p class="eyebrow">Participación</p>
+                        <h2>Moderación</h2>
+                    </div>
+                    <span class="status-pill" data-presenter-pending-count>0</span>
+                </div>
+                <div class="presenter-moderation-list" data-presenter-moderation></div>
+            </section>
+        </aside>
+    </main>
+
+    <script>
+        window.MENTI_SESSION_CODE = {{ session.code|tojson }};
+        window.MENTI_RENDER_MODE = "presenter";
+    </script>
+    <script src="https://cdn.socket.io/4.7.5/socket.io.min.js"></script>
+    <script src="{{ url_for('static', filename='js/presenter.js', v=asset_version) }}"></script>
+</body>
+</html>

@@ -1,0 +1,29 @@
+<!doctype html>
+<html lang="es">
+<head>
+    <meta charset="utf-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1">
+    <meta name="color-scheme" content="dark">
+    <title>{{ session.title }} | Proyección</title>
+    <link rel="stylesheet" href="{{ url_for('static', filename='css/app.css', v=asset_version) }}">
+</head>
+<body class="projection-shell" data-theme="{{ (session.config_json or {}).get('theme', 'civic') }}">
+    <main class="projection-stage" data-projection data-code="{{ session.code }}" aria-label="Proyección en vivo de {{ session.title }}">
+        <p class="visually-hidden" data-projection-summary aria-live="polite">Cargando presentación.</p>
+        <article class="projection-canvas projection-canvas--loading" data-projection-canvas aria-live="polite" aria-busy="true">
+            <div class="projection-loading">
+                <span class="projection-loading-mark" aria-hidden="true">L</span>
+                <p>Preparando proyección…</p>
+            </div>
+        </article>
+        <p class="projection-connection" data-projection-status role="status">Conectando a la sesión en vivo…</p>
+    </main>
+
+    <script>
+        window.MENTI_SESSION_CODE = {{ session.code|tojson }};
+        window.MENTI_RENDER_MODE = "projection";
+    </script>
+    <script src="https://cdn.socket.io/4.7.5/socket.io.min.js"></script>
+    <script src="{{ url_for('static', filename='js/presenter.js', v=asset_version) }}"></script>
+</body>
+</html>
