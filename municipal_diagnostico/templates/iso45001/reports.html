@@ -4,9 +4,9 @@
 <section class="executive-hero">
     <div class="hero-copy">
         <p class="eyebrow">Reportería ISO</p>
-        <h1>Consolidado por dependencia</h1>
+        <h1>Consolidado por unidad administrativa</h1>
         <p class="lede">
-            Consulta avance, cumplimiento, madurez y cobertura documental por ciclo. Los usuarios de consulta solo ven resultados cerrados como oficiales.
+            Consulta avance, cumplimiento, madurez y cobertura documental por unidad y dependencia. Los usuarios de consulta solo ven resultados cerrados como oficiales.
         </p>
     </div>
     <article class="hero-card compact">
@@ -92,6 +92,7 @@
             <thead>
                 <tr>
                     <th>Dependencia</th>
+                    <th>Unidad administrativa</th>
                     <th>Responsable</th>
                     <th>Revisor</th>
                     <th>Estado</th>
@@ -105,7 +106,11 @@
             <tbody>
                 {% for row in selected_summary.rows %}
                 <tr>
-                    <td><strong>{{ row.dependencia }}</strong></td>
+                    <td><strong>{{ row.evaluacion.dependencia.nombre }}</strong></td>
+                    <td>
+                        <strong>{{ row.evaluacion.unidad_administrativa_nombre }}</strong>
+                        {% if not row.evaluacion.area %}<br><span class="muted">Alcance hist&oacute;rico por dependencia</span>{% endif %}
+                    </td>
                     <td>{{ row.responsable }}</td>
                     <td>{{ row.revisor }}</td>
                     <td><span class="status status-{{ row.estado }}">{{ row.estado_label }}</span></td>
@@ -136,7 +141,7 @@
                     </td>
                 </tr>
                 {% else %}
-                <tr><td colspan="9" class="muted">Sin evaluaciones visibles para este ciclo.</td></tr>
+                <tr><td colspan="10" class="muted">Sin evaluaciones visibles para este ciclo.</td></tr>
                 {% endfor %}
             </tbody>
         </table>

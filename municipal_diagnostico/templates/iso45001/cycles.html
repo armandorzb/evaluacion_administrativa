@@ -4,8 +4,8 @@
 <section class="executive-hero">
     <div class="hero-copy">
         <p class="eyebrow">Administración ISO</p>
-        <h1>Ciclos y evaluaciones por dependencia</h1>
-        <p class="lede">Crea ventanas de diagnóstico, asigna dependencias, responsables de captura y revisores.</p>
+        <h1>Ciclos y evaluaciones por unidad administrativa</h1>
+        <p class="lede">Crea ventanas de diagn&oacute;stico y asigna unidades administrativas, responsables de captura y revisores.</p>
     </div>
     <article class="hero-card compact">
         <div class="card-kicker">Filtro</div>
@@ -43,23 +43,28 @@
     </article>
 
     <article class="panel">
-        <div class="section-heading"><div><p class="eyebrow">Asignar</p><h2>Dependencias del ciclo</h2></div></div>
+        <div class="section-heading"><div><p class="eyebrow">Asignar</p><h2>Unidades administrativas del ciclo</h2></div></div>
         {% if selected_cycle %}
         <form method="post" class="stack catalog-form">
             <input type="hidden" name="action" value="add_evaluations">
             <input type="hidden" name="cycle_id" value="{{ selected_cycle.id }}">
-            <label>Dependencias
-                <select name="dependencia_ids" multiple size="7" required>
-                    {% for dependency in dependencies %}
-                    <option value="{{ dependency.id }}">{{ dependency.nombre }}</option>
+            <label>Unidades administrativas
+                <select name="area_ids" multiple size="10" required>
+                    {% for group in areas|groupby('dependencia.nombre') %}
+                    <optgroup label="{{ group.grouper }}">
+                        {% for area in group.list %}
+                        <option value="{{ area.id }}">{{ area.nombre }}</option>
+                        {% endfor %}
+                    </optgroup>
                     {% endfor %}
                 </select>
+                <span class="muted">Puedes seleccionar varias unidades; se crear&aacute; una evaluaci&oacute;n independiente para cada una.</span>
             </label>
             <label>Responsable de captura
                 <select name="responsable_id">
                     <option value="">Sin responsable inicial</option>
                     {% for user in users %}
-                    <option value="{{ user.id }}">{{ user.nombre }} - {{ user.nombre_rol }}</option>
+                    <option value="{{ user.id }}">{{ user.nombre }} - {{ user.nombre_rol }}{% if user.area %} &middot; {{ user.area.nombre }}{% elif user.dependencia %} &middot; {{ user.dependencia.nombre }}{% endif %}</option>
                     {% endfor %}
                 </select>
             </label>
@@ -74,7 +79,7 @@
             <button class="button button-primary" type="submit">Registrar evaluaciones</button>
         </form>
         {% else %}
-        <p class="muted">Crea un ciclo para poder asignar dependencias.</p>
+        <p class="muted">Crea un ciclo para poder asignar unidades administrativas.</p>
         {% endif %}
     </article>
 </section>
@@ -112,6 +117,7 @@
             <thead>
                 <tr>
                     <th>Dependencia</th>
+                    <th>Unidad administrativa</th>
                     <th>Responsable</th>
                     <th>Revisor</th>
                     <th>Estado</th>
@@ -123,7 +129,11 @@
             <tbody>
                 {% for row in selected_summary.rows %}
                 <tr>
-                    <td>{{ row.dependencia }}</td>
+                    <td>{{ row.evaluacion.dependencia.nombre }}</td>
+                    <td>
+                        <strong>{{ row.evaluacion.unidad_administrativa_nombre }}</strong>
+                        {% if not row.evaluacion.area %}<br><span class="muted">Registro hist&oacute;rico con alcance por dependencia</span>{% endif %}
+                    </td>
                     <td>{{ row.responsable }}</td>
                     <td>{{ row.revisor }}</td>
                     <td><span class="status status-{{ row.estado }}">{{ row.estado_label }}</span></td>
@@ -139,7 +149,7 @@
                     </td>
                 </tr>
                 {% else %}
-                <tr><td colspan="7" class="muted">Sin evaluaciones registradas.</td></tr>
+                <tr><td colspan="8" class="muted">Sin evaluaciones registradas.</td></tr>
                 {% endfor %}
             </tbody>
         </table>
@@ -160,7 +170,7 @@
         <input type="hidden" name="action" value="delete_cycle">
         <input type="hidden" name="cycle_id" value="{{ selected_cycle.id }}">
         <div class="callout callout-warning compact">
-            <strong>Esta acción elimina el ciclo y sus dependencias asignadas.</strong>
+            <strong>Esta acci&oacute;n elimina el ciclo y sus unidades administrativas asignadas.</strong>
             <p>Solo se permite cuando ninguna evaluación del ciclo tiene respuestas u observaciones registradas.</p>
         </div>
         <div class="actions">
@@ -175,7 +185,8 @@
         <div class="dialog-head">
             <div>
                 <p class="eyebrow">Editar evaluación</p>
-                <h2>{{ row.dependencia }}</h2>
+                <h2>{{ row.evaluacion.alcance_nombre }}</h2>
+                <p class="muted">{{ row.evaluacion.alcance_descripcion }}</p>
             </div>
             <button class="button" type="submit">Cerrar</button>
         </div>
@@ -187,7 +198,7 @@
             <select name="responsable_id">
                 <option value="" {% if not row.evaluacion.responsable %}selected{% endif %}>Sin responsable</option>
                 {% for user in users %}
-                <option value="{{ user.id }}" {% if row.evaluacion.responsable and row.evaluacion.responsable.id == user.id %}selected{% endif %}>{{ user.nombre }} - {{ user.nombre_rol }}</option>
+                <option value="{{ user.id }}" {% if row.evaluacion.responsable and row.evaluacion.responsable.id == user.id %}selected{% endif %}>{{ user.nombre }} - {{ user.nombre_rol }}{% if user.area %} &middot; {{ user.area.nombre }}{% elif user.dependencia %} &middot; {{ user.dependencia.nombre }}{% endif %}</option>
                 {% endfor %}
             </select>
         </label>
@@ -216,8 +227,9 @@
     <form method="dialog" class="dialog-shell">
         <div class="dialog-head">
             <div>
-                <p class="eyebrow">Desasignar dependencia</p>
-                <h2>{{ row.dependencia }}</h2>
+                <p class="eyebrow">Desasignar unidad administrativa</p>
+                <h2>{{ row.evaluacion.alcance_nombre }}</h2>
+                <p class="muted">{{ row.evaluacion.alcance_descripcion }}</p>
             </div>
             <button class="button" type="submit">Cerrar</button>
         </div>
@@ -226,11 +238,11 @@
         <input type="hidden" name="action" value="delete_evaluation">
         <input type="hidden" name="evaluation_id" value="{{ row.evaluacion.id }}">
         <div class="callout callout-warning compact">
-            <strong>Esta acción quita la dependencia del ciclo.</strong>
+            <strong>Esta acci&oacute;n quita la unidad administrativa del ciclo.</strong>
             <p>Solo se permite cuando la evaluación no tiene respuestas u observaciones registradas.</p>
         </div>
         <div class="actions">
-            <button class="button danger" type="submit">Desasignar dependencia</button>
+            <button class="button danger" type="submit">Desasignar unidad</button>
         </div>
     </form>
 </dialog>

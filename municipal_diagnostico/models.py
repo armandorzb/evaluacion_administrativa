@@ -81,6 +81,7 @@ class Area(TimestampMixin, db.Model):
     usuarios = db.relationship("Usuario", back_populates="area")
     asignaciones = db.relationship("EvaluacionAsignacion", back_populates="area")
     respuestas = db.relationship("Respuesta", back_populates="area")
+    iso45001_evaluaciones = db.relationship("Iso45001Evaluacion", back_populates="area")
 
     __table_args__ = (
         UniqueConstraint("dependencia_id", "nombre", name="uq_area_dependencia_nombre"),
@@ -1273,6 +1274,10 @@ class Iso45001Evaluacion(TimestampMixin, db.Model):
     id = db.Column(db.Integer, primary_key=True)
     ciclo_id = db.Column(db.Integer, db.ForeignKey("iso45001_ciclo.id"), nullable=False)
     dependencia_id = db.Column(db.Integer, db.ForeignKey("dependencia.id"), nullable=False)
+    # New evaluations are scoped to an administrative unit.  The column stays
+    # nullable so closed/historical evaluations created at dependency level do
+    # not need an arbitrary unit assigned during the migration.
+    area_id = db.Column(db.Integer, db.ForeignKey("area.id"))
     revisor_id = db.Column(db.Integer, db.ForeignKey("usuario.id"))
     estado = db.Column(db.String(20), default="borrador", nullable=False)
     progreso = db.Column(db.Float, default=0.0, nullable=False)
@@ -1281,6 +1286,7 @@ class Iso45001Evaluacion(TimestampMixin, db.Model):
 
     ciclo = db.relationship("Iso45001Ciclo", back_populates="evaluaciones")
     dependencia = db.relationship("Dependencia", back_populates="iso45001_evaluaciones")
+    area = db.relationship("Area", back_populates="iso45001_evaluaciones")
     revisor = db.relationship("Usuario", back_populates="iso45001_revisiones", foreign_keys=[revisor_id])
     asignaciones = db.relationship(
         "Iso45001Asignacion",
@@ -1312,7 +1318,7 @@ class Iso45001Evaluacion(TimestampMixin, db.Model):
     )
 
     __table_args__ = (
-        UniqueConstraint("ciclo_id", "dependencia_id", name="uq_iso45001_evaluacion_ciclo_dependencia"),
+        UniqueConstraint("ciclo_id", "area_id", name="uq_iso45001_evaluacion_ciclo_area"),
     )
 
     @property
@@ -1323,6 +1329,26 @@ class Iso45001Evaluacion(TimestampMixin, db.Model):
     def responsable(self):
         assignment = next((item for item in self.asignaciones if item.tipo == "captura"), None)
         return assignment.usuario if assignment else None
+
+    @property
+    def unidad_administrativa_nombre(self) -> str:
+        """Administrative unit label, including a clear legacy fallback."""
+
+        return self.area.nombre if self.area else "Alcance general de la dependencia"
+
+    @property
+    def alcance_nombre(self) -> str:
+        """Primary scope name used by headings and report covers."""
+
+        return self.area.nombre if self.area else self.dependencia.nombre
+
+    @property
+    def alcance_descripcion(self) -> str:
+        """Full scope label with its parent dependency for traceability."""
+
+        if self.area:
+            return f"{self.area.nombre} · {self.dependencia.nombre}"
+        return f"{self.dependencia.nombre} · Alcance general de la dependencia"
 
 
 class Iso45001Asignacion(TimestampMixin, db.Model):

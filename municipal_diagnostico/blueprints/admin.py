@@ -16,6 +16,7 @@ from municipal_diagnostico.models import (
     Dependencia,
     EvidenciaEje,
     Evaluacion,
+    Iso45001Evaluacion,
     Notificacion,
     PeriodoEvaluacion,
     ReactivoVersion,
@@ -200,6 +201,11 @@ def catalogs():
             dependency = db.session.get(Dependencia, request.form.get("dependencia_id", type=int))
             if dependency is None:
                 flash("La dependencia solicitada no existe.", "error")
+            elif dependency.activa and any(area_has_iso45001_evaluations(area) for area in dependency.areas):
+                flash(
+                    "No se puede desactivar la dependencia porque una de sus unidades administrativas tiene evaluaciones ISO 45001 vinculadas.",
+                    "error",
+                )
             else:
                 dependency.activa = not dependency.activa
                 if not dependency.activa:
@@ -279,6 +285,11 @@ def catalogs():
             area = db.session.get(Area, request.form.get("area_id", type=int))
             if area is None:
                 flash("La unidad administrativa solicitada no existe.", "error")
+            elif area.activa and area_has_iso45001_evaluations(area):
+                flash(
+                    "No se puede desactivar la unidad administrativa porque tiene evaluaciones ISO 45001 vinculadas.",
+                    "error",
+                )
             else:
                 area.activa = not area.activa
                 db.session.commit()
@@ -950,7 +961,22 @@ def area_has_operational_data(area: Area) -> bool:
             bool(area.respuestas),
             EvidenciaEje.query.filter_by(area_id=area.id).first() is not None,
             ComentarioEje.query.filter_by(area_id=area.id).first() is not None,
+            area_has_iso45001_evaluations(area),
         ]
+    )
+
+
+def area_has_iso45001_evaluations(area: Area) -> bool:
+    """Return whether an administrative unit is an ISO 45001 evaluation target."""
+
+    area_column = getattr(Iso45001Evaluacion, "area_id", None)
+    if area_column is None:
+        return False
+    return (
+        db.session.query(Iso45001Evaluacion.id)
+        .filter(area_column == area.id)
+        .first()
+        is not None
     )
 
 
@@ -966,6 +992,8 @@ def area_delete_blockers(area: Area) -> list[str]:
         blockers.append("tiene evidencias documentales")
     if ComentarioEje.query.filter_by(area_id=area.id).first() is not None:
         blockers.append("tiene comentarios de módulo")
+    if area_has_iso45001_evaluations(area):
+        blockers.append("tiene evaluaciones ISO 45001 vinculadas")
     return blockers
 
 

@@ -6,7 +6,7 @@
         <p class="eyebrow">Módulo interno</p>
         <h1>Diagnóstico de implementación ISO 45001:2018</h1>
         <p class="lede">
-            Gestiona ciclos por dependencia, captura reactivos y verifica evidencia documental compartida por control antes del cierre formal.
+            Gestiona ciclos por unidad administrativa, captura reactivos y verifica evidencia documental compartida por control antes del cierre formal.
         </p>
     </div>
     <article class="hero-card compact">
@@ -40,7 +40,8 @@
     <article class="report-card">
         <div class="report-card-head">
             <div>
-                <h3>{{ card.evaluacion.dependencia.nombre }}</h3>
+                <h3>{{ card.evaluacion.alcance_nombre }}</h3>
+                <p>{{ card.evaluacion.alcance_descripcion }}</p>
                 <p>{{ card.evaluacion.ciclo.nombre }}</p>
             </div>
             <span class="status status-{{ card.evaluacion.estado }}">{{ card.summary.state_label }}</span>

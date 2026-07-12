@@ -4,9 +4,15 @@
 <section class="executive-hero" id="top">
     <div class="hero-copy">
         <p class="eyebrow">Captura formal</p>
-        <h1>{{ evaluation.dependencia.nombre }}</h1>
-        <p class="lede">{{ evaluation.ciclo.nombre }}. Responde los reactivos, registra hallazgos y gestiona la cobertura documental en controles compartidos.</p>
+        <h1>{{ evaluation.alcance_nombre }}</h1>
+        <p class="lede">{{ evaluation.alcance_descripcion }} &middot; {{ evaluation.ciclo.nombre }}. Responde los reactivos, registra hallazgos y gestiona la cobertura documental en controles compartidos.</p>
         <div class="tag-row">
+            <span class="tag">Dependencia: {{ evaluation.dependencia.nombre }}</span>
+            {% if evaluation.area %}
+            <span class="tag">Unidad administrativa: {{ evaluation.unidad_administrativa_nombre }}</span>
+            {% else %}
+            <span class="tag">Alcance hist&oacute;rico por dependencia</span>
+            {% endif %}
             <span class="tag">Estado: {{ summary.state_label }}</span>
             <span class="tag">Responsable: {{ evaluation.responsable.nombre if evaluation.responsable else "Sin responsable" }}</span>
             <span class="tag">Revisor: {{ evaluation.revisor.nombre if evaluation.revisor else "Sin revisor" }}</span>

@@ -9,6 +9,7 @@ from municipal_diagnostico import create_app
 from municipal_diagnostico.extensions import db
 from municipal_diagnostico.iso45001_seed_data import ISO45001_V2_CATALOG_SLUG
 from municipal_diagnostico.models import (
+    Area,
     Dependencia,
     Iso45001Apartado,
     Iso45001Asignacion,
@@ -67,6 +68,10 @@ def build_app(upload_folder: Path | None = None):
     with app.app_context():
         dependency_one = Dependencia(nombre="Contraloria", tipo="Administrativa")
         dependency_two = Dependencia(nombre="Secretaria Tecnica", tipo="Administrativa")
+        area_one = Area(nombre="Auditoria Interna", dependencia=dependency_one, activa=True)
+        area_two = Area(nombre="Control y Seguimiento", dependencia=dependency_one, activa=True)
+        area_three = Area(nombre="Planeacion Institucional", dependencia=dependency_two, activa=True)
+        inactive_area = Area(nombre="Unidad Inactiva", dependencia=dependency_two, activa=False)
         users = [
             Usuario(
                 nombre="Admin ISO 45001",
@@ -131,11 +136,25 @@ def build_app(upload_folder: Path | None = None):
         ]
         for user in users:
             user.set_password("secret123")
-        db.session.add_all([dependency_one, dependency_two, *users])
+        db.session.add_all(
+            [
+                dependency_one,
+                dependency_two,
+                area_one,
+                area_two,
+                area_three,
+                inactive_area,
+                *users,
+            ]
+        )
         db.session.commit()
         return app, {
             "dependency_one_id": dependency_one.id,
             "dependency_two_id": dependency_two.id,
+            "area_one_id": area_one.id,
+            "area_two_id": area_two.id,
+            "area_three_id": area_three.id,
+            "inactive_area_id": inactive_area.id,
             "admin_id": users[0].id,
             "evaluator_id": users[1].id,
             "reviewer_id": users[2].id,
@@ -354,6 +373,126 @@ def test_iso45001_catalog_has_fixed_matrix_documents_and_amd1_controls():
         assert reactive_codes("G-04") == [f"R-{number:03d}" for number in range(156, 161)]
         assert reactive_codes("G-05") == [f"R-{number:03d}" for number in range(161, 166)]
         assert reactive_codes("G-06") == [f"R-{number:03d}" for number in range(258, 263)]
+
+
+def test_iso45001_assigns_independent_evaluations_by_administrative_unit():
+    app, ids = build_app()
+    client = app.test_client()
+
+    with app.app_context():
+        version = Iso45001CuestionarioVersion.query.filter_by(slug=ISO45001_V2_CATALOG_SLUG).one()
+        cycle = Iso45001Ciclo(
+            nombre="Ciclo por unidades administrativas",
+            descripcion="Prueba de alcance por unidad",
+            estado="activo",
+            fecha_inicio=date(2026, 1, 1),
+            fecha_cierre=date(2026, 12, 31),
+            version=version,
+            creado_por_id=ids["admin_id"],
+        )
+        db.session.add(cycle)
+        db.session.commit()
+        cycle_id = cycle.id
+
+    login(client, "admin.iso45001@test.local")
+    cycle_page = client.get(f"/iso45001/ciclos?cycle_id={cycle_id}")
+    assert cycle_page.status_code == 200
+    cycle_html = cycle_page.get_data(as_text=True)
+    assert "Auditoria Interna" in cycle_html
+    assert "Control y Seguimiento" in cycle_html
+    assert "Unidad Inactiva" not in cycle_html
+
+    created_response = client.post(
+        "/iso45001/ciclos",
+        data={
+            "action": "add_evaluations",
+            "cycle_id": cycle_id,
+            "area_ids": [ids["area_one_id"], ids["area_two_id"]],
+            "responsable_id": ids["evaluator_id"],
+            "revisor_id": ids["reviewer_id"],
+        },
+        follow_redirects=True,
+    )
+    assert created_response.status_code == 200
+    assert "Evaluaciones por unidad administrativa registradas: 2." in created_response.get_data(
+        as_text=True
+    )
+
+    with app.app_context():
+        evaluations = (
+            Iso45001Evaluacion.query.filter_by(ciclo_id=cycle_id)
+            .order_by(Iso45001Evaluacion.area_id)
+            .all()
+        )
+        assert len(evaluations) == 2
+        assert {evaluation.area_id for evaluation in evaluations} == {
+            ids["area_one_id"],
+            ids["area_two_id"],
+        }
+        assert {evaluation.dependencia_id for evaluation in evaluations} == {
+            ids["dependency_one_id"]
+        }
+        assert all(len(evaluation.controles_evidencia) == 37 for evaluation in evaluations)
+        assert all(evaluation.responsable.id == ids["evaluator_id"] for evaluation in evaluations)
+        assert all(evaluation.revisor_id == ids["reviewer_id"] for evaluation in evaluations)
+
+        first, second = evaluations
+        reactive = version_reactives(first)[0]
+        db.session.add(
+            Iso45001Respuesta(
+                evaluacion=first,
+                reactivo=reactive,
+                usuario_id=ids["evaluator_id"],
+                calificacion="si",
+                valor=2,
+            )
+        )
+        db.session.commit()
+        assert Iso45001Respuesta.query.filter_by(evaluacion_id=first.id).count() == 1
+        assert Iso45001Respuesta.query.filter_by(evaluacion_id=second.id).count() == 0
+        first_id = first.id
+
+        workbook = load_workbook(BytesIO(build_iso45001_excel(first).getvalue()))
+        summary_text = all_text(workbook["Resumen"])
+        assert "Auditoria Interna" in summary_text
+        assert "Contraloria" in summary_text
+
+    duplicate_response = client.post(
+        "/iso45001/ciclos",
+        data={
+            "action": "add_evaluations",
+            "cycle_id": cycle_id,
+            "area_ids": [ids["area_one_id"], ids["inactive_area_id"], "999999", "invalida"],
+            "responsable_id": ids["evaluator_id"],
+            "revisor_id": ids["reviewer_id"],
+        },
+        follow_redirects=True,
+    )
+    assert duplicate_response.status_code == 200
+    assert "Evaluaciones por unidad administrativa registradas: 0." in duplicate_response.get_data(
+        as_text=True
+    )
+    with app.app_context():
+        assert Iso45001Evaluacion.query.filter_by(ciclo_id=cycle_id).count() == 2
+
+    detail = client.get(f"/iso45001/evaluaciones/{first_id}")
+    detail_html = detail.get_data(as_text=True)
+    assert detail.status_code == 200
+    assert "Auditoria Interna" in detail_html
+    assert "Contraloria" in detail_html
+
+    with app.app_context():
+        legacy_id = create_iso45001_evaluation(
+            ids["dependency_two_id"],
+            ids["evaluator_id"],
+            ids["reviewer_id"],
+            ids["admin_id"],
+            cycle_name="Ciclo histórico por dependencia",
+        )
+        legacy = db.session.get(Iso45001Evaluacion, legacy_id)
+        assert legacy.area_id is None
+        assert legacy.alcance_nombre == "Secretaria Tecnica"
+        assert legacy.unidad_administrativa_nombre == "Alcance general de la dependencia"
 
 
 def test_iso45001_rejects_na_and_scores_every_reactive():

@@ -22,6 +22,7 @@ from municipal_diagnostico.decorators import iso45001_role_required
 from municipal_diagnostico.extensions import db
 from municipal_diagnostico.iso45001_seed_data import ISO45001_VERSION
 from municipal_diagnostico.models import (
+    Area,
     Dependencia,
     Iso45001Asignacion,
     Iso45001Ciclo,
@@ -146,9 +147,12 @@ def cycles():
                 "create_iso45001_evaluations",
                 entity_type="iso45001_ciclo",
                 entity_id=cycle.id,
-                metadata={"created": created},
+                metadata={"created": created, "scope": "unidad_administrativa"},
             )
-            flash(f"Evaluaciones registradas: {created}.", "success" if created else "error")
+            flash(
+                f"Evaluaciones por unidad administrativa registradas: {created}.",
+                "success" if created else "error",
+            )
 
         elif action == "update_evaluation":
             evaluation = Iso45001Evaluacion.query.get_or_404(request.form.get("evaluation_id", type=int))
@@ -175,20 +179,24 @@ def cycles():
             evaluation = Iso45001Evaluacion.query.get_or_404(request.form.get("evaluation_id", type=int))
             redirect_url = url_for("iso45001.cycles", cycle_id=evaluation.ciclo_id)
             if iso45001_evaluation_has_activity(evaluation):
-                flash("No se puede desasignar una dependencia con respuestas u observaciones registradas.", "error")
+                flash(
+                    "No se puede desasignar una unidad con captura o evidencia documental registrada.",
+                    "error",
+                )
             else:
                 evaluation_id = evaluation.id
                 cycle_id = evaluation.ciclo_id
                 dependency_id = evaluation.dependencia_id
+                area_id = evaluation.area_id
                 db.session.delete(evaluation)
                 db.session.commit()
                 log_activity(
                     "delete_iso45001_evaluation",
                     entity_type="iso45001_evaluacion",
                     entity_id=evaluation_id,
-                    metadata={"ciclo_id": cycle_id, "dependencia_id": dependency_id},
+                    metadata={"ciclo_id": cycle_id, "dependencia_id": dependency_id, "area_id": area_id},
                 )
-                flash("Dependencia desasignada del ciclo.", "success")
+                flash("Unidad administrativa desasignada del ciclo.", "success")
 
         return redirect(redirect_url)
 
@@ -204,7 +212,12 @@ def cycles():
         .order_by(Usuario.nombre)
         .all()
     )
-    dependencies = Dependencia.query.filter_by(activa=True).order_by(Dependencia.nombre).all()
+    areas = (
+        Area.query.join(Dependencia)
+        .filter(Area.activa.is_(True), Dependencia.activa.is_(True))
+        .order_by(Dependencia.nombre, Area.nombre)
+        .all()
+    )
     log_activity("view_iso45001_cycles")
     return render_template(
         "iso45001/cycles.html",
@@ -213,7 +226,7 @@ def cycles():
         selected_summary=selected_summary,
         users=capture_users,
         reviewers=reviewers,
-        dependencies=dependencies,
+        areas=areas,
         cycle_states=ISO45001_CYCLE_STATES,
         evaluation_states=ISO45001_EVALUATION_STATES,
         diagnostic_notice=_diagnostic_notice(),
@@ -601,19 +614,27 @@ def create_evaluations_from_form(cycle: Iso45001Ciclo) -> int:
     created = 0
     responsable_id = request.form.get("responsable_id", type=int)
     revisor_id = request.form.get("revisor_id", type=int)
-    dependency_ids = [int(value) for value in request.form.getlist("dependencia_ids") if value]
+    area_ids = []
+    for value in request.form.getlist("area_ids"):
+        try:
+            area_id = int(value)
+        except (TypeError, ValueError):
+            continue
+        if area_id not in area_ids:
+            area_ids.append(area_id)
     responsable = active_user_or_none(responsable_id)
     revisor = active_user_or_none(revisor_id)
-    for dependency_id in dependency_ids:
-        dependency = db.session.get(Dependencia, dependency_id)
-        if dependency is None:
+    for area_id in area_ids:
+        area = db.session.get(Area, area_id)
+        if area is None or not area.activa or not area.dependencia.activa:
             continue
-        existing = Iso45001Evaluacion.query.filter_by(ciclo_id=cycle.id, dependencia_id=dependency.id).first()
+        existing = Iso45001Evaluacion.query.filter_by(ciclo_id=cycle.id, area_id=area.id).first()
         if existing is not None:
             continue
         evaluation = Iso45001Evaluacion(
             ciclo=cycle,
-            dependencia=dependency,
+            dependencia=area.dependencia,
+            area=area,
             revisor=revisor,
             estado="borrador",
         )
@@ -693,7 +714,18 @@ def sync_evaluation_assignment(evaluation: Iso45001Evaluacion, responsable: Usua
 
 
 def iso45001_evaluation_has_activity(evaluation: Iso45001Evaluacion) -> bool:
-    return bool(evaluation.respuestas or evaluation.observaciones)
+    if (
+        evaluation.respuestas
+        or evaluation.observaciones
+        or any(evidence.activo for evidence in evaluation.evidencias_documentales)
+    ):
+        return True
+    return any(
+        control.observacion
+        or any(evidence.activo for evidence in control.archivos)
+        or any(point.cubierto or point.observacion for point in control.puntos)
+        for control in evaluation.controles_evidencia
+    )
 
 
 def iso45001_cycle_has_activity(cycle: Iso45001Ciclo) -> bool:

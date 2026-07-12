@@ -138,6 +138,35 @@ MATURITY_REPORT_GUIDE = [
 ISO45001_PDF_FOOTER = "Direcci\u00f3n de Recursos Humanos - Ayuntamiento de Hermosillo"
 
 
+def _evaluation_dependency_name(evaluation) -> str:
+    dependency = getattr(evaluation, "dependencia", None)
+    return getattr(dependency, "nombre", None) or "Sin dependencia"
+
+
+def _evaluation_unit_name(evaluation) -> str:
+    unit_name = getattr(evaluation, "unidad_administrativa_nombre", None)
+    if unit_name:
+        return str(unit_name)
+    area = getattr(evaluation, "area", None)
+    if area is not None and getattr(area, "nombre", None):
+        return str(area.nombre)
+    return "Alcance hist\u00f3rico por dependencia"
+
+
+def _evaluation_scope_name(evaluation) -> str:
+    return str(getattr(evaluation, "alcance_nombre", None) or _evaluation_unit_name(evaluation))
+
+
+def _evaluation_scope_description(evaluation) -> str:
+    description = getattr(evaluation, "alcance_descripcion", None)
+    if description:
+        return str(description)
+    dependency_name = _evaluation_dependency_name(evaluation)
+    if getattr(evaluation, "area", None) is None:
+        return f"{dependency_name} | alcance hist\u00f3rico por dependencia"
+    return f"{dependency_name} | {_evaluation_unit_name(evaluation)}"
+
+
 def build_iso45001_excel(evaluation) -> BytesIO:
     summary = summarize_iso45001_evaluation(evaluation)
     uses_document_controls = _uses_document_control_coverage(summary)
@@ -148,10 +177,12 @@ def build_iso45001_excel(evaluation) -> BytesIO:
     _write_title(
         summary_sheet,
         "Diagnóstico ISO 45001:2018 + Amd. 1:2024",
-        evaluation.dependencia.nombre,
+        _evaluation_scope_description(evaluation),
         8,
     )
     summary_sheet.append([])
+    summary_sheet.append(["Dependencia", _evaluation_dependency_name(evaluation)])
+    summary_sheet.append(["Unidad administrativa", _evaluation_unit_name(evaluation)])
     summary_sheet.append(["Estado", summary["state_label"]])
     summary_sheet.append(["Ciclo", evaluation.ciclo.nombre])
     summary_sheet.append(["Avance", _percent_display(summary["completion"])])
@@ -218,7 +249,12 @@ def build_iso45001_excel(evaluation) -> BytesIO:
     _set_widths(summary_sheet, {"A": 12, "B": 42, "C": 12, "D": 14, "E": 11, "F": 14, "G": 28, "H": 14})
 
     matrix = workbook.create_sheet("Matriz")
-    _write_title(matrix, "Matriz de diagnóstico ISO 45001", evaluation.ciclo.nombre, 12)
+    _write_title(
+        matrix,
+        "Matriz de diagnóstico ISO 45001",
+        f"{_evaluation_scope_description(evaluation)} | {evaluation.ciclo.nombre}",
+        12,
+    )
     matrix.append([])
     matrix.append(
         [
@@ -280,7 +316,7 @@ def build_iso45001_excel(evaluation) -> BytesIO:
     _write_title(
         documents,
         "Información documentada requerida",
-        evaluation.dependencia.nombre,
+        _evaluation_scope_description(evaluation),
         10 if uses_document_controls else 9,
     )
     documents.append([])
@@ -357,7 +393,7 @@ def build_iso45001_excel(evaluation) -> BytesIO:
     )
 
     findings = workbook.create_sheet("Hallazgos")
-    _write_title(findings, "Hallazgos derivados", evaluation.dependencia.nombre, 10)
+    _write_title(findings, "Hallazgos derivados", _evaluation_scope_description(evaluation), 10)
     findings.append([])
     findings.append(
         [
@@ -408,7 +444,7 @@ def build_iso45001_excel(evaluation) -> BytesIO:
     )
 
     guide = workbook.create_sheet("Guía")
-    _write_title(guide, "Guía de lectura ISO 45001", evaluation.dependencia.nombre, 4)
+    _write_title(guide, "Guía de lectura ISO 45001", _evaluation_scope_description(evaluation), 4)
     guide.append([])
     guide.append(["Aviso", "Diagnóstico de preparación. No constituye certificación ni sustituye la norma autorizada o la legislación aplicable."])
     guide.append([])
@@ -437,7 +473,7 @@ def build_iso45001_excel(evaluation) -> BytesIO:
         _write_title(
             traceability,
             "Trazabilidad archivo - control documental - reactivos",
-            evaluation.dependencia.nombre,
+            _evaluation_scope_description(evaluation),
             8,
         )
         traceability.append([])
@@ -885,7 +921,8 @@ def _cover_story(evaluation, summary: dict, styles: dict) -> list:
         Paragraph("Diagnóstico ISO 45001:2018", styles["cover_title"]),
         Paragraph("incluye Amd. 1:2024 - acción climática", styles["cover_kicker"]),
         Spacer(1, 0.14 * inch),
-        Paragraph(escape(evaluation.dependencia.nombre), styles["cover_subject"]),
+        Paragraph(escape(_evaluation_scope_name(evaluation)), styles["cover_subject"]),
+        Paragraph(escape(_evaluation_scope_description(evaluation)), styles["cover_meta"]),
         Paragraph(escape(evaluation.ciclo.nombre), styles["cover_meta"]),
         Spacer(1, 0.26 * inch),
         Paragraph(
@@ -1419,7 +1456,8 @@ def _build_iso45001_cover_story(evaluation, summary: dict, styles: dict[str, Par
         Paragraph("Sistema de gesti\u00f3n de seguridad y salud en el trabajo", styles["cover_kicker"]),
         Paragraph("Autodiagn\u00f3stico ISO 45001:2018", styles["cover_title"]),
         Paragraph("incluye Amd. 1:2024 - acci\u00f3n clim\u00e1tica", styles["cover_kicker"]),
-        Paragraph(_paragraph_escape(evaluation.dependencia.nombre), styles["cover_subject"]),
+        Paragraph(_paragraph_escape(_evaluation_scope_name(evaluation)), styles["cover_subject"]),
+        Paragraph(_paragraph_escape(_evaluation_scope_description(evaluation)), styles["cover_meta"]),
         status_badge,
         Spacer(1, 0.38 * inch),
         Paragraph(
@@ -1475,16 +1513,26 @@ def _build_iso45001_metadata_panel(evaluation, summary: dict, styles: dict[str, 
     reviewer = evaluation.revisor.nombre if getattr(evaluation, "revisor", None) else "Sin revisor"
     cycle_dates = f"{_iso45001_date_or_dash(evaluation.ciclo.fecha_inicio)} al {_iso45001_date_or_dash(evaluation.ciclo.fecha_cierre)}"
     rows = [
-        ["Dependencia", "Ciclo", "\u00cdndice de madurez", "Estado"],
-        [evaluation.dependencia.nombre, evaluation.ciclo.nombre, f"{_format_iso45001_percent(summary['percent'])} - {summary['maturity_label']}", summary["state_label"]],
-        ["Periodo", "Responsable", "Revisor", "Descarga"],
-        [cycle_dates, responsible, reviewer, format_iso45001_datetime(utcnow())],
-        ["Captura", "Versi\u00f3n", "Reactivos", "Evidencias"],
+        ["Unidad administrativa", "Dependencia", "Ciclo", "Estado"],
+        [
+            _evaluation_unit_name(evaluation),
+            _evaluation_dependency_name(evaluation),
+            evaluation.ciclo.nombre,
+            summary["state_label"],
+        ],
+        ["Periodo", "Responsable", "Revisor", "\u00cdndice de madurez"],
+        [
+            cycle_dates,
+            responsible,
+            reviewer,
+            f"{_format_iso45001_percent(summary['percent'])} - {summary['maturity_label']}",
+        ],
+        ["Captura", "Versi\u00f3n", "Reactivos", "Descarga"],
         [
             _format_iso45001_percent(summary["completion"]),
             evaluation.ciclo.version.nombre,
             str(summary["total_questions"]),
-            str(summary["evidence_count"]),
+            format_iso45001_datetime(utcnow()),
         ],
     ]
     table_rows = []

@@ -5,8 +5,14 @@
     <div class="hero-copy">
         <p class="eyebrow">Cobertura verificable</p>
         <h1>Control de informaci&oacute;n documentada</h1>
-        <p class="lede">{{ evaluation.dependencia.nombre }} &middot; {{ evaluation.ciclo.nombre }}. Un archivo se carga una sola vez y puede sustentar varios controles y reactivos.</p>
+        <p class="lede">{{ evaluation.alcance_descripcion }} &middot; {{ evaluation.ciclo.nombre }}. Un archivo se carga una sola vez y puede sustentar varios controles y reactivos.</p>
         <div class="tag-row">
+            <span class="tag">Dependencia: {{ evaluation.dependencia.nombre }}</span>
+            {% if evaluation.area %}
+            <span class="tag">Unidad administrativa: {{ evaluation.unidad_administrativa_nombre }}</span>
+            {% else %}
+            <span class="tag">Alcance hist&oacute;rico por dependencia</span>
+            {% endif %}
             <span class="tag">{{ document_overview.total }} controles</span>
             <span class="tag">{{ document_overview.covered_points }}/{{ document_overview.total_points }} puntos cubiertos</span>
             <span class="tag">Estado: {{ summary.state_label }}</span>

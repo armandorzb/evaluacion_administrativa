@@ -7,8 +7,25 @@ from openpyxl import load_workbook
 
 from municipal_diagnostico import create_app
 from municipal_diagnostico.extensions import db
-from municipal_diagnostico.models import Area, ComentarioEje, EvidenciaEje, Evaluacion, PeriodoEvaluacion, Respuesta, Usuario, Dependencia
+from municipal_diagnostico.models import (
+    Area,
+    ComentarioEje,
+    Dependencia,
+    EvidenciaEje,
+    Evaluacion,
+    Iso45001Ciclo,
+    Iso45001EvidenciaDocumental,
+    Iso45001Evaluacion,
+    PeriodoEvaluacion,
+    Respuesta,
+    Usuario,
+)
 from municipal_diagnostico.seeds import ensure_official_questionnaire
+from municipal_diagnostico.services.iso45001 import (
+    ensure_document_controls_for_evaluation,
+    ensure_iso45001_catalog,
+)
+from municipal_diagnostico.blueprints.iso45001 import iso45001_evaluation_has_activity
 
 
 class TestConfig:
@@ -591,6 +608,137 @@ def test_admin_catalogs_render_management_screen_and_support_safe_actions():
         area = db.session.get(Area, ids["preliminary_area_id"])
         assert area is not None
         assert area.activa is False
+
+
+def test_admin_protects_area_with_iso45001_evaluation_from_catalog_mutations():
+    app, _ids = build_app_with_reporting_data()
+    client = app.test_client()
+
+    with app.app_context():
+        source = Dependencia(nombre="Servicios internos", tipo="Administrativa")
+        target = Dependencia(nombre="Servicios externos", tipo="Administrativa")
+        area = Area(nombre="Seguridad y salud", dependencia=source)
+        admin = Usuario.query.filter_by(correo="admin@test.local").one()
+        version = ensure_iso45001_catalog()
+        cycle = Iso45001Ciclo(
+            nombre="Ciclo protegido por unidad",
+            estado="activo",
+            fecha_inicio=date(2026, 1, 1),
+            fecha_cierre=date(2026, 12, 31),
+            version=version,
+            creado_por=admin,
+        )
+        evaluation = Iso45001Evaluacion(
+            ciclo=cycle,
+            dependencia=source,
+            area=area,
+            estado="borrador",
+        )
+        db.session.add_all([source, target, area, cycle, evaluation])
+        db.session.commit()
+        area_id = area.id
+        source_id = source.id
+        target_id = target.id
+
+    login(client, "admin@test.local")
+
+    move = client.post(
+        "/admin/catalogos",
+        data={
+            "action": "update_area",
+            "area_id": area_id,
+            "nombre": "Seguridad y salud",
+            "dependencia_id": target_id,
+        },
+        follow_redirects=True,
+    )
+    assert "No se puede mover la unidad administrativa" in move.get_data(as_text=True)
+
+    deactivate = client.post(
+        "/admin/catalogos",
+        data={"action": "toggle_area", "area_id": area_id},
+        follow_redirects=True,
+    )
+    assert "evaluaciones ISO 45001 vinculadas" in deactivate.get_data(as_text=True)
+
+    delete = client.post(
+        "/admin/catalogos",
+        data={"action": "delete_area", "area_id": area_id},
+        follow_redirects=True,
+    )
+    assert "evaluaciones ISO 45001 vinculadas" in delete.get_data(as_text=True)
+
+    deactivate_parent = client.post(
+        "/admin/catalogos",
+        data={"action": "toggle_dependencia", "dependencia_id": source_id},
+        follow_redirects=True,
+    )
+    assert "unidades administrativas tiene evaluaciones ISO 45001" in deactivate_parent.get_data(as_text=True)
+
+    with app.app_context():
+        protected_area = db.session.get(Area, area_id)
+        assert protected_area is not None
+        assert protected_area.activa is True
+        assert protected_area.dependencia_id == source_id
+        assert db.session.get(Dependencia, source_id).activa is True
+
+
+def test_iso45001_initialized_document_controls_are_not_activity_until_edited():
+    app, _ids = build_app_with_reporting_data()
+
+    with app.app_context():
+        dependency = Dependencia(nombre="Protección civil", tipo="Administrativa")
+        area = Area(nombre="Prevención de riesgos", dependencia=dependency)
+        admin = Usuario.query.filter_by(correo="admin@test.local").one()
+        version = ensure_iso45001_catalog()
+        cycle = Iso45001Ciclo(
+            nombre="Ciclo de actividad documental",
+            estado="activo",
+            fecha_inicio=date(2026, 1, 1),
+            fecha_cierre=date(2026, 12, 31),
+            version=version,
+            creado_por=admin,
+        )
+        evaluation = Iso45001Evaluacion(
+            ciclo=cycle,
+            dependencia=dependency,
+            area=area,
+            estado="borrador",
+        )
+        db.session.add_all([dependency, area, cycle, evaluation])
+        db.session.flush()
+        controls = ensure_document_controls_for_evaluation(evaluation, user=admin)
+
+        assert len(controls) == 37
+        assert iso45001_evaluation_has_activity(evaluation) is False
+
+        controls[0].observacion = "Brecha documentada"
+        assert iso45001_evaluation_has_activity(evaluation) is True
+        controls[0].observacion = None
+
+        controls[0].puntos[0].cubierto = True
+        assert iso45001_evaluation_has_activity(evaluation) is True
+        controls[0].puntos[0].cubierto = False
+
+        controls[0].puntos[0].observacion = "Punto revisado"
+        assert iso45001_evaluation_has_activity(evaluation) is True
+        controls[0].puntos[0].observacion = None
+
+        evidence = Iso45001EvidenciaDocumental(
+            evaluacion=evaluation,
+            usuario=admin,
+            archivo_nombre_original="evidencia.pdf",
+            archivo_guardado="iso45001/evidencia.pdf",
+            mime_type="application/pdf",
+            tamano_bytes=10,
+            activo=True,
+        )
+        db.session.add(evidence)
+        db.session.flush()
+        assert iso45001_evaluation_has_activity(evaluation) is True
+
+        evidence.activo = False
+        assert iso45001_evaluation_has_activity(evaluation) is False
 
 
 def test_admin_can_preview_fill_screen_per_questionnaire_version():

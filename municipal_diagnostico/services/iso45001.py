@@ -529,6 +529,9 @@ def summarize_iso45001_cycle(cycle, role: str = "administrador", user=None) -> d
             {
                 "evaluacion": evaluation,
                 "dependencia": evaluation.dependencia.nombre,
+                "unidad": evaluation.unidad_administrativa_nombre,
+                "alcance": evaluation.alcance_descripcion,
+                "es_alcance_legacy": evaluation.area_id is None,
                 "responsable": evaluation.responsable.nombre if evaluation.responsable else "Sin responsable",
                 "revisor": evaluation.revisor.nombre if evaluation.revisor else "Sin revisor",
                 "estado": evaluation.estado,
@@ -543,7 +546,13 @@ def summarize_iso45001_cycle(cycle, role: str = "administrador", user=None) -> d
                 "priority_findings": sum(1 for finding in summary["findings"] if finding["type"] == "brecha_prioritaria"),
             }
         )
-    rows.sort(key=lambda row: (row["avance"], row["cumplimiento"] or -1, row["dependencia"]), reverse=True)
+    rows.sort(
+        key=lambda row: (
+            row["dependencia"].casefold(),
+            row["unidad"].casefold(),
+            -row["avance"],
+        )
+    )
     return {
         "cycle": cycle,
         "rows": rows,
