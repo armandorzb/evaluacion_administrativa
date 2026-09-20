@@ -45,6 +45,10 @@
     box-sizing: border-box;
 }
 
+[hidden] {
+    display: none !important;
+}
+
 html {
     color-scheme: light;
     scroll-behavior: smooth;
@@ -101,6 +105,10 @@ textarea {
     background: rgba(255, 255, 255, 0.94);
     color: var(--ink);
     transition: border-color 0.16s ease, box-shadow 0.16s ease, background-color 0.16s ease;
+}
+
+select {
+    text-overflow: ellipsis;
 }
 
 input:focus,
@@ -2195,15 +2203,18 @@ body.menu-open .menu-scrim {
         padding: 1rem 1rem 0;
     }
 
-    .catalog-form {
+    .catalog-dialog .catalog-form {
         max-height: calc(100vh - 7.5rem);
         overflow-y: auto;
+    }
+
+    .catalog-form {
         padding: 1rem;
     }
 }
 
 .capture-sidebar-panel {
-    overflow: visible;
+    overflow: clip;
 }
 
 .capture-nav-stack {
@@ -3170,12 +3181,14 @@ body.wellbeing-body {
 .wellbeing-profile-panel {
     display: grid;
     gap: 1rem;
+    min-width: 0;
 }
 
 .wellbeing-profile-grid {
     display: grid;
     grid-template-columns: repeat(2, minmax(0, 1fr));
     gap: 1rem;
+    min-width: 0;
 }
 
 .wellbeing-profile-selector {
@@ -3189,6 +3202,13 @@ body.wellbeing-body {
 
 .wellbeing-profile-table {
     min-width: 52rem;
+}
+
+.wellbeing-profile-panel > .table-wrap {
+    width: 100%;
+    max-width: 100%;
+    min-width: 0;
+    overflow-x: auto;
 }
 
 .wellbeing-profile-table th:not(:first-child),
@@ -5384,6 +5404,15 @@ body.wellbeing-body {
 }
 
 /* Shared reading and touch safeguards for text-heavy cards. */
+.panel,
+.report-card,
+.table-wrap,
+form,
+fieldset {
+    min-inline-size: 0;
+    max-inline-size: 100%;
+}
+
 .skip-link {
     position: fixed;
     top: max(0.75rem, env(safe-area-inset-top));

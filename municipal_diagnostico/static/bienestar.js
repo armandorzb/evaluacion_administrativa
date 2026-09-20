@@ -1108,6 +1108,7 @@
 
     function renderProfileTable(question, strataOrder) {
       const options = question.response_options || [];
+      const headers = ["Opción", "Global", ...(strataOrder || [])];
       const headerCells = ["<tr><th>Opción</th><th>Global</th>"];
       (strataOrder || []).forEach((stratum) => {
         headerCells.push(`<th>${escapeHtml(stratum)}</th>`);
@@ -1123,12 +1124,12 @@
       profileTableBody.innerHTML = options
         .map((option) => {
           const cells = [
-            `<td><strong>${escapeHtml(option.label)}</strong></td>`,
-            `<td>${option.count} · ${formatPercent(option.percent)}</td>`,
+            `<td data-label="${escapeHtml(headers[0])}"><strong>${escapeHtml(option.label)}</strong></td>`,
+            `<td data-label="${escapeHtml(headers[1])}">${option.count} · ${formatPercent(option.percent)}</td>`,
           ];
-          (strataOrder || []).forEach((stratum) => {
+          (strataOrder || []).forEach((stratum, index) => {
             const detail = option.by_stratum?.[stratum] || { count: 0, percent: 0 };
-            cells.push(`<td>${detail.count} · ${formatPercent(detail.percent)}</td>`);
+            cells.push(`<td data-label="${escapeHtml(headers[index + 2])}">${detail.count} · ${formatPercent(detail.percent)}</td>`);
           });
           return `<tr>${cells.join("")}</tr>`;
         })
