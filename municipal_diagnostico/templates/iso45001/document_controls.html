@@ -14,16 +14,18 @@
             <span class="tag">Alcance hist&oacute;rico por dependencia</span>
             {% endif %}
             <span class="tag">{{ document_overview.total }} controles</span>
-            <span class="tag">{{ document_overview.covered_points }}/{{ document_overview.total_points }} puntos cubiertos</span>
+            <span class="tag"><span data-document-overview-covered>{{ document_overview.covered_points }}/{{ document_overview.total_points }}</span> puntos cubiertos</span>
             <span class="tag">Estado: {{ summary.state_label }}</span>
+            <span class="tag">Versi&oacute;n: {{ evaluation.ciclo.version.slug }}</span>
+            {% if evaluation.ciclo.version.catalog_hash %}<span class="tag" title="Huella SHA-256 del cat&aacute;logo">Cat&aacute;logo: {{ evaluation.ciclo.version.catalog_hash[:12] }}&hellip;</span>{% endif %}
         </div>
     </div>
     <article class="hero-card compact">
-        <div class="metric-inline"><span>Cobertura de puntos</span><strong>{{ document_overview.percent }}%</strong></div>
+        <div class="metric-inline"><span>Cobertura de puntos</span><strong data-document-overview-percent>{{ document_overview.percent }}%</strong></div>
         <div class="progress" role="progressbar" aria-valuemin="0" aria-valuemax="100" aria-valuenow="{{ document_overview.percent }}">
-            <span data-progress-bar data-progress-value="{{ document_overview.percent }}"></span>
+            <span data-progress-bar data-progress-role="document-overview" data-progress-value="{{ document_overview.percent }}"></span>
         </div>
-        <div class="metric-inline"><span>Controles evaluados</span><strong>{{ document_overview.evaluated }}/{{ document_overview.total }}</strong></div>
+        <div class="metric-inline"><span>Controles evaluados</span><strong data-document-overview-evaluated>{{ document_overview.evaluated }}/{{ document_overview.total }}</strong></div>
         <div class="metric-inline"><span>Controles sustentados</span><strong>{{ document_overview.sustained }}/{{ document_overview.total }}</strong></div>
         <div class="actions vertical compact-top">
             <a class="button button-primary" href="{{ url_for('iso45001.evaluation_detail', evaluation_id=evaluation.id) }}">Volver a captura</a>
@@ -99,7 +101,7 @@
         <div class="evidence-row">
             <div>
                 <strong>{{ evidence.archivo_nombre_original }}</strong>
-                <p class="muted">{{ evidence.mime_type }} &middot; {{ evidence.tamano_bytes }} bytes</p>
+                <p class="muted">{{ evidence.mime_type }} &middot; {{ evidence.tamano_bytes }} bytes{% if evidence.sha256 %} &middot; SHA-256 {{ evidence.sha256[:12] }}&hellip;{% endif %}</p>
             </div>
             <a class="button button-compact" href="{{ url_for('iso45001.download_document_evidence', evidence_id=evidence.id) }}">Descargar</a>
         </div>
@@ -129,6 +131,8 @@
                 id="control-{{ control.id }}"
                 data-iso-document-control-form
                 data-document-total="{{ control.total_puntos }}"
+                data-document-point-mode="{{ 'true' if evaluation.ciclo.version.document_coverage_mode == 'por_control_punto' else 'false' }}"
+                data-document-bulk-url="{{ url_for('iso45001.apply_document_control_points', evaluation_id=evaluation.id, control_id=control.id) if can_edit and evaluation.ciclo.version.document_coverage_mode == 'por_control_punto' else '' }}"
                 data-readonly="{{ 'true' if not can_edit else 'false' }}"
             >
                 <div class="question-head">
@@ -141,16 +145,35 @@
 
                 <p class="question-text">{{ control.clasificacion }}. {{ control.contenido_minimo or "Define los puntos m&iacute;nimos que deben quedar demostrados." }}</p>
 
+                {% if can_edit and evaluation.ciclo.version.document_coverage_mode == 'por_control_punto' %}
+                <div class="callout compact" data-document-bulk-controls>
+                    <strong>Cobertura r&aacute;pida</strong>
+                    <p class="muted">Por defecto solo se actualizan puntos pendientes y se conservan las revisiones individuales.</p>
+                    <div class="actions compact-top">
+                        <label>Aplicaci&oacute;n
+                            <select data-document-bulk-mode>
+                                <option value="pendientes">Conservar revisados</option>
+                                <option value="reemplazar">Reemplazar todo</option>
+                            </select>
+                        </label>
+                        <button class="button" type="button" data-document-bulk-apply data-covered="false">Ning&uacute;n punto</button>
+                        <button class="button button-primary" type="button" data-document-bulk-apply data-covered="true">Todos los puntos</button>
+                        <span class="save-indicator" data-document-bulk-status aria-live="polite"></span>
+                    </div>
+                </div>
+                {% endif %}
+
                 <details class="iso-details" open>
                     <summary>Puntos m&iacute;nimos de cobertura (<span data-document-covered>{{ control.puntos_cubiertos }}</span>/{{ control.total_puntos }})</summary>
                     <div class="stack compact-top">
                         {% for point in control.puntos %}
+                        {% set point_origin = point.origen_captura|default('', true) %}
                         <label class="list-row data-row">
                             <span>
-                                <input type="checkbox" name="punto_ids" value="{{ point.id }}" data-document-point {% if point.cubierto %}checked{% endif %} {% if not can_edit %}disabled{% endif %}>
+                                <input type="checkbox" name="punto_ids" value="{{ point.id }}" data-document-point data-evaluated="{{ 'true' if point.evaluado|default(false) else 'false' }}" data-capture-origin="{{ point_origin }}" {% if point.cubierto %}checked{% endif %} {% if not can_edit %}disabled{% endif %}>
                             <strong>{{ loop.index }}.</strong> {{ point.texto }}
                         </span>
-                        {% if point.cubierto %}<span class="pill">Cubierto</span>{% endif %}
+                        <span class="pill" data-document-point-origin {% if not point_origin %}hidden{% endif %}>{% if point_origin == 'masivo' %}Masivo{% elif point_origin == 'excepcion' %}Excepci&oacute;n{% else %}Individual{% endif %}</span>
                         </label>
                         {% else %}
                         <p class="muted">Este control no tiene puntos de cobertura configurados.</p>
@@ -192,12 +215,40 @@
                         {% endfor %}
                     </select>
                 </label>
+                {% if evaluation.ciclo.version.document_coverage_mode == 'por_control_punto' %}
+                <input type="hidden" name="evidencia_punto_ids" value="">
+                <details class="iso-details" data-document-evidence-points>
+                    <summary>Trazabilidad archivo &rarr; punto</summary>
+                    <div class="stack compact-top">
+                        <p class="muted">Aplica los archivos seleccionados a todos los puntos cubiertos y, si un archivo no sustenta alguno, desmarca esa asociaci&oacute;n.</p>
+                        {% if can_edit %}
+                        <div class="actions">
+                            <button class="button button-compact" type="button" data-document-apply-evidence-covered>Aplicar seleccionados a puntos cubiertos</button>
+                            <span class="save-indicator" data-document-evidence-point-status aria-live="polite"></span>
+                        </div>
+                        {% endif %}
+                        {% for evidence in document_evidences %}
+                        {% set evidence_selected = evidence.id in control.evidence_ids %}
+                        <div class="question-card" data-document-evidence-point-group="{{ evidence.id }}" {% if not evidence_selected %}hidden{% endif %}>
+                            <strong>{{ evidence.archivo_nombre_original }}</strong>
+                            <div class="stack compact-top">
+                                {% for point in control.puntos %}
+                                <label class="list-row data-row">
+                                    <span><input type="checkbox" name="evidencia_punto_ids" value="{{ evidence.id }}:{{ point.id }}" data-document-evidence-point data-evidence-point-link data-evidence-id="{{ evidence.id }}" data-point-id="{{ point.id }}" {% if point.id in control.evidence_point_map.get(evidence.id, []) %}checked{% endif %} {% if not can_edit or not evidence_selected %}disabled{% endif %}> {{ loop.index }}. {{ point.texto }}</span>
+                                </label>
+                                {% endfor %}
+                            </div>
+                        </div>
+                        {% endfor %}
+                    </div>
+                </details>
+                {% endif %}
                 <div class="evidence-list">
                     {% for evidence in control.evidencias %}
                     <div class="evidence-row">
                         <div>
                             <strong>{{ evidence.archivo_nombre_original }}</strong>
-                            <p class="muted">Archivo compartido de esta evaluaci&oacute;n.</p>
+                            <p class="muted">Archivo compartido de esta evaluaci&oacute;n{% if evidence.sha256 %} &middot; SHA-256 {{ evidence.sha256[:12] }}&hellip;{% endif %}.</p>
                         </div>
                         <a class="button button-compact" href="{{ url_for('iso45001.download_document_evidence', evidence_id=evidence.id) }}">Descargar</a>
                     </div>

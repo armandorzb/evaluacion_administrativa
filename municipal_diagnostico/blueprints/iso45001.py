@@ -40,12 +40,17 @@ from municipal_diagnostico.services.iso45001 import (
     ISO45001_FINAL_STATES,
     ISO45001_OPTION_LABELS,
     ISO45001_OPTION_POINTS,
+    bulk_apply_document_control_points,
+    bulk_apply_section_responses,
     ensure_document_controls_for_evaluation,
     ensure_iso45001_catalog,
+    freeze_iso45001_snapshot,
     format_iso_datetime,
     list_visible_iso45001_evaluations,
     list_document_evidences,
+    record_iso45001_capture_change,
     save_document_control_payload,
+    stored_upload_sha256,
     summarize_iso45001_cycle,
     summarize_iso45001_evaluation,
     upload_document_evidence,
@@ -255,7 +260,8 @@ def evaluation_detail(evaluation_id: int):
         saved, files = persist_section_from_form(evaluation, section)
         if evaluation.estado in {"borrador", "devuelta"}:
             evaluation.estado = "en_captura"
-        summarize_iso45001_evaluation(evaluation)
+        summary = summarize_iso45001_evaluation(evaluation)
+        evaluation.progreso = summary["completion"]
         db.session.commit()
         log_activity(
             "save_iso45001_section",
@@ -268,6 +274,12 @@ def evaluation_detail(evaluation_id: int):
 
     summary = summarize_iso45001_evaluation(evaluation)
     document_controls_summary = _normalize_document_controls(summary.get("document_controls") or [])
+    adaptive_capture = getattr(evaluation.ciclo.version, "capture_mode", "individual") == "agrupado_apartado"
+    point_document_coverage = (
+        getattr(evaluation.ciclo.version, "document_coverage_mode", "por_reactivo") == "por_control_punto"
+    )
+    if adaptive_capture:
+        _prepare_adaptive_capture(summary, document_controls_summary)
     can_edit = user_can_edit_evaluation(evaluation)
     log_activity("view_iso45001_evaluation", entity_type="iso45001_evaluacion", entity_id=evaluation.id)
     return render_template(
@@ -276,9 +288,107 @@ def evaluation_detail(evaluation_id: int):
         summary=summary,
         document_overview=_document_control_overview(document_controls_summary),
         has_document_controls=bool(document_controls_summary),
+        adaptive_capture=adaptive_capture,
+        point_document_coverage=point_document_coverage,
         option_labels=ISO45001_OPTION_LABELS,
         can_edit=can_edit,
         diagnostic_notice=_diagnostic_notice(),
+    )
+
+
+@bp.route("/evaluaciones/<int:evaluation_id>/apartados/<int:section_id>/aplicar", methods=["POST"])
+@iso45001_role_required("administrador", "revisor", "evaluador", "respondente", "consulta")
+def apply_section_responses(evaluation_id: int, section_id: int):
+    """Apply one score to pending or all reactives in an adaptive section."""
+
+    evaluation = Iso45001Evaluacion.query.get_or_404(evaluation_id)
+    if not user_can_edit_evaluation(evaluation):
+        abort(403)
+    if getattr(evaluation.ciclo.version, "capture_mode", "individual") != "agrupado_apartado":
+        return _bulk_error_response(
+            "La captura masiva no está habilitada para esta versión del cuestionario.",
+            evaluation,
+            section_id=section_id,
+            status=409,
+        )
+
+    section = get_section_or_404(evaluation, section_id)
+    payload = _request_payload()
+    calificacion = clean_text(payload.get("calificacion"))
+    mode = clean_text(payload.get("modo")) or "pendientes"
+    if calificacion not in ISO45001_OPTION_POINTS:
+        return _bulk_error_response(
+            "Solo se permiten las respuestas No, Parcial y Sí.",
+            evaluation,
+            section_id=section.id,
+        )
+    if mode not in {"pendientes", "reemplazar"}:
+        return _bulk_error_response(
+            "El modo debe ser pendientes o reemplazar.",
+            evaluation,
+            section_id=section.id,
+        )
+    if mode == "reemplazar" and not _payload_boolean(payload.get("confirmar")):
+        return _bulk_error_response(
+            "Confirma explícitamente el reemplazo de todas las respuestas del apartado.",
+            evaluation,
+            section_id=section.id,
+            status=409,
+        )
+
+    result = bulk_apply_section_responses(
+        evaluation,
+        section.id,
+        calificacion,
+        mode,
+        user=current_user,
+    )
+    if not result.get("ok", False):
+        db.session.rollback()
+        return _bulk_error_response(
+            result.get("error") or "No se pudieron aplicar las respuestas.",
+            evaluation,
+            section_id=section.id,
+        )
+
+    if evaluation.estado in {"borrador", "devuelta"}:
+        evaluation.estado = "en_captura"
+    summary = summarize_iso45001_evaluation(evaluation)
+    evaluation.progreso = summary["completion"]
+    section_summary = next((item for item in summary["sections"] if item["id"] == section.id), None)
+    db.session.commit()
+    log_activity(
+        "bulk_apply_iso45001_section",
+        entity_type="iso45001_evaluacion",
+        entity_id=evaluation.id,
+        metadata={
+            "apartado_id": section.id,
+            "calificacion": calificacion,
+            "modo": mode,
+            "origen": "masivo",
+            "lote": result.get("batch_id"),
+            "actualizadas": int(result.get("updated") or 0),
+            "omitidas": int(result.get("skipped") or 0),
+        },
+    )
+    response_payload = {
+        "ok": True,
+        "updated": int(result.get("updated") or 0),
+        "skipped": int(result.get("skipped") or 0),
+        "batch_id": result.get("batch_id"),
+        "calificacion": calificacion,
+        "modo": mode,
+        "completion": summary["completion"],
+        "section_answered": section_summary["answered"] if section_summary else 0,
+        "section_total": section_summary["total"] if section_summary else len(section.reactivos),
+        "section_completion": section_summary["completion"] if section_summary else 0,
+        "last_saved": format_iso_datetime(latest_section_timestamp(evaluation, section)),
+    }
+    return _bulk_success_response(
+        response_payload,
+        f"Se aplicó {ISO45001_OPTION_LABELS[calificacion]} a {response_payload['updated']} reactivo(s).",
+        evaluation,
+        section_id=section.id,
     )
 
 
@@ -333,22 +443,34 @@ def save_document_control(evaluation_id: int, control_id: int):
     evaluation = Iso45001Evaluacion.query.get_or_404(evaluation_id)
     if not user_can_edit_evaluation(evaluation):
         abort(403)
+    redirect_url = url_for("iso45001.document_controls", evaluation_id=evaluation.id, _anchor=f"control-{control_id}")
+    capture_section_id = request.form.get("apartado_id", type=int)
+    if request.form.get("return_to") == "capture" and capture_section_id is not None:
+        section = get_section_or_404(evaluation, capture_section_id)
+        redirect_url = url_for(
+            "iso45001.evaluation_detail",
+            evaluation_id=evaluation.id,
+            _anchor=f"apartado-{section.id}",
+        )
 
     payload = {
         "punto_ids": request.form.getlist("punto_ids", type=int),
         "evidencia_ids": request.form.getlist("evidencia_ids", type=int),
         "observacion": clean_text(request.form.get("observacion")) or "",
     }
+    if "evidencia_punto_ids" in request.form:
+        payload["evidencia_punto_ids"] = [
+            value for value in request.form.getlist("evidencia_punto_ids") if clean_text(value)
+        ]
     result = save_document_control_payload(evaluation, control_id, payload, user=current_user)
     if not result.get("ok", False):
         flash(result.get("error") or "No se pudo guardar el control documental.", "error")
-        return redirect(
-            url_for("iso45001.document_controls", evaluation_id=evaluation.id, _anchor=f"control-{control_id}")
-        )
+        return redirect(redirect_url)
 
     if evaluation.estado in {"borrador", "devuelta"}:
         evaluation.estado = "en_captura"
-    summarize_iso45001_evaluation(evaluation)
+    summary = summarize_iso45001_evaluation(evaluation)
+    evaluation.progreso = summary["completion"]
     db.session.commit()
     log_activity(
         "save_iso45001_document_control",
@@ -361,7 +483,103 @@ def save_document_control(evaluation_id: int, control_id: int):
         },
     )
     flash("Control documental guardado.", "success")
-    return redirect(url_for("iso45001.document_controls", evaluation_id=evaluation.id, _anchor=f"control-{control_id}"))
+    return redirect(redirect_url)
+
+
+@bp.route("/evaluaciones/<int:evaluation_id>/controles/<int:control_id>/aplicar-puntos", methods=["POST"])
+@iso45001_role_required("administrador", "revisor", "evaluador", "respondente", "consulta")
+def apply_document_control_points(evaluation_id: int, control_id: int):
+    """Apply covered/not-covered to pending or all points of one control."""
+
+    evaluation = Iso45001Evaluacion.query.get_or_404(evaluation_id)
+    if not user_can_edit_evaluation(evaluation):
+        abort(403)
+    if getattr(evaluation.ciclo.version, "document_coverage_mode", "por_reactivo") != "por_control_punto":
+        return _bulk_error_response(
+            "La cobertura masiva por punto no está habilitada para esta versión del cuestionario.",
+            evaluation,
+            control_id=control_id,
+            status=409,
+        )
+
+    payload = _request_payload()
+    covered = _payload_boolean(payload.get("cubierto"), default=None)
+    mode = clean_text(payload.get("modo")) or "pendientes"
+    if covered is None:
+        return _bulk_error_response(
+            "Indica si los puntos deben quedar cubiertos o no cubiertos.",
+            evaluation,
+            control_id=control_id,
+        )
+    if mode not in {"pendientes", "reemplazar"}:
+        return _bulk_error_response(
+            "El modo debe ser pendientes o reemplazar.",
+            evaluation,
+            control_id=control_id,
+        )
+    if mode == "reemplazar" and not _payload_boolean(payload.get("confirmar")):
+        return _bulk_error_response(
+            "Confirma explícitamente el reemplazo de todos los puntos del control.",
+            evaluation,
+            control_id=control_id,
+            status=409,
+        )
+
+    result = bulk_apply_document_control_points(
+        evaluation,
+        control_id,
+        covered,
+        mode,
+        user=current_user,
+    )
+    if not result.get("ok", False):
+        db.session.rollback()
+        return _bulk_error_response(
+            result.get("error") or "No se pudieron aplicar los puntos del control.",
+            evaluation,
+            control_id=control_id,
+        )
+
+    if evaluation.estado in {"borrador", "devuelta"}:
+        evaluation.estado = "en_captura"
+    summary = summarize_iso45001_evaluation(evaluation)
+    evaluation.progreso = summary["completion"]
+    controls = _normalize_document_controls(summary.get("document_controls") or [])
+    control = next((item for item in controls if item["id"] == control_id), None)
+    db.session.commit()
+    log_activity(
+        "bulk_apply_iso45001_document_points",
+        entity_type="iso45001_evaluacion",
+        entity_id=evaluation.id,
+        metadata={
+            "control_id": control_id,
+            "cubierto": covered,
+            "modo": mode,
+            "origen": "masivo",
+            "lote": result.get("batch_id"),
+            "actualizados": int(result.get("updated") or 0),
+            "omitidos": int(result.get("skipped") or 0),
+        },
+    )
+    response_payload = {
+        "ok": True,
+        "updated": int(result.get("updated") or 0),
+        "skipped": int(result.get("skipped") or 0),
+        "batch_id": result.get("batch_id"),
+        "cubierto": covered,
+        "modo": mode,
+        "covered_points": int(control.get("puntos_cubiertos") or 0) if control else 0,
+        "total_points": int(control.get("total_puntos") or 0) if control else 0,
+        "estado": control.get("estado") if control else None,
+        "estado_label": control.get("estado_label") if control else None,
+        "document_overview": _document_control_overview(controls),
+    }
+    return _bulk_success_response(
+        response_payload,
+        f"Se actualizaron {response_payload['updated']} punto(s) del control.",
+        evaluation,
+        control_id=control_id,
+    )
 
 
 @bp.route("/evaluaciones/<int:evaluation_id>/documentacion/evidencias", methods=["POST"])
@@ -417,6 +635,7 @@ def autosave_section(evaluation_id: int, section_id: int):
     if evaluation.estado in {"borrador", "devuelta"}:
         evaluation.estado = "en_captura"
     summary = summarize_iso45001_evaluation(evaluation)
+    evaluation.progreso = summary["completion"]
     db.session.commit()
 
     section_summary = next((item for item in summary["sections"] if item["id"] == section.id), None)
@@ -488,6 +707,8 @@ def review_evaluation(evaluation_id: int):
                     comentario=comentario,
                 )
             )
+            if action == "close":
+                freeze_iso45001_snapshot(evaluation, user=current_user)
             db.session.commit()
             log_activity(
                 "review_iso45001_evaluation",
@@ -654,6 +875,8 @@ def validate_evaluation_update_payload(form_data, evaluation: Iso45001Evaluacion
     next_state = clean_text(form_data.get("estado")) or evaluation.estado
     if next_state not in ISO45001_EVALUATION_STATES:
         return None, "Selecciona un estado válido para la evaluación."
+    if evaluation.estado == "cerrada" and next_state != "cerrada":
+        return None, "Una evaluación cerrada es oficial e inmutable; no puede reabrirse."
 
     responsable, error = optional_active_user_from_form(form_data.get("responsable_id"), "responsable de captura")
     if error:
@@ -681,6 +904,8 @@ def _apply_evaluation_update(evaluation: Iso45001Evaluacion, data: dict) -> None
         evaluation.enviada_revision_at = utcnow()
     if data["estado"] == "cerrada" and evaluation.cerrada_at is None:
         evaluation.cerrada_at = utcnow()
+    if data["estado"] == "cerrada":
+        freeze_iso45001_snapshot(evaluation, user=current_user)
 
 
 def optional_active_user_from_form(raw_value, field_label: str, allowed_roles: set[str] | None = None):
@@ -723,7 +948,7 @@ def iso45001_evaluation_has_activity(evaluation: Iso45001Evaluacion) -> bool:
     return any(
         control.observacion
         or any(evidence.activo for evidence in control.archivos)
-        or any(point.cubierto or point.observacion for point in control.puntos)
+        or any(getattr(point, "evaluado", False) or point.cubierto or point.observacion for point in control.puntos)
         for control in evaluation.controles_evidencia
     )
 
@@ -775,6 +1000,10 @@ def persist_section_from_form(evaluation: Iso45001Evaluacion, section) -> tuple[
         if selected not in ISO45001_OPTION_POINTS:
             continue
         response = response_map.get(reactive.id)
+        observation = clean_text(request.form.get(f"observacion_{reactive.id}"))
+        is_new = response is None
+        previous = _response_audit_value(response)
+        changed = is_new or response.calificacion != selected or clean_text(response.observacion) != observation
         if response is None:
             response = Iso45001Respuesta(
                 evaluacion=evaluation,
@@ -785,10 +1014,20 @@ def persist_section_from_form(evaluation: Iso45001Evaluacion, section) -> tuple[
             db.session.add(response)
             db.session.flush()
             response_map[reactive.id] = response
+        origin = _mark_individual_response_capture(response, changed=changed, is_new=is_new)
         response.calificacion = selected
         response.valor = ISO45001_OPTION_POINTS[selected]
-        response.observacion = clean_text(request.form.get(f"observacion_{reactive.id}"))
+        response.observacion = observation
         response.usuario = current_user
+        if changed:
+            record_iso45001_capture_change(
+                evaluation,
+                reactive=reactive,
+                previous=previous,
+                current=_response_audit_value(response),
+                origin=origin or "individual",
+                user=current_user,
+            )
         saved += 1
         for upload in request.files.getlist(f"evidencias_{reactive.id}"):
             if not upload or not upload.filename:
@@ -806,6 +1045,7 @@ def persist_section_from_form(evaluation: Iso45001Evaluacion, section) -> tuple[
                     archivo_guardado=stored,
                     mime_type=upload.mimetype or "application/octet-stream",
                     tamano_bytes=size,
+                    sha256=stored_upload_sha256(stored),
                     activo=True,
                 )
             )
@@ -830,6 +1070,10 @@ def persist_section_from_payload(evaluation: Iso45001Evaluacion, section, payloa
         if selected is None or selected not in ISO45001_OPTION_POINTS:
             continue
         response = response_map.get(reactive_id)
+        observation = clean_text(item.get("observacion"))
+        is_new = response is None
+        previous = _response_audit_value(response)
+        changed = is_new or response.calificacion != selected or clean_text(response.observacion) != observation
         if response is None:
             response = Iso45001Respuesta(
                 evaluacion=evaluation,
@@ -839,12 +1083,44 @@ def persist_section_from_payload(evaluation: Iso45001Evaluacion, section, payloa
             )
             db.session.add(response)
             response_map[reactive_id] = response
+        origin = _mark_individual_response_capture(response, changed=changed, is_new=is_new)
         response.calificacion = selected
         response.valor = ISO45001_OPTION_POINTS[selected]
-        response.observacion = clean_text(item.get("observacion"))
+        response.observacion = observation
         response.usuario = current_user
+        if changed:
+            reactive = next(item for item in section.reactivos if item.id == reactive_id)
+            record_iso45001_capture_change(
+                evaluation,
+                reactive=reactive,
+                previous=previous,
+                current=_response_audit_value(response),
+                origin=origin or "individual",
+                user=current_user,
+            )
         saved += 1
     return saved
+
+
+def _mark_individual_response_capture(response: Iso45001Respuesta, *, changed: bool, is_new: bool) -> str | None:
+    """Retain a bulk origin until an evaluator actually changes that row."""
+
+    if not hasattr(response, "origen_captura") or not changed:
+        return None
+    previous_origin = getattr(response, "origen_captura", None)
+    response.origen_captura = "excepcion" if not is_new and previous_origin == "masivo" else "individual"
+    response.lote_captura = None
+    return response.origen_captura
+
+
+def _response_audit_value(response: Iso45001Respuesta | None):
+    if response is None:
+        return None
+    return {
+        "calificacion": response.calificacion,
+        "valor": response.valor,
+        "observacion": response.observacion,
+    }
 
 
 def latest_section_timestamp(evaluation: Iso45001Evaluacion, section):
@@ -941,18 +1217,35 @@ def _normalize_document_controls(raw_controls) -> list[dict]:
             _document_value(evidence, "id") for evidence in data["evidencias"]
         ]
         data["evidence_ids"] = [int(item) for item in evidence_ids if item is not None]
+        data["evidence_point_map"] = {
+            int(_document_value(evidence, "id")): [
+                int(point_id)
+                for point_id in (_document_value(evidence, "point_ids", []) or [])
+                if point_id is not None
+            ]
+            for evidence in data["evidencias"]
+            if _document_value(evidence, "id") is not None
+        }
         state = str(data["estado"] or "no").strip().lower()
         data["estado"] = state
-        data["estado_label"] = {
-            "no": "No cubierto",
-            "parcial": "Cobertura parcial",
-            "si": "Cubierto",
-        }.get(state, "Sin evaluar")
-        data["estado_slug"] = {
-            "no": "low",
-            "parcial": "medium",
-            "si": "high",
-        }.get(state, "empty")
+        data["estado_label"] = (
+            {
+                "no": "No cubierto",
+                "parcial": "Cobertura parcial",
+                "si": "Cubierto",
+            }.get(state, "Sin evaluar")
+            if data["evaluated"]
+            else "Sin evaluar"
+        )
+        data["estado_slug"] = (
+            {
+                "no": "low",
+                "parcial": "medium",
+                "si": "high",
+            }.get(state, "empty")
+            if data["evaluated"]
+            else "empty"
+        )
         data["requires_file"] = state in {"parcial", "si"}
         normalized.append(data)
 
@@ -1003,7 +1296,7 @@ def _document_control_overview(controls: list[dict]) -> dict:
         if item.get("estado") in {"parcial", "si"} and bool(item.get("evidence_ids"))
     )
     evaluated = sum(1 for item in controls if item.get("evaluated"))
-    gaps = sum(1 for item in controls if item.get("estado") == "no")
+    gaps = sum(1 for item in controls if item.get("evaluated") and item.get("estado") == "no")
     return {
         "total": len(controls),
         "evaluated": evaluated,
@@ -1013,6 +1306,117 @@ def _document_control_overview(controls: list[dict]) -> dict:
         "sustained": sustained,
         "gaps": gaps,
     }
+
+
+def _prepare_adaptive_capture(summary: dict, controls: list[dict]) -> None:
+    """Attach presentation-only grouping without changing the canonical summary."""
+
+    sections = summary.get("sections") or []
+    section_by_code = {str(section.get("codigo") or "").strip(): section for section in sections}
+    controls_by_section: dict[str, list[dict]] = {code: [] for code in section_by_code}
+    for control in controls:
+        target_code = str(control.get("apartado") or "").strip()
+        if target_code not in section_by_code:
+            mapped_codes = [
+                str(_document_value(reactive, "apartado", "") or "").strip()
+                for reactive in control.get("reactivos") or []
+            ]
+            target_code = next((code for code in mapped_codes if code in section_by_code), "")
+        if target_code:
+            controls_by_section.setdefault(target_code, []).append(control)
+
+    for section in sections:
+        questions = section.get("questions") or []
+        section["dimensions"] = sorted(
+            {
+                str(getattr(item.get("reactivo"), "variable_principal", "") or "").strip()
+                for item in questions
+                if str(getattr(item.get("reactivo"), "variable_principal", "") or "").strip()
+            }
+        )
+        section["evidence_guidance"] = _group_reactive_guidance(questions, "evidencia_sugerida")
+        section["criteria_guidance"] = _group_reactive_guidance(questions, "criterio_idoneidad")
+        section["document_controls"] = controls_by_section.get(str(section.get("codigo") or "").strip(), [])
+        section["has_climate_amendment"] = any(
+            getattr(item.get("reactivo"), "codigo", "") in {"R-307", "R-308"}
+            for item in questions
+        )
+
+
+def _group_reactive_guidance(questions: list[dict], attribute: str) -> list[dict]:
+    grouped: dict[str, list[str]] = {}
+    for item in questions:
+        reactive = item.get("reactivo")
+        text = str(getattr(reactive, attribute, "") or "").strip()
+        if not text:
+            continue
+        grouped.setdefault(text, []).append(str(getattr(reactive, "codigo", "") or ""))
+    return [
+        {"text": text, "codes": ", ".join(code for code in codes if code)}
+        for text, codes in grouped.items()
+    ]
+
+
+def _request_payload():
+    payload = request.get_json(silent=True) if request.is_json else request.form
+    return payload if payload is not None else {}
+
+
+def _payload_boolean(value, *, default=False):
+    if isinstance(value, bool):
+        return value
+    if value is None:
+        return default
+    normalized = str(value).strip().lower()
+    if normalized in {"1", "true", "si", "sí", "yes", "on"}:
+        return True
+    if normalized in {"0", "false", "no", "off"}:
+        return False
+    return default
+
+
+def _wants_json_response() -> bool:
+    return request.is_json or request.headers.get("X-Requested-With") == "fetch"
+
+
+def _bulk_error_response(
+    message: str,
+    evaluation: Iso45001Evaluacion,
+    *,
+    section_id: int | None = None,
+    control_id: int | None = None,
+    status: int = 400,
+):
+    if _wants_json_response():
+        return jsonify({"ok": False, "error": message}), status
+    flash(message, "error")
+    if control_id is not None:
+        return redirect(
+            url_for("iso45001.document_controls", evaluation_id=evaluation.id, _anchor=f"control-{control_id}")
+        )
+    return redirect(
+        url_for("iso45001.evaluation_detail", evaluation_id=evaluation.id, _anchor=f"apartado-{section_id}")
+    )
+
+
+def _bulk_success_response(
+    payload: dict,
+    message: str,
+    evaluation: Iso45001Evaluacion,
+    *,
+    section_id: int | None = None,
+    control_id: int | None = None,
+):
+    if _wants_json_response():
+        return jsonify(payload)
+    flash(message, "success")
+    if control_id is not None:
+        return redirect(
+            url_for("iso45001.document_controls", evaluation_id=evaluation.id, _anchor=f"control-{control_id}")
+        )
+    return redirect(
+        url_for("iso45001.evaluation_detail", evaluation_id=evaluation.id, _anchor=f"apartado-{section_id}")
+    )
 
 
 def clean_text(value) -> str | None:

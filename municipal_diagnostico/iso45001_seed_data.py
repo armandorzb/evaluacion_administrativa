@@ -9,18 +9,45 @@ from __future__ import annotations
 
 import base64
 from copy import deepcopy
+import hashlib
 import json
 import zlib
 
 
 ISO45001_CATALOG_SLUG = "iso45001_2018_amd1_2024_diagnostico_v1"
 ISO45001_V2_CATALOG_SLUG = "iso45001_2018_amd1_2024_diagnostico_v2_cobertura_documental"
+ISO45001_V3_CATALOG_SLUG = "iso45001_2018_amd1_2024_diagnostico_v3_captura_adaptativa"
 ISO45001_SOURCE_REACTIVE_COUNT = 306
 ISO45001_REACTIVE_COUNT = 308
+ISO45001_SECTION_COUNT = 40
+ISO45001_VARIABLE_COUNT = 39
 ISO45001_DOCUMENT_COUNT = 31
 ISO45001_CONTROL_EVIDENCE_COUNT = 37
+ISO45001_CONTROL_POINT_COUNT = 102
+ISO45001_CONTROLLED_REACTIVE_COUNT = 266
 ISO45001_NORMATIVE_CONTROL_COUNT = 31
 ISO45001_COMPLEMENTARY_CONTROL_COUNT = 6
+
+ISO45001_CAPTURE_MODE_INDIVIDUAL = "individual"
+ISO45001_CAPTURE_MODE_SECTION_BULK = "agrupado_apartado"
+ISO45001_DOCUMENT_COVERAGE_REACTIVE = "por_reactivo"
+ISO45001_DOCUMENT_COVERAGE_CONTROL = "por_control"
+ISO45001_DOCUMENT_COVERAGE_CONTROL_POINT = "por_control_punto"
+ISO45001_SCORING_SCHEME = "escala_0_1_2_v1"
+
+# The external identity of a reactive is (catalog slug, R-###).  V3 changes
+# capture behavior, not the measured criteria, so this crosswalk is strictly
+# one-to-one and deliberately authored for all 308 identifiers.
+ISO45001_V3_CROSSWALK = tuple(
+    {
+        "origen_slug": ISO45001_V2_CATALOG_SLUG,
+        "origen_codigo": f"R-{number:03d}",
+        "destino_slug": ISO45001_V3_CATALOG_SLUG,
+        "destino_codigo": f"R-{number:03d}",
+        "tipo": "equivalente",
+    }
+    for number in range(1, ISO45001_REACTIVE_COUNT + 1)
+)
 
 _CLAUSE_NAMES = {
     "4": "Contexto de la organizaci\u00f3n",
@@ -437,6 +464,9 @@ def _build_iso45001_version() -> dict:
             "en el Trabajo (SGSST) conforme a ISO 45001:2018 y su enmienda clim\u00e1tica 2024."
         ),
         "norma": "ISO 45001:2018 + Amd. 1:2024",
+        "capture_mode": ISO45001_CAPTURE_MODE_INDIVIDUAL,
+        "document_coverage_mode": ISO45001_DOCUMENT_COVERAGE_REACTIVE,
+        "scoring_scheme": ISO45001_SCORING_SCHEME,
         "aviso_diagnostico": (
             "Este resultado es un diagn\u00f3stico de preparaci\u00f3n; no constituye una certificaci\u00f3n "
             "ni sustituye la consulta de la norma autorizada o de la legislaci\u00f3n aplicable."
@@ -451,6 +481,30 @@ def _build_iso45001_version() -> dict:
         ],
         "documentos_obligatorios": documents,
     }
+
+
+def _catalog_hash(version: dict) -> str:
+    """Return the stable SHA-256 fingerprint of a catalog payload.
+
+    The fingerprint excludes only its own field.  Sorting mapping keys and
+    using compact separators keeps it deterministic across Python processes
+    without changing the authored order of clauses, controls or reactives.
+    """
+
+    canonical_payload = deepcopy(version)
+    canonical_payload.pop("catalog_hash", None)
+    canonical_json = json.dumps(
+        canonical_payload,
+        ensure_ascii=False,
+        sort_keys=True,
+        separators=(",", ":"),
+    )
+    return hashlib.sha256(canonical_json.encode("utf-8")).hexdigest()
+
+
+def _seal_catalog(version: dict) -> dict:
+    version["catalog_hash"] = _catalog_hash(version)
+    return version
 
 
 def _validate_catalog(version: dict) -> None:
@@ -486,7 +540,7 @@ def _validate_catalog(version: dict) -> None:
         raise RuntimeError("Faltan los reactivos de ISO 45001:2018/Amd 1:2024.")
 
 
-ISO45001_VERSION = _build_iso45001_version()
+ISO45001_VERSION = _seal_catalog(_build_iso45001_version())
 _validate_catalog(ISO45001_VERSION)
 
 
@@ -876,6 +930,9 @@ def _build_iso45001_v2_version() -> dict:
         "Versión inmutable del diagnóstico ISO 45001 que evalúa la cobertura de información "
         "documentada mediante controles reutilizables, sin exigir un adjunto por reactivo."
     )
+    version["capture_mode"] = ISO45001_CAPTURE_MODE_INDIVIDUAL
+    version["document_coverage_mode"] = ISO45001_DOCUMENT_COVERAGE_CONTROL
+    version["scoring_scheme"] = ISO45001_SCORING_SCHEME
     version["tipo_cobertura_documental"] = "por_control"
     version["controles_evidencia"] = deepcopy(ISO45001_V2_CONTROL_EVIDENCE)
 
@@ -950,5 +1007,118 @@ def _validate_v2_catalog(version: dict) -> None:
         raise RuntimeError("Todo control documental v2 debe tener al menos un punto mínimo.")
 
 
-ISO45001_V2_VERSION = _build_iso45001_v2_version()
+ISO45001_V2_VERSION = _seal_catalog(_build_iso45001_v2_version())
 _validate_v2_catalog(ISO45001_V2_VERSION)
+
+
+def _build_iso45001_v3_version() -> dict:
+    """Publish the adaptive-capture catalog without changing any measurement."""
+
+    version = deepcopy(ISO45001_V2_VERSION)
+    version["slug"] = ISO45001_V3_CATALOG_SLUG
+    version["nombre"] = (
+        "Diagnóstico de implementación ISO 45001:2018 + Amd. 1:2024 "
+        "— captura adaptativa por apartado"
+    )
+    version["descripcion"] = (
+        "Versión inmutable que conserva los 308 reactivos y la matriz documental completa, "
+        "y habilita captura masiva por apartado y por puntos de control con excepciones "
+        "individuales auditables."
+    )
+    version["capture_mode"] = ISO45001_CAPTURE_MODE_SECTION_BULK
+    version["document_coverage_mode"] = ISO45001_DOCUMENT_COVERAGE_CONTROL_POINT
+    version["scoring_scheme"] = ISO45001_SCORING_SCHEME
+    # Alias retained for report code that predates capability metadata.
+    version["tipo_cobertura_documental"] = "por_control"
+    version["crosswalk_reactivos"] = deepcopy(ISO45001_V3_CROSSWALK)
+
+    # V2 explicitly maps each control to its reactives.  V3 materializes the
+    # same authored scope on every minimum point so a file can be traced as:
+    # file -> evaluated point -> catalog point -> reactive.  No clause-prefix
+    # inference is used, and the three intentional cross-control overlaps are
+    # therefore retained.
+    for control in version["controles_evidencia"]:
+        for point in control["puntos"]:
+            point["reactivos"] = list(control["reactivos"])
+
+    return version
+
+
+def _validate_v3_catalog(version: dict) -> None:
+    reactives = [
+        reactive
+        for clause in version["clausulas"]
+        for section in clause["apartados"]
+        for reactive in section["reactivos"]
+    ]
+    sections = [
+        section
+        for clause in version["clausulas"]
+        for section in clause["apartados"]
+    ]
+    controls = version["controles_evidencia"]
+    points = [point for control in controls for point in control["puntos"]]
+    reactive_codes = {reactive["codigo"] for reactive in reactives}
+    controlled_codes = {
+        reactive_code
+        for point in points
+        for reactive_code in point.get("reactivos", ())
+    }
+    control_memberships: dict[str, set[str]] = {}
+    for control in controls:
+        for reactive_code in control["reactivos"]:
+            control_memberships.setdefault(reactive_code, set()).add(control["codigo"])
+
+    if version["slug"] != ISO45001_V3_CATALOG_SLUG:
+        raise RuntimeError("El catálogo de captura adaptativa ISO 45001 debe usar su slug v3.")
+    if len(reactives) != ISO45001_REACTIVE_COUNT or len(reactive_codes) != len(reactives):
+        raise RuntimeError("El catálogo ISO 45001 v3 debe conservar 308 reactivos únicos.")
+    if len(sections) != ISO45001_SECTION_COUNT:
+        raise RuntimeError("El catálogo ISO 45001 v3 debe conservar sus 40 apartados.")
+    if len({reactive["variable_principal"] for reactive in reactives}) != ISO45001_VARIABLE_COUNT:
+        raise RuntimeError("El catálogo ISO 45001 v3 debe conservar sus 39 variables principales.")
+    if {
+        reactive["codigo"] for reactive in reactives if reactive["es_enmienda_2024"]
+    } != {"R-307", "R-308"}:
+        raise RuntimeError("R-307 y R-308 deben conservar su identificación Amd. 1:2024 en v3.")
+    if len(controls) != ISO45001_CONTROL_EVIDENCE_COUNT:
+        raise RuntimeError("El catálogo ISO 45001 v3 debe conservar sus 37 controles.")
+    if len(points) != ISO45001_CONTROL_POINT_COUNT:
+        raise RuntimeError("El catálogo ISO 45001 v3 debe conservar sus 102 puntos documentales.")
+    if (
+        not controlled_codes.issubset(reactive_codes)
+        or len(controlled_codes) != ISO45001_CONTROLLED_REACTIVE_COUNT
+    ):
+        raise RuntimeError("El mapeo punto-reactivo v3 debe cubrir los 266 reactivos documentales.")
+    if any(
+        set(point.get("reactivos", ())) != set(control["reactivos"])
+        for control in controls
+        for point in control["puntos"]
+    ):
+        raise RuntimeError("Cada punto v3 debe declarar explícitamente los reactivos de su control.")
+    expected_overlaps = {
+        "R-250": {"D-23", "D-24"},
+        "R-270": {"D-26", "D-27"},
+        "R-298": {"D-29", "D-30"},
+    }
+    if any(control_memberships.get(code) != memberships for code, memberships in expected_overlaps.items()):
+        raise RuntimeError("El catálogo ISO 45001 v3 debe conservar sus tres solapamientos documentales.")
+    crosswalk = version["crosswalk_reactivos"]
+    expected_codes = {f"R-{number:03d}" for number in range(1, ISO45001_REACTIVE_COUNT + 1)}
+    if (
+        len(crosswalk) != ISO45001_REACTIVE_COUNT
+        or {item["origen_codigo"] for item in crosswalk} != expected_codes
+        or {item["destino_codigo"] for item in crosswalk} != expected_codes
+        or any(item["origen_codigo"] != item["destino_codigo"] for item in crosswalk)
+    ):
+        raise RuntimeError("El crosswalk v2-v3 debe ser uno-a-uno para R-001 a R-308.")
+    if version["capture_mode"] != ISO45001_CAPTURE_MODE_SECTION_BULK:
+        raise RuntimeError("El catálogo ISO 45001 v3 debe habilitar captura agrupada por apartado.")
+    if version["document_coverage_mode"] != ISO45001_DOCUMENT_COVERAGE_CONTROL_POINT:
+        raise RuntimeError("El catálogo ISO 45001 v3 debe habilitar cobertura por punto de control.")
+    if version["catalog_hash"] != _catalog_hash(version):
+        raise RuntimeError("La huella SHA-256 del catálogo ISO 45001 v3 no coincide con su contenido.")
+
+
+ISO45001_V3_VERSION = _seal_catalog(_build_iso45001_v3_version())
+_validate_v3_catalog(ISO45001_V3_VERSION)

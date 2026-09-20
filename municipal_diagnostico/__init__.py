@@ -190,6 +190,61 @@ def ensure_schema_compatibility(app: Flask) -> None:
                 )
             app.logger.info("Columna bienestar_pregunta.tipo_reactivo agregada automáticamente.")
 
+    # SQLite installations historically relied on create_all instead of an
+    # Alembic upgrade.  create_all can create the new v3 tables but cannot add
+    # columns to existing ISO 45001 tables, so keep this narrow compatibility
+    # bridge aligned with the adaptive-capture migration.
+    iso45001_columns = {
+        "iso45001_cuestionario_version": {
+            "capture_mode": "VARCHAR(30) NOT NULL DEFAULT 'individual'",
+            "document_coverage_mode": "VARCHAR(30) NOT NULL DEFAULT 'por_reactivo'",
+            "scoring_scheme": "VARCHAR(40) NOT NULL DEFAULT 'escala_0_1_2_v1'",
+            "catalog_hash": "VARCHAR(64)",
+        },
+        "iso45001_reactivo": {
+            "variable_principal": "VARCHAR(120)",
+        },
+        "iso45001_respuesta": {
+            "origen_captura": "VARCHAR(20) NOT NULL DEFAULT 'individual'",
+            "lote_captura": "VARCHAR(36)",
+        },
+        "iso45001_evidencia": {
+            "sha256": "VARCHAR(64)",
+        },
+        "iso45001_evaluacion_control_evidencia_punto": {
+            "evaluado": "BOOLEAN NOT NULL DEFAULT 0",
+            "origen_captura": "VARCHAR(20) NOT NULL DEFAULT 'individual'",
+            "lote_captura": "VARCHAR(36)",
+        },
+        "iso45001_evidencia_documental": {
+            "sha256": "VARCHAR(64)",
+        },
+    }
+    for table_name, additions in iso45001_columns.items():
+        refreshed = inspect(db.engine)
+        if not refreshed.has_table(table_name):
+            continue
+        existing_columns = {
+            column["name"] for column in refreshed.get_columns(table_name)
+        }
+        missing = [
+            (column_name, definition)
+            for column_name, definition in additions.items()
+            if column_name not in existing_columns
+        ]
+        if not missing:
+            continue
+        with db.engine.begin() as connection:
+            for column_name, definition in missing:
+                connection.execute(
+                    text(f"ALTER TABLE {table_name} ADD COLUMN {column_name} {definition}")
+                )
+                app.logger.info(
+                    "Columna %s.%s agregada automáticamente.",
+                    table_name,
+                    column_name,
+                )
+
 
 def register_blueprints(app: Flask) -> None:
     app.register_blueprint(auth_bp)

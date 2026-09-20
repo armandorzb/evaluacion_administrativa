@@ -224,6 +224,26 @@
     });
   }
 
+  function initializeSelectTitles() {
+    document.querySelectorAll("select").forEach((select) => {
+      const syncTitle = () => {
+        Array.from(select.options).forEach((option) => {
+          if (!option.title) option.title = option.textContent.trim();
+        });
+        const selectedText = select.selectedOptions[0]?.textContent.trim();
+        if (selectedText) select.title = selectedText;
+      };
+
+      syncTitle();
+      select.addEventListener("change", syncTitle);
+      new MutationObserver(syncTitle).observe(select, {
+        childList: true,
+        subtree: true,
+        characterData: true,
+      });
+    });
+  }
+
   function syncAreaSelect(dependencySelect) {
     const targetId = dependencySelect.dataset.areaTarget;
     if (!targetId) return;
@@ -273,6 +293,7 @@
   });
 
   initializeResponsiveTables();
+  initializeSelectTitles();
 
   if (window.Chart) {
     window.Chart.defaults.animation = prefersReducedMotion
@@ -590,6 +611,43 @@
     card?.classList.add("has-answer");
   }
 
+  function setIsoCaptureOrigin(card, origin) {
+    const target = card?.querySelector("[data-iso-capture-origin]");
+    if (!target) return;
+    const labels = {
+      masivo: "Aplicación masiva",
+      excepcion: "Excepción individual",
+      individual: "Captura individual",
+    };
+    target.dataset.captureOrigin = origin;
+    target.textContent = labels[origin] || "";
+    target.hidden = !labels[origin];
+  }
+
+  function markIsoIndividualChange(card) {
+    if (!card?.querySelector('input[type="radio"]:checked')) return;
+    const target = card.querySelector("[data-iso-capture-origin]");
+    const origin = target?.dataset.captureOrigin === "masivo" ? "excepcion" : "individual";
+    setIsoCaptureOrigin(card, origin);
+  }
+
+  function fetchIsoJson(url, payload) {
+    return fetch(url, {
+      method: "POST",
+      headers: {
+        "Content-Type": "application/json",
+        "X-Requested-With": "fetch",
+      },
+      body: JSON.stringify(payload),
+    }).then(async (response) => {
+      const data = await response.json().catch(() => ({}));
+      if (!response.ok || data.ok === false) {
+        throw new Error(data.error || "No se pudo completar la operación.");
+      }
+      return data;
+    });
+  }
+
   function serializeIsoSectionForm(form) {
     const responses = [];
     form.querySelectorAll(".iso-question-card[data-iso-reactivo-id]").forEach((card) => {
@@ -614,6 +672,9 @@
     const answered = Number(payload.section_answered ?? 0);
     const total = Number(payload.section_total || form.dataset.isoSectionTotal || 0);
     document.querySelectorAll(`[data-iso-section-nav="${sectionId}"]`).forEach((node) => {
+      node.textContent = `${answered}/${total}`;
+    });
+    document.querySelectorAll(`[data-iso-section-count="${sectionId}"]`).forEach((node) => {
       node.textContent = `${answered}/${total}`;
     });
   }
@@ -668,6 +729,7 @@
       if (event.target.matches('.choice-chip input[type="radio"]')) {
         setChoiceState(form, event.target);
         updateIsoQuestionScore(event.target);
+        markIsoIndividualChange(event.target.closest("[data-iso-reactivo-id]"));
         queueIsoAutosave();
       }
       if (event.target.matches("textarea")) {
@@ -677,8 +739,65 @@
 
     form.addEventListener("input", (event) => {
       if (event.target.matches("textarea")) {
+        markIsoIndividualChange(event.target.closest("[data-iso-reactivo-id]"));
         queueIsoAutosave();
       }
+    });
+
+    form.querySelectorAll("[data-iso-bulk-apply]").forEach((button) => {
+      button.addEventListener("click", () => {
+        const url = form.dataset.isoBulkUrl;
+        const rating = form.querySelector("[data-iso-bulk-rating]")?.value;
+        const mode = button.dataset.bulkMode || "pendientes";
+        const status = form.querySelector("[data-iso-bulk-status]");
+        if (!url || !rating) return;
+        if (
+          mode === "reemplazar" &&
+          !window.confirm("Se reemplazarán todas las respuestas del apartado, incluidas las excepciones individuales. ¿Continuar?")
+        ) {
+          return;
+        }
+
+        const cards = Array.from(form.querySelectorAll("[data-iso-reactivo-id]"));
+        const targets = cards.filter(
+          (card) => mode === "reemplazar" || !card.querySelector('input[type="radio"]:checked'),
+        );
+        form.querySelectorAll("[data-iso-bulk-apply]").forEach((item) => {
+          item.disabled = true;
+        });
+        if (status) status.textContent = "Aplicando...";
+
+        fetchIsoJson(url, {
+          calificacion: rating,
+          modo: mode,
+          confirmar: mode === "reemplazar",
+        })
+          .then((payload) => {
+            targets.forEach((card) => {
+              const input = card.querySelector(`input[type="radio"][value="${rating}"]`);
+              if (!input) return;
+              input.checked = true;
+              setChoiceState(card, input);
+              updateIsoQuestionScore(input);
+              setIsoCaptureOrigin(card, "masivo");
+            });
+            updateOverallProgress(payload.completion);
+            updateIsoSectionProgress(form, payload);
+            setSaveState(form, "saved", "Aplicación masiva guardada");
+            if (status) {
+              status.textContent = `${payload.updated} actualizado(s); ${payload.skipped} conservado(s).`;
+            }
+          })
+          .catch((error) => {
+            setSaveState(form, "error", "Error en aplicación masiva");
+            if (status) status.textContent = error.message;
+          })
+          .finally(() => {
+            form.querySelectorAll("[data-iso-bulk-apply]").forEach((item) => {
+              item.disabled = false;
+            });
+          });
+      });
     });
 
     form.addEventListener("submit", () => {
@@ -690,11 +809,15 @@
 
   function syncDocumentControlState(form) {
     const total = Number(form.dataset.documentTotal || 0);
+    const pointMode = form.dataset.documentPointMode === "true";
+    const evaluated = form.querySelectorAll('[data-document-point][data-evaluated="true"]').length;
     const covered = form.querySelectorAll("[data-document-point]:checked").length;
     const evidenceSelect = form.querySelector("[data-document-evidence]");
+    const hiddenEvidence = form.querySelector('input[type="hidden"][name="evidencia_ids"]');
     const observation = form.querySelector('textarea[name="observacion"]');
     const hasEvidence = Boolean(
-      evidenceSelect && Array.from(evidenceSelect.options).some((option) => option.selected),
+      hiddenEvidence ||
+        (evidenceSelect && Array.from(evidenceSelect.options).some((option) => option.selected)),
     );
     const coveredTarget = form.querySelector("[data-document-covered]");
     const stateTarget = form.querySelector("[data-document-state]");
@@ -704,12 +827,12 @@
       coveredTarget.textContent = String(covered);
     }
 
-    let label = "No cubierto";
-    let slug = "low";
-    if (covered > 0 && (!total || covered < total)) {
+    let label = pointMode && evaluated < total ? `Pendiente (${evaluated}/${total})` : "No cubierto";
+    let slug = pointMode && evaluated < total ? "empty" : "low";
+    if ((!pointMode || evaluated >= total) && covered > 0 && (!total || covered < total)) {
       label = "Cobertura parcial";
       slug = "medium";
-    } else if (total > 0 && covered === total) {
+    } else if ((!pointMode || evaluated >= total) && total > 0 && covered === total) {
       label = "Cubierto";
       slug = "high";
     }
@@ -721,7 +844,9 @@
     }
 
     if (guidance) {
-      if (covered === 0) {
+      if (pointMode && evaluated < total) {
+        guidance.textContent = `Revisión pendiente: ${evaluated}/${total} puntos evaluados.`;
+      } else if (covered === 0) {
         guidance.textContent = "Sin puntos cubiertos: explica la brecha. No es necesario adjuntar un archivo.";
       } else if (!hasEvidence) {
         guidance.textContent = "La cobertura Parcial o S\u00ed requiere vincular al menos un archivo de la biblioteca antes de enviar a revisi\u00f3n.";
@@ -731,15 +856,78 @@
     }
 
     if (observation) {
-      observation.required = covered === 0;
+      observation.required = (!pointMode || evaluated >= total) && covered === 0;
     }
     if (evidenceSelect) {
-      evidenceSelect.required = covered > 0;
+      evidenceSelect.required = (!pointMode || evaluated >= total) && covered > 0;
     }
+  }
+
+  function setDocumentPointOrigin(input, origin) {
+    if (!input) return;
+    const row = input.closest(".list-row");
+    const target = row?.querySelector("[data-document-point-origin]");
+    const labels = { masivo: "Masivo", excepcion: "Excepción", individual: "Individual" };
+    input.dataset.captureOrigin = origin;
+    if (target) {
+      target.textContent = labels[origin] || "";
+      target.hidden = !labels[origin];
+    }
+  }
+
+  function clearDocumentEvidenceLinks(form, pointId) {
+    form.querySelectorAll("[data-evidence-point-link]").forEach((link) => {
+      if (link.dataset.pointId !== String(pointId)) return;
+      if (link.type === "checkbox") link.checked = false;
+      if (link.type === "hidden") link.disabled = true;
+    });
+  }
+
+  function markDocumentPointIndividual(input) {
+    const origin = input.dataset.captureOrigin === "masivo" ? "excepcion" : "individual";
+    input.dataset.evaluated = "true";
+    if (!input.checked) {
+      clearDocumentEvidenceLinks(input.form, input.value);
+    }
+    setDocumentPointOrigin(input, origin);
+  }
+
+  function updateDocumentOverview(overview) {
+    if (!overview) return;
+    document.querySelectorAll("[data-document-overview-covered]").forEach((node) => {
+      node.textContent = `${overview.covered_points}/${overview.total_points}`;
+    });
+    document.querySelectorAll("[data-document-overview-percent]").forEach((node) => {
+      node.textContent = `${overview.percent}%`;
+    });
+    document.querySelectorAll("[data-document-overview-evaluated]").forEach((node) => {
+      node.textContent = `${overview.evaluated}/${overview.total}`;
+    });
+    document.querySelectorAll('[data-progress-role="document-overview"]').forEach((node) => {
+      setProgressBar(node, overview.percent);
+    });
+  }
+
+  function syncDocumentEvidencePointMatrix(form) {
+    const evidenceSelect = form.querySelector("[data-document-evidence]");
+    if (!evidenceSelect) return;
+    const selectedIds = new Set(
+      Array.from(evidenceSelect.options)
+        .filter((option) => option.selected)
+        .map((option) => option.value),
+    );
+    form.querySelectorAll("[data-document-evidence-point-group]").forEach((group) => {
+      const selected = selectedIds.has(group.dataset.documentEvidencePointGroup);
+      group.hidden = !selected;
+      group.querySelectorAll("[data-document-evidence-point]").forEach((input) => {
+        input.disabled = !selected || form.dataset.readonly === "true";
+      });
+    });
   }
 
   document.querySelectorAll("[data-iso-document-control-form]").forEach((form) => {
     syncDocumentControlState(form);
+    syncDocumentEvidencePointMatrix(form);
     if (form.dataset.readonly === "true") {
       return;
     }
@@ -748,6 +936,89 @@
       if (event.target.matches("[data-document-point], [data-document-evidence]")) {
         syncDocumentControlState(form);
       }
+      if (event.target.matches("[data-document-evidence]")) {
+        syncDocumentEvidencePointMatrix(form);
+      }
+      if (event.target.matches("[data-document-point]")) {
+        markDocumentPointIndividual(event.target);
+      }
+    });
+
+    form.querySelectorAll("[data-document-apply-evidence-covered]").forEach((button) => {
+      button.addEventListener("click", () => {
+        const status = form.querySelector("[data-document-evidence-point-status]");
+        const coveredPointIds = new Set(
+          Array.from(form.querySelectorAll("[data-document-point]:checked")).map((input) => input.value),
+        );
+        let applied = 0;
+        form.querySelectorAll("[data-document-evidence-point-group]:not([hidden])").forEach((group) => {
+          group.querySelectorAll("[data-document-evidence-point]").forEach((input) => {
+            if (coveredPointIds.has(input.dataset.pointId)) {
+              input.checked = true;
+              applied += 1;
+            }
+          });
+        });
+        if (status) {
+          status.textContent = applied
+            ? `${applied} asociación(es) aplicadas; puedes retirar excepciones.`
+            : "No hay archivos seleccionados o puntos cubiertos.";
+        }
+      });
+    });
+
+    form.querySelectorAll("[data-document-bulk-apply]").forEach((button) => {
+      button.addEventListener("click", () => {
+        const url = form.dataset.documentBulkUrl;
+        const mode = form.querySelector("[data-document-bulk-mode]")?.value || "pendientes";
+        const covered = button.dataset.covered === "true";
+        const status = form.querySelector("[data-document-bulk-status]");
+        if (!url) return;
+        if (
+          mode === "reemplazar" &&
+          !window.confirm("Se reemplazará la revisión de todos los puntos de este control, incluidas sus excepciones. ¿Continuar?")
+        ) {
+          return;
+        }
+
+        const points = Array.from(form.querySelectorAll("[data-document-point]"));
+        const targets = points.filter(
+          (input) => mode === "reemplazar" || input.dataset.evaluated !== "true",
+        );
+        form.querySelectorAll("[data-document-bulk-apply]").forEach((item) => {
+          item.disabled = true;
+        });
+        if (status) status.textContent = "Aplicando...";
+
+        fetchIsoJson(url, {
+          cubierto: covered,
+          modo: mode,
+          confirmar: mode === "reemplazar",
+        })
+          .then((payload) => {
+            targets.forEach((input) => {
+              input.checked = covered;
+              input.dataset.evaluated = "true";
+              if (!covered) {
+                clearDocumentEvidenceLinks(form, input.value);
+              }
+              setDocumentPointOrigin(input, "masivo");
+            });
+            syncDocumentControlState(form);
+            updateDocumentOverview(payload.document_overview);
+            if (status) {
+              status.textContent = `${payload.updated} actualizado(s); ${payload.skipped} conservado(s).`;
+            }
+          })
+          .catch((error) => {
+            if (status) status.textContent = error.message;
+          })
+          .finally(() => {
+            form.querySelectorAll("[data-document-bulk-apply]").forEach((item) => {
+              item.disabled = false;
+            });
+          });
+      });
     });
 
     form.addEventListener("submit", () => {

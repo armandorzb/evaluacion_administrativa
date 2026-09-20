@@ -7,7 +7,10 @@ from werkzeug.datastructures import FileStorage
 
 from municipal_diagnostico import create_app
 from municipal_diagnostico.extensions import db
-from municipal_diagnostico.iso45001_seed_data import ISO45001_V2_CATALOG_SLUG
+from municipal_diagnostico.iso45001_seed_data import (
+    ISO45001_V2_CATALOG_SLUG,
+    ISO45001_V3_CATALOG_SLUG,
+)
 from municipal_diagnostico.models import (
     Area,
     Dependencia,
@@ -314,10 +317,10 @@ def test_iso45001_catalog_has_fixed_matrix_documents_and_amd1_controls():
             control.tipo == "grupo_complementario"
             for control in version.controles_evidencia
         ) == 6
-        assert Iso45001Clausula.query.count() == 14
-        assert Iso45001Apartado.query.count() == 80
-        assert Iso45001Reactivo.query.count() == 616
-        assert Iso45001DocumentoRequerido.query.count() == 62
+        assert Iso45001Clausula.query.count() == 21
+        assert Iso45001Apartado.query.count() == 120
+        assert Iso45001Reactivo.query.count() == 924
+        assert Iso45001DocumentoRequerido.query.count() == 93
 
         counts = {
             int(clause.numero): sum(len(section.reactivos) for section in clause.apartados)
@@ -506,13 +509,17 @@ def test_iso45001_rejects_na_and_scores_every_reactive():
             ids["reviewer_id"],
             ids["admin_id"],
         )
-        evaluation = db.session.get(Iso45001Evaluacion, evaluation_id)
-        section = evaluation.ciclo.version.clausulas[0].apartados[0]
-        reactive_id = section.reactivos[0].id
 
     login(client, "captura.iso45001@test.local")
+    with app.app_context():
+        evaluation = db.session.get(Iso45001Evaluacion, evaluation_id)
+        assert evaluation.ciclo.version.slug == ISO45001_V3_CATALOG_SLUG
+        section = evaluation.ciclo.version.clausulas[0].apartados[0]
+        section_id = section.id
+        reactive_id = section.reactivos[0].id
+
     autosave = client.post(
-        f"/iso45001/evaluaciones/{evaluation_id}/apartados/{section.id}/autosave",
+        f"/iso45001/evaluaciones/{evaluation_id}/apartados/{section_id}/autosave",
         json={
             "responses": [
                 {

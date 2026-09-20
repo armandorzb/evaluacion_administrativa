@@ -230,6 +230,16 @@ class Usuario(UserMixin, TimestampMixin, db.Model):
         back_populates="usuario",
         foreign_keys="Iso45001EvidenciaDocumental.usuario_id",
     )
+    iso45001_cambios_captura = db.relationship(
+        "Iso45001CambioCaptura",
+        back_populates="usuario",
+        foreign_keys="Iso45001CambioCaptura.usuario_id",
+    )
+    iso45001_snapshots_cierre = db.relationship(
+        "Iso45001EvaluacionSnapshotCierre",
+        back_populates="usuario",
+        foreign_keys="Iso45001EvaluacionSnapshotCierre.usuario_id",
+    )
     iso45001_observaciones = db.relationship(
         "Iso45001ObservacionRevision",
         back_populates="autor",
@@ -922,6 +932,10 @@ class Iso45001CuestionarioVersion(TimestampMixin, db.Model):
     norma = db.Column(db.String(100), nullable=False, default="ISO 45001:2018 + Amd. 1:2024")
     estado = db.Column(db.String(20), default="publicado", nullable=False)
     publicado_at = db.Column(db.DateTime, default=utcnow)
+    capture_mode = db.Column(db.String(30), nullable=False, default="individual")
+    document_coverage_mode = db.Column(db.String(30), nullable=False, default="por_reactivo")
+    scoring_scheme = db.Column(db.String(40), nullable=False, default="escala_0_1_2_v1")
+    catalog_hash = db.Column(db.String(64), index=True)
 
     clausulas = db.relationship(
         "Iso45001Clausula",
@@ -942,6 +956,21 @@ class Iso45001CuestionarioVersion(TimestampMixin, db.Model):
         order_by="Iso45001ControlEvidencia.orden",
     )
     ciclos = db.relationship("Iso45001Ciclo", back_populates="version")
+    crosswalks_origen = db.relationship(
+        "Iso45001ReactivoCrosswalk",
+        back_populates="version_origen",
+        foreign_keys="Iso45001ReactivoCrosswalk.version_origen_id",
+        cascade="all, delete-orphan",
+    )
+    crosswalks_destino = db.relationship(
+        "Iso45001ReactivoCrosswalk",
+        back_populates="version_destino",
+        foreign_keys="Iso45001ReactivoCrosswalk.version_destino_id",
+    )
+    snapshots_cierre = db.relationship(
+        "Iso45001EvaluacionSnapshotCierre",
+        back_populates="version",
+    )
 
     @property
     def documentos_requeridos(self):
@@ -1002,6 +1031,7 @@ class Iso45001Reactivo(TimestampMixin, db.Model):
     orden = db.Column(db.Integer, nullable=False)
     codigo = db.Column(db.String(40), nullable=False)
     tema = db.Column(db.String(255))
+    variable_principal = db.Column(db.String(120))
     criticidad = db.Column(db.String(30), nullable=False, default="media")
     es_enmienda_2024 = db.Column(db.Boolean, default=False, nullable=False)
     texto = db.Column(db.Text, nullable=False)
@@ -1037,11 +1067,46 @@ class Iso45001Reactivo(TimestampMixin, db.Model):
         order_by="Iso45001ControlEvidencia.orden",
         overlaps="control_evidencia_mapeos,reactivo_mapeos,reactivo,control",
     )
+    punto_evidencia_mapeos = db.relationship(
+        "Iso45001ControlEvidenciaPuntoReactivo",
+        back_populates="reactivo",
+        cascade="all, delete-orphan",
+        overlaps="puntos_evidencia,reactivos,punto,reactivo",
+    )
+    puntos_evidencia = db.relationship(
+        "Iso45001ControlEvidenciaPunto",
+        secondary="iso45001_control_evidencia_punto_reactivo",
+        back_populates="reactivos",
+        order_by="Iso45001ControlEvidenciaPunto.id",
+        overlaps="punto_evidencia_mapeos,reactivo_mapeos,punto,reactivo",
+    )
+    crosswalks_origen = db.relationship(
+        "Iso45001ReactivoCrosswalk",
+        back_populates="reactivo_origen",
+        foreign_keys="Iso45001ReactivoCrosswalk.reactivo_origen_id",
+    )
+    crosswalks_destino = db.relationship(
+        "Iso45001ReactivoCrosswalk",
+        back_populates="reactivo_destino",
+        foreign_keys="Iso45001ReactivoCrosswalk.reactivo_destino_id",
+    )
+    cambios_captura = db.relationship(
+        "Iso45001CambioCaptura",
+        back_populates="reactivo",
+        foreign_keys="Iso45001CambioCaptura.reactivo_id",
+    )
 
     __table_args__ = (
         UniqueConstraint("apartado_id", "orden", name="uq_iso45001_reactivo_apartado_orden"),
         UniqueConstraint("apartado_id", "numero", name="uq_iso45001_reactivo_apartado_numero"),
     )
+
+    @property
+    def identidad_externa(self) -> tuple[str, str]:
+        """Stable public identity: (catalog slug, R-code)."""
+
+        return self.apartado.clausula.version.slug, self.codigo
+
 
 class Iso45001DocumentoRequerido(TimestampMixin, db.Model):
     __tablename__ = "iso45001_documento_requerido"
@@ -1199,6 +1264,19 @@ class Iso45001ControlEvidenciaPunto(TimestampMixin, db.Model):
         back_populates="punto",
         cascade="all, delete-orphan",
     )
+    reactivo_mapeos = db.relationship(
+        "Iso45001ControlEvidenciaPuntoReactivo",
+        back_populates="punto",
+        cascade="all, delete-orphan",
+        overlaps="reactivos,puntos_evidencia,punto_evidencia_mapeos,reactivo",
+    )
+    reactivos = db.relationship(
+        "Iso45001Reactivo",
+        secondary="iso45001_control_evidencia_punto_reactivo",
+        back_populates="puntos_evidencia",
+        order_by="Iso45001Reactivo.numero",
+        overlaps="reactivo_mapeos,punto_evidencia_mapeos,punto,reactivo",
+    )
 
     __table_args__ = (
         UniqueConstraint(
@@ -1238,6 +1316,109 @@ class Iso45001ControlEvidenciaReactivo(TimestampMixin, db.Model):
             "control_evidencia_id",
             "reactivo_id",
             name="uq_iso45001_control_evidencia_reactivo",
+        ),
+    )
+
+
+class Iso45001ControlEvidenciaPuntoReactivo(TimestampMixin, db.Model):
+    """Trazabilidad explícita entre un punto documental y un reactivo."""
+
+    __tablename__ = "iso45001_control_evidencia_punto_reactivo"
+
+    id = db.Column(db.Integer, primary_key=True)
+    control_evidencia_punto_id = db.Column(
+        db.Integer,
+        db.ForeignKey("iso45001_control_evidencia_punto.id"),
+        nullable=False,
+    )
+    reactivo_id = db.Column(db.Integer, db.ForeignKey("iso45001_reactivo.id"), nullable=False)
+
+    punto = db.relationship(
+        "Iso45001ControlEvidenciaPunto",
+        back_populates="reactivo_mapeos",
+        overlaps="reactivos,puntos_evidencia,punto_evidencia_mapeos,reactivo",
+    )
+    reactivo = db.relationship(
+        "Iso45001Reactivo",
+        back_populates="punto_evidencia_mapeos",
+        overlaps="reactivos,puntos_evidencia,reactivo_mapeos,punto",
+    )
+
+    __table_args__ = (
+        UniqueConstraint(
+            "control_evidencia_punto_id",
+            "reactivo_id",
+            name="uq_iso45001_control_punto_reactivo",
+        ),
+    )
+
+
+class Iso45001ReactivoCrosswalk(TimestampMixin, db.Model):
+    """One-to-one correspondence of reactive identities between two catalogs."""
+
+    __tablename__ = "iso45001_reactivo_crosswalk"
+
+    id = db.Column(db.Integer, primary_key=True)
+    version_origen_id = db.Column(
+        db.Integer,
+        db.ForeignKey("iso45001_cuestionario_version.id"),
+        nullable=False,
+    )
+    reactivo_origen_id = db.Column(
+        db.Integer,
+        db.ForeignKey("iso45001_reactivo.id"),
+        nullable=False,
+    )
+    version_destino_id = db.Column(
+        db.Integer,
+        db.ForeignKey("iso45001_cuestionario_version.id"),
+        nullable=False,
+    )
+    reactivo_destino_id = db.Column(
+        db.Integer,
+        db.ForeignKey("iso45001_reactivo.id"),
+        nullable=False,
+    )
+    tipo = db.Column(db.String(20), nullable=False, default="equivalente")
+
+    version_origen = db.relationship(
+        "Iso45001CuestionarioVersion",
+        back_populates="crosswalks_origen",
+        foreign_keys=[version_origen_id],
+    )
+    version_destino = db.relationship(
+        "Iso45001CuestionarioVersion",
+        back_populates="crosswalks_destino",
+        foreign_keys=[version_destino_id],
+    )
+    reactivo_origen = db.relationship(
+        "Iso45001Reactivo",
+        back_populates="crosswalks_origen",
+        foreign_keys=[reactivo_origen_id],
+    )
+    reactivo_destino = db.relationship(
+        "Iso45001Reactivo",
+        back_populates="crosswalks_destino",
+        foreign_keys=[reactivo_destino_id],
+    )
+
+    __table_args__ = (
+        UniqueConstraint(
+            "version_origen_id",
+            "version_destino_id",
+            "reactivo_origen_id",
+            name="uq_iso45001_crosswalk_origen",
+        ),
+        UniqueConstraint(
+            "version_origen_id",
+            "version_destino_id",
+            "reactivo_destino_id",
+            name="uq_iso45001_crosswalk_destino",
+        ),
+        UniqueConstraint(
+            "reactivo_origen_id",
+            "reactivo_destino_id",
+            name="uq_iso45001_crosswalk_par",
         ),
     )
 
@@ -1316,6 +1497,19 @@ class Iso45001Evaluacion(TimestampMixin, db.Model):
         cascade="all, delete-orphan",
         order_by="Iso45001ObservacionRevision.created_at.desc()",
     )
+    cambios_captura = db.relationship(
+        "Iso45001CambioCaptura",
+        back_populates="evaluacion",
+        cascade="all, delete-orphan",
+        order_by="Iso45001CambioCaptura.created_at.asc()",
+    )
+    snapshot_cierre = db.relationship(
+        "Iso45001EvaluacionSnapshotCierre",
+        back_populates="evaluacion",
+        cascade="all, delete-orphan",
+        uselist=False,
+        single_parent=True,
+    )
 
     __table_args__ = (
         UniqueConstraint("ciclo_id", "area_id", name="uq_iso45001_evaluacion_ciclo_area"),
@@ -1377,6 +1571,8 @@ class Iso45001Respuesta(TimestampMixin, db.Model):
     calificacion = db.Column(db.String(12), nullable=False)
     valor = db.Column(db.Integer)
     observacion = db.Column(db.Text)
+    origen_captura = db.Column(db.String(20), nullable=False, default="individual")
+    lote_captura = db.Column(db.String(36))
 
     evaluacion = db.relationship("Iso45001Evaluacion", back_populates="respuestas")
     reactivo = db.relationship("Iso45001Reactivo", back_populates="respuestas")
@@ -1403,6 +1599,7 @@ class Iso45001Evidencia(TimestampMixin, db.Model):
     archivo_guardado = db.Column(db.String(255), nullable=False)
     mime_type = db.Column(db.String(120), nullable=False)
     tamano_bytes = db.Column(db.Integer, nullable=False)
+    sha256 = db.Column(db.String(64))
     activo = db.Column(db.Boolean, default=True, nullable=False)
 
     respuesta = db.relationship("Iso45001Respuesta", back_populates="evidencias")
@@ -1482,13 +1679,34 @@ class Iso45001EvaluacionControlEvidenciaPunto(TimestampMixin, db.Model):
         nullable=False,
     )
     cubierto = db.Column(db.Boolean, nullable=False, default=False)
+    evaluado = db.Column(db.Boolean, nullable=False, default=False)
     observacion = db.Column(db.Text)
+    origen_captura = db.Column(db.String(20), nullable=False, default="individual")
+    lote_captura = db.Column(db.String(36))
 
     evaluacion_control = db.relationship(
         "Iso45001EvaluacionControlEvidencia",
         back_populates="puntos",
     )
     punto = db.relationship("Iso45001ControlEvidenciaPunto", back_populates="respuestas")
+    archivo_mapeos = db.relationship(
+        "Iso45001EvidenciaDocumentalPunto",
+        back_populates="evaluacion_punto",
+        cascade="all, delete-orphan",
+        overlaps="archivos,puntos,evidencia_documental,evaluacion_punto",
+    )
+    archivos = db.relationship(
+        "Iso45001EvidenciaDocumental",
+        secondary="iso45001_evidencia_documental_punto",
+        back_populates="puntos",
+        order_by="Iso45001EvidenciaDocumental.created_at.desc()",
+        overlaps="archivo_mapeos,punto_mapeos,evidencia_documental,evaluacion_punto",
+    )
+    cambios_captura = db.relationship(
+        "Iso45001CambioCaptura",
+        back_populates="punto",
+        foreign_keys="Iso45001CambioCaptura.punto_id",
+    )
 
     __table_args__ = (
         UniqueConstraint(
@@ -1515,6 +1733,7 @@ class Iso45001EvidenciaDocumental(TimestampMixin, db.Model):
     archivo_guardado = db.Column(db.String(255), nullable=False)
     mime_type = db.Column(db.String(120), nullable=False)
     tamano_bytes = db.Column(db.Integer, nullable=False)
+    sha256 = db.Column(db.String(64))
     activo = db.Column(db.Boolean, default=True, nullable=False)
 
     evaluacion = db.relationship("Iso45001Evaluacion", back_populates="evidencias_documentales")
@@ -1534,6 +1753,18 @@ class Iso45001EvidenciaDocumental(TimestampMixin, db.Model):
         secondary="iso45001_evidencia_documental_control",
         back_populates="archivos",
         overlaps="control_mapeos,archivo_mapeos,evidencia_documental,evaluacion_control",
+    )
+    punto_mapeos = db.relationship(
+        "Iso45001EvidenciaDocumentalPunto",
+        back_populates="evidencia_documental",
+        cascade="all, delete-orphan",
+        overlaps="puntos,archivos,evaluacion_punto,evidencia_documental",
+    )
+    puntos = db.relationship(
+        "Iso45001EvaluacionControlEvidenciaPunto",
+        secondary="iso45001_evidencia_documental_punto",
+        back_populates="archivos",
+        overlaps="punto_mapeos,archivo_mapeos,evaluacion_punto,evidencia_documental",
     )
 
 
@@ -1571,6 +1802,132 @@ class Iso45001EvidenciaDocumentalControl(TimestampMixin, db.Model):
             "evaluacion_control_evidencia_id",
             name="uq_iso45001_evidencia_documental_control",
         ),
+    )
+
+
+class Iso45001EvidenciaDocumentalPunto(TimestampMixin, db.Model):
+    """Vínculo entre un archivo y cada punto documental que sustenta."""
+
+    __tablename__ = "iso45001_evidencia_documental_punto"
+
+    id = db.Column(db.Integer, primary_key=True)
+    evidencia_documental_id = db.Column(
+        db.Integer,
+        db.ForeignKey("iso45001_evidencia_documental.id"),
+        nullable=False,
+    )
+    evaluacion_control_evidencia_punto_id = db.Column(
+        db.Integer,
+        db.ForeignKey("iso45001_evaluacion_control_evidencia_punto.id"),
+        nullable=False,
+    )
+
+    evidencia_documental = db.relationship(
+        "Iso45001EvidenciaDocumental",
+        back_populates="punto_mapeos",
+        overlaps="puntos,archivos,evaluacion_punto,evidencia_documental",
+    )
+    evaluacion_punto = db.relationship(
+        "Iso45001EvaluacionControlEvidenciaPunto",
+        back_populates="archivo_mapeos",
+        overlaps="puntos,archivos,evidencia_documental,punto_mapeos",
+    )
+
+    __table_args__ = (
+        UniqueConstraint(
+            "evidencia_documental_id",
+            "evaluacion_control_evidencia_punto_id",
+            name="uq_iso45001_evidencia_documental_punto",
+        ),
+    )
+
+
+class Iso45001CambioCaptura(db.Model):
+    """Append-only audit event for individual, bulk and exception changes."""
+
+    __tablename__ = "iso45001_cambio_captura"
+
+    id = db.Column(db.Integer, primary_key=True)
+    evaluacion_id = db.Column(
+        db.Integer,
+        db.ForeignKey("iso45001_evaluacion.id"),
+        nullable=False,
+    )
+    entidad_tipo = db.Column(db.String(30), nullable=False)
+    entidad_id = db.Column(db.Integer)
+    reactivo_id = db.Column(db.Integer, db.ForeignKey("iso45001_reactivo.id"))
+    punto_id = db.Column(
+        db.Integer,
+        db.ForeignKey("iso45001_evaluacion_control_evidencia_punto.id"),
+    )
+    valor_anterior = db.Column(json_payload_type())
+    valor_nuevo = db.Column(json_payload_type())
+    origen = db.Column(db.String(20), nullable=False, default="individual")
+    lote_id = db.Column(db.String(36))
+    usuario_id = db.Column(db.Integer, db.ForeignKey("usuario.id"), nullable=False)
+    created_at = db.Column(db.DateTime, default=utcnow, nullable=False)
+
+    evaluacion = db.relationship("Iso45001Evaluacion", back_populates="cambios_captura")
+    reactivo = db.relationship(
+        "Iso45001Reactivo",
+        back_populates="cambios_captura",
+        foreign_keys=[reactivo_id],
+    )
+    punto = db.relationship(
+        "Iso45001EvaluacionControlEvidenciaPunto",
+        back_populates="cambios_captura",
+        foreign_keys=[punto_id],
+    )
+    usuario = db.relationship(
+        "Usuario",
+        back_populates="iso45001_cambios_captura",
+        foreign_keys=[usuario_id],
+    )
+
+    __table_args__ = (
+        db.Index("ix_iso45001_cambio_evaluacion_fecha", "evaluacion_id", "created_at"),
+        db.Index("ix_iso45001_cambio_lote", "lote_id"),
+    )
+
+
+class Iso45001EvaluacionSnapshotCierre(db.Model):
+    """Immutable reporting payload captured exactly once when an evaluation closes."""
+
+    __tablename__ = "iso45001_evaluacion_snapshot_cierre"
+
+    id = db.Column(db.Integer, primary_key=True)
+    evaluacion_id = db.Column(
+        db.Integer,
+        db.ForeignKey("iso45001_evaluacion.id"),
+        nullable=False,
+        unique=True,
+    )
+    version_id = db.Column(
+        db.Integer,
+        db.ForeignKey("iso45001_cuestionario_version.id"),
+        nullable=False,
+    )
+    usuario_id = db.Column(db.Integer, db.ForeignKey("usuario.id"), nullable=False)
+    catalog_slug = db.Column(db.String(80), nullable=False)
+    catalog_hash = db.Column(db.String(64), nullable=False)
+    scoring_scheme = db.Column(db.String(40), nullable=False)
+    contenido = db.Column(json_payload_type(), nullable=False)
+    contenido_sha256 = db.Column(db.String(64), nullable=False)
+    created_at = db.Column(db.DateTime, default=utcnow, nullable=False)
+
+    evaluacion = db.relationship("Iso45001Evaluacion", back_populates="snapshot_cierre")
+    version = db.relationship("Iso45001CuestionarioVersion", back_populates="snapshots_cierre")
+    usuario = db.relationship(
+        "Usuario",
+        back_populates="iso45001_snapshots_cierre",
+        foreign_keys=[usuario_id],
+    )
+
+
+@event.listens_for(Iso45001EvaluacionSnapshotCierre, "before_update")
+def _prevent_iso45001_snapshot_update(_mapper, _connection, _target):
+    raise ValueError(
+        "El snapshot de cierre ISO 45001 es inmutable; genere un reporte desde el contenido publicado."
     )
 
 

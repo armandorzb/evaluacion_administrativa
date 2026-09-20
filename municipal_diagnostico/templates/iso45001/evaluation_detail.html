@@ -14,6 +14,11 @@
             <span class="tag">Alcance hist&oacute;rico por dependencia</span>
             {% endif %}
             <span class="tag">Estado: {{ summary.state_label }}</span>
+            <span class="tag">Versi&oacute;n: {{ evaluation.ciclo.version.slug }}</span>
+            {% if evaluation.ciclo.version.catalog_hash %}
+            <span class="tag" title="Huella SHA-256 del cat&aacute;logo">Cat&aacute;logo: {{ evaluation.ciclo.version.catalog_hash[:12] }}&hellip;</span>
+            {% endif %}
+            {% if adaptive_capture %}<span class="tag">Captura agrupada por apartado</span>{% endif %}
             <span class="tag">Responsable: {{ evaluation.responsable.nombre if evaluation.responsable else "Sin responsable" }}</span>
             <span class="tag">Revisor: {{ evaluation.revisor.nombre if evaluation.revisor else "Sin revisor" }}</span>
         </div>
@@ -122,6 +127,7 @@
                         data-iso-section-id="{{ section.id }}"
                         data-iso-section-total="{{ section.total }}"
                         data-iso-autosave-url="{{ url_for('iso45001.autosave_section', evaluation_id=evaluation.id, section_id=section.id) if can_edit else '' }}"
+                        data-iso-bulk-url="{{ url_for('iso45001.apply_section_responses', evaluation_id=evaluation.id, section_id=section.id) if can_edit and adaptive_capture else '' }}"
                         data-readonly="{{ 'true' if not can_edit else 'false' }}"
                     >
                         <input type="hidden" name="apartado_id" value="{{ section.id }}">
@@ -129,7 +135,7 @@
                             <div>
                                 <p class="eyebrow">{{ section.codigo }}</p>
                                 <h3>{{ section.nombre }}</h3>
-                                <p class="muted">{{ section.answered }}/{{ section.total }} respondidos</p>
+                                <p class="muted"><span data-iso-section-count="{{ section.id }}">{{ section.answered }}/{{ section.total }}</span> respondidos</p>
                             </div>
                             <div class="actions">
                                 <span class="status status-{{ section.maturity_slug }}">{% if section.percent is not none %}{{ section.percent }}%{% else %}Sin calificación{% endif %}</span>
@@ -142,8 +148,127 @@
                             </div>
                         </div>
 
+                        {% if adaptive_capture %}
+                        <div class="callout compact" data-iso-bulk-controls>
+                            <strong>Respuesta r&aacute;pida del apartado</strong>
+                            <p class="muted">Aplica una calificaci&oacute;n a los reactivos pendientes y conserva las respuestas o excepciones ya revisadas.</p>
+                            {% if can_edit %}
+                            <div class="actions compact-top">
+                                <label>Calificaci&oacute;n
+                                    <select data-iso-bulk-rating>
+                                        {% for value, label in option_labels.items() %}
+                                        <option value="{{ value }}">{{ label }}</option>
+                                        {% endfor %}
+                                    </select>
+                                </label>
+                                <button class="button button-primary" type="button" data-iso-bulk-apply data-bulk-mode="pendientes">Aplicar a pendientes</button>
+                                <button class="button" type="button" data-iso-bulk-apply data-bulk-mode="reemplazar">Reemplazar todo</button>
+                                <span class="save-indicator" data-iso-bulk-status aria-live="polite"></span>
+                            </div>
+                            {% endif %}
+                        </div>
+
+                        <details class="iso-details" {% if section.has_climate_amendment %}open{% endif %}>
+                            <summary>Contexto, criterios y evidencia sugerida del apartado</summary>
+                            <div class="stack compact-top">
+                                {% if section.dimensions %}
+                                <div>
+                                    <span class="meta-label">Dimensiones medidas</span>
+                                    <div class="tag-row compact-top">
+                                        {% for dimension in section.dimensions %}<span class="tag">{{ dimension }}</span>{% endfor %}
+                                    </div>
+                                </div>
+                                {% endif %}
+                                <div class="meta-grid single-column-mobile">
+                                    <div>
+                                        <span class="meta-label">Criterios de conformidad</span>
+                                        {% for guidance in section.criteria_guidance %}
+                                        <p class="muted"><strong>{{ guidance.codes }}</strong> &mdash; {{ guidance.text }}</p>
+                                        {% else %}
+                                        <p class="muted">Sin criterio adicional configurado.</p>
+                                        {% endfor %}
+                                    </div>
+                                    <div>
+                                        <span class="meta-label">Evidencia sugerida</span>
+                                        {% for guidance in section.evidence_guidance %}
+                                        <p class="muted"><strong>{{ guidance.codes }}</strong> &mdash; {{ guidance.text }}</p>
+                                        {% else %}
+                                        <p class="muted">Sin sugerencia adicional configurada.</p>
+                                        {% endfor %}
+                                    </div>
+                                </div>
+                            </div>
+                        </details>
+                        {% endif %}
+
                         {% for item in section.questions %}
                         {% set reactive = item.reactivo %}
+                        {% if adaptive_capture %}
+                        {% set is_climate = reactive.codigo in ['R-307', 'R-308'] or reactive.es_enmienda_2024 %}
+                        {% set capture_origin = item.capture_origin if item.answered else '' %}
+                        <details class="question-card iso-question-card {% if item.answered %}has-answer{% endif %} {% if is_climate %}evidence-card-emphasis{% endif %}" data-iso-reactivo-id="{{ reactive.id }}" {% if is_climate %}open{% endif %}>
+                            <summary class="question-head">
+                                <span class="question-reference">
+                                    <span class="question-index">{{ reactive.codigo }}</span>
+                                    <strong>{{ reactive.texto }}</strong>
+                                </span>
+                                <span class="tag-row">
+                                    {% if is_climate %}<span class="tag">Amd. 1:2024 &middot; Acci&oacute;n clim&aacute;tica</span>{% endif %}
+                                    <span class="pill" data-iso-capture-origin data-capture-origin="{{ capture_origin }}" {% if not capture_origin %}hidden{% endif %}>
+                                        {% if capture_origin == 'masivo' %}Aplicaci&oacute;n masiva{% elif capture_origin == 'excepcion' %}Excepci&oacute;n individual{% else %}Captura individual{% endif %}
+                                    </span>
+                                    <span class="question-score {% if not item.answered %}is-empty{% endif %}">{{ item.selected_label }}</span>
+                                </span>
+                            </summary>
+
+                            <div class="stack compact-top">
+                                <div class="choice-grid iso-choice-grid">
+                                    {% for value, label in option_labels.items() %}
+                                    <label class="choice-chip {% if item.selected == value %}is-selected{% endif %}">
+                                        <input type="radio" name="calificacion_{{ reactive.id }}" value="{{ value }}" {% if item.selected == value %}checked{% endif %} {% if not can_edit %}disabled{% endif %}>
+                                        <span>{{ "S&Iacute;"|safe if value == "si" else value|upper }}</span>
+                                        <strong>{{ label }}</strong>
+                                    </label>
+                                    {% endfor %}
+                                </div>
+
+                                <label>Observaci&oacute;n, hallazgo o excepci&oacute;n
+                                    <textarea name="observacion_{{ reactive.id }}" rows="2" {% if not can_edit %}disabled{% endif %}>{{ item.observacion }}</textarea>
+                                </label>
+
+                                {% if item.documents %}
+                                <details class="iso-details">
+                                    <summary>Informaci&oacute;n documentada trazada ({{ item.documents|length }})</summary>
+                                    <div class="stack compact-top">
+                                        {% for document in item.documents %}
+                                        <div class="list-row data-row">
+                                            <div><strong>{{ document.codigo }} &mdash; {{ document.nombre }}</strong><p class="muted">{{ document.tipo }}. {{ document.contenido_minimo }}</p></div>
+                                        </div>
+                                        {% endfor %}
+                                    </div>
+                                </details>
+                                {% endif %}
+
+                                <div class="iso-evidence-block">
+                                    {% if can_edit %}
+                                    <label>Soporte complementario del reactivo (opcional)
+                                        <input type="file" name="evidencias_{{ reactive.id }}" multiple>
+                                    </label>
+                                    {% endif %}
+                                    {% if item.evidence %}
+                                    <div class="evidence-list">
+                                        {% for evidence in item.evidence %}
+                                        <div class="evidence-row">
+                                            <div><strong>{{ evidence.archivo_nombre_original }}</strong><p class="muted">{% if evidence.sha256 %}SHA-256 {{ evidence.sha256[:12] }}&hellip;{% else %}Soporte complementario{% endif %}</p></div>
+                                            <a class="button button-compact" href="{{ url_for('iso45001.download_evidence', evidence_id=evidence.id) }}">Descargar</a>
+                                        </div>
+                                        {% endfor %}
+                                    </div>
+                                    {% endif %}
+                                </div>
+                            </div>
+                        </details>
+                        {% else %}
                         <article class="question-card iso-question-card {% if item.answered %}has-answer{% endif %}" data-iso-reactivo-id="{{ reactive.id }}">
                             <div class="question-head">
                                 <div class="question-reference">
@@ -210,7 +335,7 @@
                                     <div class="evidence-row">
                                         <div>
                                             <strong>{{ evidence.archivo_nombre_original }}</strong>
-                                            <p class="muted">{{ evidence.mime_type }} - {{ evidence.tamano_bytes }} bytes</p>
+                                            <p class="muted">{{ evidence.mime_type }} - {{ evidence.tamano_bytes }} bytes{% if evidence.sha256 %} - SHA-256 {{ evidence.sha256[:12] }}&hellip;{% endif %}</p>
                                         </div>
                                         <a class="button button-compact" href="{{ url_for('iso45001.download_evidence', evidence_id=evidence.id) }}">Descargar</a>
                                     </div>
@@ -220,6 +345,7 @@
                                 </div>
                             </div>
                         </article>
+                        {% endif %}
                         {% endfor %}
 
                         {% if can_edit %}
@@ -229,6 +355,78 @@
                         </div>
                         {% endif %}
                     </form>
+
+                    {% if adaptive_capture and point_document_coverage and section.document_controls %}
+                    <div class="stack compact-top">
+                        <div class="section-heading">
+                            <div>
+                                <p class="eyebrow">Control documental del apartado</p>
+                                <h4>{{ section.document_controls|length }} control(es) trazados</h4>
+                                <p class="muted">La cobertura documental se registra por punto y no modifica el puntaje del cuestionario.</p>
+                            </div>
+                            <a class="button button-compact" href="{{ url_for('iso45001.document_controls', evaluation_id=evaluation.id) }}">Abrir biblioteca documental</a>
+                        </div>
+                        {% for control in section.document_controls %}
+                        <form
+                            method="post"
+                            action="{{ url_for('iso45001.save_document_control', evaluation_id=evaluation.id, control_id=control.id) }}"
+                            class="question-card iso-question-card"
+                            id="apartado-control-{{ control.id }}"
+                            data-iso-document-control-form
+                            data-document-total="{{ control.total_puntos }}"
+                            data-document-point-mode="true"
+                            data-document-bulk-url="{{ url_for('iso45001.apply_document_control_points', evaluation_id=evaluation.id, control_id=control.id) if can_edit else '' }}"
+                            data-readonly="{{ 'true' if not can_edit else 'false' }}"
+                        >
+                            <input type="hidden" name="return_to" value="capture">
+                            <input type="hidden" name="apartado_id" value="{{ section.id }}">
+                            <input type="hidden" name="observacion" value="{{ control.observacion }}">
+                            {% for evidence_id in control.evidence_ids %}<input type="hidden" name="evidencia_ids" value="{{ evidence_id }}">{% endfor %}
+                            <input type="hidden" name="evidencia_punto_ids" value="">
+                            {% for evidence_id, point_ids in control.evidence_point_map.items() %}
+                                {% for point_id in point_ids %}<input type="hidden" name="evidencia_punto_ids" value="{{ evidence_id }}:{{ point_id }}" data-evidence-point-link data-point-id="{{ point_id }}">{% endfor %}
+                            {% endfor %}
+                            <div class="question-head">
+                                <div class="question-reference"><span class="question-index">{{ control.codigo }}</span><strong>{{ control.nombre }}</strong></div>
+                                <span class="status status-{{ control.estado_slug }}" data-document-state>{{ control.estado_label }}</span>
+                            </div>
+                            <p class="muted"><span data-document-covered>{{ control.puntos_cubiertos }}</span>/{{ control.total_puntos }} puntos cubiertos.</p>
+                            {% if can_edit %}
+                            <div class="actions compact-top" data-document-bulk-controls>
+                                <label>Aplicaci&oacute;n
+                                    <select data-document-bulk-mode>
+                                        <option value="pendientes">Conservar revisados</option>
+                                        <option value="reemplazar">Reemplazar todo</option>
+                                    </select>
+                                </label>
+                                <button class="button" type="button" data-document-bulk-apply data-covered="false">Ning&uacute;n punto</button>
+                                <button class="button button-primary" type="button" data-document-bulk-apply data-covered="true">Todos los puntos</button>
+                                <span class="save-indicator" data-document-bulk-status aria-live="polite"></span>
+                            </div>
+                            {% endif %}
+                            <details class="iso-details">
+                                <summary>Revisar puntos individualmente</summary>
+                                <div class="stack compact-top">
+                                    {% for point in control.puntos %}
+                                    {% set point_origin = point.origen_captura|default('', true) %}
+                                    <label class="list-row data-row">
+                                        <span><input type="checkbox" name="punto_ids" value="{{ point.id }}" data-document-point data-evaluated="{{ 'true' if point.evaluado|default(false) else 'false' }}" data-capture-origin="{{ point_origin }}" {% if point.cubierto %}checked{% endif %} {% if not can_edit %}disabled{% endif %}> <strong>{{ loop.index }}.</strong> {{ point.texto }}</span>
+                                        <span class="pill" data-document-point-origin {% if not point_origin %}hidden{% endif %}>{% if point_origin == 'masivo' %}Masivo{% elif point_origin == 'excepcion' %}Excepci&oacute;n{% else %}Individual{% endif %}</span>
+                                    </label>
+                                    {% endfor %}
+                                </div>
+                            </details>
+                            <p class="muted" data-document-guidance aria-live="polite"></p>
+                            {% if can_edit %}
+                            <div class="actions compact-top">
+                                <button class="button button-compact" type="submit">Guardar revisi&oacute;n individual</button>
+                                <a class="button button-compact" href="{{ url_for('iso45001.document_controls', evaluation_id=evaluation.id, _anchor='control-' ~ control.id) }}">Archivos y observaci&oacute;n</a>
+                            </div>
+                            {% endif %}
+                        </form>
+                        {% endfor %}
+                    </div>
+                    {% endif %}
                 </section>
                 {% endfor %}
             </div>

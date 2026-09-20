@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import json
 import math
 import os
 from html import escape
@@ -170,6 +171,8 @@ def _evaluation_scope_description(evaluation) -> str:
 def build_iso45001_excel(evaluation) -> BytesIO:
     summary = summarize_iso45001_evaluation(evaluation)
     uses_document_controls = _uses_document_control_coverage(summary)
+    uses_adaptive_capture = _uses_adaptive_capture(summary)
+    catalog = _catalog_metadata(summary)
     workbook = Workbook()
 
     summary_sheet = workbook.active
@@ -188,6 +191,12 @@ def build_iso45001_excel(evaluation) -> BytesIO:
     summary_sheet.append(["Avance", _percent_display(summary["completion"])])
     summary_sheet.append(["Cumplimiento", _percent_display(summary["percent"])])
     summary_sheet.append(["Madurez", summary["maturity_label"]])
+    if catalog["has_extended_metadata"]:
+        summary_sheet.append(["Versi\u00f3n del cat\u00e1logo", catalog["name"]])
+        summary_sheet.append(["Slug del cat\u00e1logo", catalog["slug"]])
+        summary_sheet.append(["Huella del cat\u00e1logo (SHA-256)", catalog["catalog_hash"]])
+        summary_sheet.append(["Esquema de puntuaci\u00f3n", catalog["scoring_scheme"]])
+        summary_sheet.append(["M\u00e9todo de c\u00e1lculo", _score_formula_text(summary)])
     if uses_document_controls:
         document_stats = summary["document_evidence_stats"]
         summary_sheet.append(["Archivos documentales únicos", document_stats["file_count"]])
@@ -468,7 +477,99 @@ def build_iso45001_excel(evaluation) -> BytesIO:
     _style_table(guide, clause_header)
     _set_widths(guide, {"A": 16, "B": 46, "C": 16, "D": 34})
 
-    if uses_document_controls:
+    if uses_adaptive_capture:
+        capture_traceability = workbook.create_sheet("Trazabilidad de captura")
+        _write_title(
+            capture_traceability,
+            "Trazabilidad de captura por reactivo",
+            f"{catalog['name']} | {catalog['catalog_hash']}",
+            12,
+        )
+        capture_traceability.append([])
+        capture_traceability.append(
+            [
+                "Evento",
+                "Entidad",
+                "Referencia",
+                "Cl\u00e1usula",
+                "Apartado",
+                "Dimensi\u00f3n principal",
+                "Valor anterior",
+                "Valor nuevo / calificaci\u00f3n",
+                "Origen",
+                "Lote",
+                "Usuario",
+                "Fecha",
+            ]
+        )
+        capture_header = capture_traceability.max_row
+        for record in _capture_traceability_rows(summary):
+            capture_traceability.append(
+                [
+                    record["event_id"],
+                    record["entity_type"],
+                    record["reference"],
+                    record["clause"],
+                    record["section"],
+                    record["dimension"],
+                    record["previous_value"],
+                    record["new_value"],
+                    record["origin"],
+                    record["batch_id"],
+                    record["actor"],
+                    record["changed_at"],
+                ]
+            )
+        _style_table(capture_traceability, capture_header)
+        _set_widths(
+            capture_traceability,
+            {"A": 11, "B": 16, "C": 14, "D": 11, "E": 13, "F": 30, "G": 17, "H": 23, "I": 14, "J": 22, "K": 24, "L": 20},
+        )
+
+        dimensions = workbook.create_sheet("Dimensiones")
+        _write_title(
+            dimensions,
+            "Perfil por dimensi\u00f3n principal",
+            f"{catalog['name']} | sin alterar el porcentaje global",
+            7,
+        )
+        dimensions.append([])
+        dimensions.append(
+            [
+                "Dimensi\u00f3n principal",
+                "Reactivos",
+                "Respondidos",
+                "Puntos",
+                "Puntos m\u00e1ximos",
+                "% Cumplimiento",
+                "Madurez",
+            ]
+        )
+        dimensions_header = dimensions.max_row
+        for dimension in _dimension_rows(summary):
+            dimensions.append(
+                [
+                    dimension["dimension"],
+                    dimension["total"],
+                    dimension["answered"],
+                    dimension["points"],
+                    dimension["maximum_points"],
+                    _excel_percent(dimension["percent"]),
+                    dimension["maturity_label"],
+                ]
+            )
+        _style_table(dimensions, dimensions_header)
+        for cell in dimensions.iter_cols(
+            min_col=6,
+            max_col=6,
+            min_row=dimensions_header + 1,
+            max_row=dimensions.max_row,
+        ):
+            for item in cell:
+                item.number_format = "0.00%"
+        _set_widths(dimensions, {"A": 42, "B": 13, "C": 14, "D": 12, "E": 18, "F": 18, "G": 30})
+
+    if uses_document_controls and not uses_adaptive_capture:
         traceability = workbook.create_sheet("Trazabilidad documental")
         _write_title(
             traceability,
@@ -507,6 +608,51 @@ def build_iso45001_excel(evaluation) -> BytesIO:
                 )
         _style_table(traceability, traceability_header)
         _set_widths(traceability, {"A": 30, "B": 42, "C": 20, "D": 18, "E": 18, "F": 48, "G": 44, "H": 54})
+
+    if uses_document_controls and uses_adaptive_capture:
+        traceability = workbook.create_sheet("Trazabilidad documental")
+        _write_title(
+            traceability,
+            "Trazabilidad archivo - control - punto - reactivo - dimensi\u00f3n",
+            _evaluation_scope_description(evaluation),
+            10,
+        )
+        traceability.append([])
+        traceability.append(
+            [
+                "Archivo",
+                "SHA-256",
+                "Control",
+                "Punto",
+                "Contenido del punto",
+                "Estado",
+                "Reactivo",
+                "Apartado",
+                "Dimensi\u00f3n principal",
+                "Observaci\u00f3n",
+            ]
+        )
+        traceability_header = traceability.max_row
+        for record in _document_point_traceability_rows(summary):
+            traceability.append(
+                [
+                    record["file"],
+                    record["sha256"],
+                    record["control"],
+                    record["point"],
+                    record["point_text"],
+                    record["covered"],
+                    record["reactive"],
+                    record["section"],
+                    record["dimension"],
+                    record["observation"],
+                ]
+            )
+        _style_table(traceability, traceability_header)
+        _set_widths(
+            traceability,
+            {"A": 30, "B": 66, "C": 42, "D": 14, "E": 48, "F": 16, "G": 14, "H": 14, "I": 32, "J": 42},
+        )
 
     for sheet in workbook.worksheets:
         sheet.freeze_panes = "A4"
@@ -692,9 +838,9 @@ def build_iso45001_pdf(evaluation) -> BytesIO:
     story.append(
         Paragraph(
             (
-                "Matriz consultable de los 308 reactivos, respuesta, observaci\u00f3n y controles documentales vinculados."
+                f"Matriz consultable de los {summary['total_questions']} reactivos, respuesta, observaci\u00f3n y controles documentales vinculados."
                 if uses_document_controls
-                else "Matriz consultable de los 308 reactivos, respuesta, observaci\u00f3n y archivos adjuntos disponibles."
+                else f"Matriz consultable de los {summary['total_questions']} reactivos, respuesta, observaci\u00f3n y archivos adjuntos disponibles."
             ),
             styles["body"],
         )
@@ -838,6 +984,440 @@ def _document_names(row: dict) -> str:
 
 def _uses_document_control_coverage(summary: dict) -> bool:
     return bool(summary.get("uses_document_control_coverage"))
+
+
+def _read_export_value(source, *names, default=None):
+    """Read a reporting value from either a dictionary or a model instance."""
+
+    if source is None:
+        return default
+    for name in names:
+        if isinstance(source, dict):
+            value = source.get(name)
+        else:
+            value = getattr(source, name, None)
+        if value is not None:
+            return value
+    return default
+
+
+def _catalog_metadata(summary: dict) -> dict:
+    """Return catalog capabilities without coupling reports to a version slug."""
+
+    evaluation = summary.get("evaluation")
+    cycle = getattr(evaluation, "ciclo", None)
+    version = getattr(cycle, "version", None)
+    supplied = summary.get("catalog_metadata") or summary.get("catalog") or {}
+
+    def pick(*names, default=None):
+        return _read_export_value(
+            supplied,
+            *names,
+            default=_read_export_value(summary, *names, default=_read_export_value(version, *names, default=default)),
+        )
+
+    scoring = pick("scoring_scheme", "score_scheme")
+    if isinstance(scoring, dict):
+        scoring = _read_export_value(scoring, "label", "nombre", "name", "slug", "code", default=str(scoring))
+    capture_mode = pick("capture_mode")
+    document_coverage_mode = pick("document_coverage_mode")
+    catalog_hash = pick("catalog_hash", "hash")
+    slug = pick("version_slug", "catalog_version", "catalog_slug", "slug")
+    name = pick("version_name", "nombre", "name")
+    normalized_capture_mode = str(capture_mode or "individual").strip().lower()
+    has_extended_metadata = bool(summary.get("uses_adaptive_capture")) or normalized_capture_mode not in {
+        "",
+        "individual",
+        "legacy",
+        "hist\u00f3rico",
+        "historico",
+    }
+    return {
+        "name": str(name or "Cat\u00e1logo sin nombre"),
+        "slug": str(slug or "-"),
+        "catalog_hash": str(catalog_hash or "-"),
+        "scoring_scheme": str(scoring or "No=0, Parcial=1, S\u00ed=2"),
+        "capture_mode": str(capture_mode or "individual"),
+        "document_coverage_mode": str(document_coverage_mode or "hist\u00f3rico"),
+        "has_extended_metadata": has_extended_metadata,
+    }
+
+
+def _uses_adaptive_capture(summary: dict) -> bool:
+    explicit = summary.get("uses_adaptive_capture")
+    if explicit is not None:
+        return bool(explicit)
+    mode = _catalog_metadata(summary)["capture_mode"].strip().lower()
+    return mode not in {"", "individual", "legacy", "hist\u00f3rico", "historico"}
+
+
+def _score_formula_text(summary: dict) -> str:
+    total_questions = int(summary.get("total_questions") or 0)
+    maximum_points = summary.get("maximum_points")
+    if maximum_points is None:
+        maximum_points = total_questions * 2
+    try:
+        maximum_points_number = float(maximum_points)
+    except (TypeError, ValueError):
+        maximum_points_number = float(total_questions * 2)
+    maximum_display = f"{maximum_points_number:g}"
+    factor_display = "2"
+    if total_questions:
+        factor_display = f"{maximum_points_number / total_questions:g}"
+    return (
+        f"Cumplimiento = puntos obtenidos / {maximum_display} puntos m\u00e1ximos "
+        f"({total_questions} reactivos x {factor_display}). No=0, Parcial=1 y S\u00ed=2."
+    )
+
+
+def _pdf_catalog_hash(value: str) -> str:
+    value = str(value or "-")
+    if len(value) <= 32:
+        return value
+    return f"{value[:32]}<br/>{value[32:]}"
+
+
+def _iter_question_rows(summary: dict):
+    for clause in summary.get("clauses", []):
+        for section in clause.get("sections", []):
+            for row in section.get("questions", []):
+                yield clause, section, row
+
+
+def _row_dimension(row: dict) -> str:
+    reactive = row.get("reactivo")
+    return str(
+        _read_export_value(
+            row,
+            "variable_principal",
+            "dimension",
+            default=_read_export_value(reactive, "variable_principal", "dimension", default="Sin dimensi\u00f3n asignada"),
+        )
+        or "Sin dimensi\u00f3n asignada"
+    )
+
+
+def _capture_origin_label(value, *, answered: bool = True) -> str:
+    if value in (None, ""):
+        return "Individual" if answered else "Sin respuesta"
+    normalized = str(value).strip().lower().replace("_", "-")
+    if normalized in {"masivo", "mass", "bulk", "apartado", "section-bulk", "bulk-apply"}:
+        return "Masivo"
+    if normalized in {"excepci\u00f3n", "excepcion", "exception", "override"}:
+        return "Excepci\u00f3n"
+    if normalized in {"individual", "manual"}:
+        return "Individual"
+    return str(value)
+
+
+def _export_actor(value) -> str:
+    if value in (None, ""):
+        return "-"
+    if isinstance(value, (str, int)):
+        return str(value)
+    return str(_read_export_value(value, "nombre", "name", "email", "id", default=value))
+
+
+def _export_datetime(value) -> str:
+    if value in (None, ""):
+        return "-"
+    if isinstance(value, str):
+        return value
+    try:
+        return format_iso45001_datetime(value)
+    except (AttributeError, TypeError, ValueError):
+        return str(value)
+
+
+def _export_change_value(value):
+    if value in (None, ""):
+        return ""
+    if isinstance(value, (dict, list, tuple)):
+        return json.dumps(value, ensure_ascii=False, sort_keys=True)
+    return str(value)
+
+
+def _row_capture_metadata(row: dict) -> dict:
+    response = row.get("response")
+    supplied = row.get("capture") or row.get("capture_metadata") or {}
+
+    def pick(*names, default=None):
+        return _read_export_value(
+            supplied,
+            *names,
+            default=_read_export_value(row, *names, default=_read_export_value(response, *names, default=default)),
+        )
+
+    answered = bool(row.get("answered"))
+    origin = pick("capture_origin", "origen_captura", "origen", "origin")
+    if not answered and response is None and not supplied:
+        origin = None
+    actor = pick("capture_user", "usuario", "user", default=getattr(response, "usuario", None))
+    actor_id = pick("capture_user_id", "usuario_id", "user_id", default=getattr(response, "usuario_id", None))
+    return {
+        "origin": _capture_origin_label(origin, answered=answered),
+        "batch_id": str(
+            pick("capture_batch_id", "lote_captura", "batch_id", "lote_id", "batch", default="-") or "-"
+        ),
+        "actor": _export_actor(actor if actor is not None else actor_id),
+        "changed_at": _export_datetime(
+            pick(
+                "capture_at",
+                "changed_at",
+                "created_at",
+                "fecha",
+                "updated_at",
+                default=getattr(response, "updated_at", None),
+            )
+        ),
+        "previous_value": _export_change_value(pick("previous_value", "valor_anterior", "old_value", default="")),
+        "new_value": _export_change_value(
+            pick("new_value", "valor_nuevo", "new_value_label", default=row.get("selected_label", "Sin respuesta"))
+        ),
+    }
+
+
+def _capture_origin_text(row: dict) -> str:
+    capture = _row_capture_metadata(row)
+    batch = "" if capture["batch_id"] == "-" else f"<br/>Lote: {_paragraph_escape(capture['batch_id'])}"
+    return f"{_paragraph_escape(capture['origin'])}{batch}"
+
+
+def _capture_traceability_rows(summary: dict) -> list[dict]:
+    evaluation = summary.get("evaluation")
+    explicit = (
+        summary.get("capture_traceability")
+        or summary.get("response_audits")
+        or summary.get("response_audit")
+        or list(getattr(evaluation, "cambios_captura", []) or [])
+        or []
+    )
+    question_lookup: dict[str, tuple[dict, dict, dict]] = {}
+    for clause, section, row in _iter_question_rows(summary):
+        reactive = row["reactivo"]
+        question_lookup[str(getattr(reactive, "id", ""))] = (clause, section, row)
+        question_lookup[_reactive_identifier(reactive)] = (clause, section, row)
+
+    records: list[dict] = []
+    for index, event in enumerate(explicit, start=1):
+        reactive = _read_export_value(event, "reactivo", "reactive")
+        point_response = _read_export_value(event, "punto", "point")
+        catalog_point = _read_export_value(point_response, "punto", "catalog_point")
+        point_control = _read_export_value(catalog_point, "control")
+        if point_control is None:
+            point_control = _read_export_value(
+                _read_export_value(point_response, "evaluacion_control", "assessment"),
+                "control",
+            )
+        point_reference = None
+        if point_response is not None:
+            point_order = _read_export_value(catalog_point, "orden", "order", default="-")
+            point_reference = f"{_read_export_value(point_control, 'codigo', default='Control')}/P-{point_order}"
+        else:
+            frozen_control_code = _read_export_value(event, "control_codigo", "control_code")
+            frozen_point_order = _read_export_value(event, "punto_orden", "point_order")
+            if frozen_control_code is not None or frozen_point_order is not None:
+                point_reference = f"{frozen_control_code or 'Control'}/P-{frozen_point_order or '-'}"
+        reference = _read_export_value(
+            event,
+            "reactivo_codigo",
+            "reactive_code",
+            "codigo",
+            default=_reactive_identifier(reactive) if reactive is not None else point_reference,
+        )
+        reactive_id = _read_export_value(event, "reactivo_id", "reactive_id", default=getattr(reactive, "id", None))
+        linked = question_lookup.get(str(reactive_id)) or question_lookup.get(str(reference))
+        clause, section, row = linked or ({}, {}, {})
+        capture = _row_capture_metadata({**row, "capture_metadata": event})
+        records.append(
+            {
+                "event_id": _read_export_value(event, "id", "event_id", default=index),
+                "entity_type": _read_export_value(event, "entidad_tipo", "entity_type", default="reactivo"),
+                "reference": reference or (_reactive_identifier(row["reactivo"]) if row else "-"),
+                "clause": _read_export_value(
+                    event,
+                    "clausula",
+                    "clause",
+                    default=clause.get("numero") or _read_export_value(point_control, "clausula", default="-"),
+                ),
+                "section": _read_export_value(
+                    event,
+                    "apartado",
+                    "section",
+                    default=section.get("codigo") or _read_export_value(point_control, "apartado", default="-"),
+                ),
+                "dimension": _read_export_value(
+                    event,
+                    "variable_principal",
+                    "dimension",
+                    default=_row_dimension(row) if row else "Cobertura documental",
+                ),
+                **capture,
+            }
+        )
+    if records:
+        return records
+
+    for index, (clause, section, row) in enumerate(_iter_question_rows(summary), start=1):
+        capture = _row_capture_metadata(row)
+        records.append(
+            {
+                "event_id": getattr(row.get("response"), "id", None) or index,
+                "entity_type": "reactivo",
+                "reference": _reactive_identifier(row["reactivo"]),
+                "clause": clause.get("numero", "-"),
+                "section": section.get("codigo", "-"),
+                "dimension": _row_dimension(row),
+                **capture,
+            }
+        )
+    return records
+
+
+def _dimension_rows(summary: dict) -> list[dict]:
+    supplied = summary.get("dimensions") or summary.get("dimension_profiles")
+    if supplied:
+        items = supplied.items() if isinstance(supplied, dict) else enumerate(supplied)
+        rows = []
+        for key, item in items:
+            name = _read_export_value(item, "variable_principal", "dimension", "nombre", "name", default=key)
+            total = int(_read_export_value(item, "total", "total_questions", "reactivos", default=0) or 0)
+            answered = int(_read_export_value(item, "answered", "answered_questions", "respondidos", default=0) or 0)
+            points = float(_read_export_value(item, "points", "puntos", default=0) or 0)
+            maximum = float(_read_export_value(item, "maximum_points", "max_points", "maximo", default=total * 2) or 0)
+            percent = _read_export_value(item, "percent", "porcentaje")
+            if percent is None:
+                percent = round(points / maximum * 100, 2) if maximum else None
+            rows.append(
+                {
+                    "dimension": str(name),
+                    "total": total,
+                    "answered": answered,
+                    "points": points,
+                    "maximum_points": maximum,
+                    "percent": percent,
+                    "maturity_label": _read_export_value(item, "maturity_label", "madurez", default=maturity_label(percent)[0]),
+                }
+            )
+        return rows
+
+    grouped: dict[str, dict] = {}
+    for _clause, _section, row in _iter_question_rows(summary):
+        name = _row_dimension(row)
+        values = grouped.setdefault(name, {"dimension": name, "total": 0, "answered": 0, "points": 0, "maximum_points": 0})
+        values["total"] += 1
+        values["answered"] += int(bool(row.get("answered")))
+        values["points"] += float(row.get("points") or 0)
+        values["maximum_points"] += float(row.get("maximum_points") or 2)
+    for values in grouped.values():
+        maximum = values["maximum_points"]
+        values["percent"] = round(values["points"] / maximum * 100, 2) if maximum else None
+        values["maturity_label"] = maturity_label(values["percent"])[0]
+    return list(grouped.values())
+
+
+def _document_point_traceability_rows(summary: dict) -> list[dict]:
+    question_lookup: dict[str, dict] = {}
+    for _clause, section, row in _iter_question_rows(summary):
+        reactive = row["reactivo"]
+        details = {
+            "id": getattr(reactive, "id", None),
+            "codigo": _reactive_identifier(reactive),
+            "apartado": section.get("codigo", "-"),
+            "dimension": _row_dimension(row),
+        }
+        question_lookup[str(details["id"])] = details
+        question_lookup[details["codigo"]] = details
+
+    rows: list[dict] = []
+    for control in summary.get("document_controls", []):
+        assessment = control.get("assessment")
+        catalog_control = getattr(assessment, "control", None)
+        catalog_points = {
+            getattr(item, "id", None): item
+            for item in (getattr(catalog_control, "puntos", None) or [])
+        }
+        point_responses = {
+            getattr(item, "control_evidencia_punto_id", None): item
+            for item in (getattr(assessment, "puntos", None) or [])
+        }
+        control_reactives = control.get("reactivos") or []
+        points = control.get("puntos") or [None]
+        for point in points:
+            point_id = _read_export_value(point, "id") if point else None
+            catalog_point = catalog_points.get(point_id)
+            point_response = point_responses.get(point_id)
+            point_reactives = _read_export_value(point, "reactivos", "reactives", "reactivo_ids") if point else None
+            if point_reactives is None and catalog_point is not None:
+                point_reactives = list(getattr(catalog_point, "reactivos", None) or [])
+            reactive_refs = list(point_reactives) if point_reactives is not None else list(control_reactives)
+            if not reactive_refs:
+                reactive_refs = [None]
+            point_files = _read_export_value(point, "evidencias", "files") if point else None
+            if point_files is None and point_response is not None:
+                point_files = [evidence for evidence in (getattr(point_response, "archivos", None) or []) if evidence.activo]
+            evidences = list(point_files if point_files is not None else (control.get("evidencias") or [None]))
+            if not evidences:
+                evidences = [None]
+            for evidence in evidences:
+                for reactive_ref in reactive_refs:
+                    reactive_id = _read_export_value(reactive_ref, "id", "reactivo_id", "reactive_id", default=reactive_ref if isinstance(reactive_ref, int) else None)
+                    reactive_code = _read_export_value(reactive_ref, "codigo", "reactivo_codigo", "reactive_code", default=reactive_ref if isinstance(reactive_ref, str) else None)
+                    details = question_lookup.get(str(reactive_id)) or question_lookup.get(str(reactive_code)) or {}
+                    point_order = _read_export_value(
+                        point,
+                        "orden",
+                        "order",
+                        default=_read_export_value(catalog_point, "orden", "order", default="-"),
+                    ) if point else "-"
+                    point_code = _read_export_value(point, "codigo", "code") if point else None
+                    point_text = _read_export_value(
+                        point,
+                        "texto",
+                        "text",
+                        "nombre",
+                        default=_read_export_value(catalog_point, "texto", "text", default="Sin punto desglosado"),
+                    ) if point else "Sin punto desglosado"
+                    evaluated = bool(
+                        _read_export_value(
+                            point,
+                            "evaluado",
+                            "evaluated",
+                            default=_read_export_value(point_response, "evaluado", "evaluated", default=False),
+                        )
+                    )
+                    covered = bool(
+                        _read_export_value(
+                            point,
+                            "cubierto",
+                            "covered",
+                            default=_read_export_value(point_response, "cubierto", "covered", default=False),
+                        )
+                    )
+                    section_value = details.get("apartado")
+                    if not section_value:
+                        reactive_section = _read_export_value(reactive_ref, "apartado")
+                        section_value = _read_export_value(reactive_section, "codigo", default=reactive_section)
+                    rows.append(
+                        {
+                            "file": _read_export_value(evidence, "archivo_nombre_original", "file_name", "nombre", default="Sin archivo vinculado"),
+                            "sha256": _read_export_value(evidence, "sha256", "archivo_sha256", "hash_sha256", default="Sin huella registrada"),
+                            "control": f"{control.get('codigo', '-')} - {control.get('nombre', '')}".strip(" -"),
+                            "point": str(point_code or f"P-{point_order}"),
+                            "point_text": str(point_text),
+                            "covered": "Cubierto" if covered else ("No cubierto" if evaluated else "No evaluado"),
+                            "reactive": details.get("codigo") or reactive_code or "-",
+                            "section": section_value or control.get("apartado", "-"),
+                            "dimension": details.get("dimension") or _read_export_value(reactive_ref, "variable_principal", "dimension", default="-"),
+                            "observation": _read_export_value(
+                                point,
+                                "observacion",
+                                "observation",
+                                default=_read_export_value(point_response, "observacion", "observation", default=""),
+                            ) if point else control.get("observacion", ""),
+                        }
+                    )
+    return rows
 
 
 def _control_names(row: dict) -> str:
@@ -1500,8 +2080,8 @@ def _build_iso45001_index_story(evaluation, summary: dict, styles: dict[str, Par
         _iso45001_pdf_table(rows, styles, col_widths=[0.62 * inch, 1.72 * inch, 4.71 * inch]),
         Spacer(1, 0.14 * inch),
         Paragraph(
-            "\u00cdndice de madurez: cumplimiento = puntos obtenidos / (308 reactivos x 2). "
-            "No=0, Parcial=1 y S\u00ed=2; no se admite N/A en este diagn\u00f3stico.",
+            f"\u00cdndice de madurez: {_paragraph_escape(_score_formula_text(summary))} "
+            "No se admite N/A en este diagn\u00f3stico.",
             styles["note"],
         ),
         PageBreak(),
@@ -1512,6 +2092,7 @@ def _build_iso45001_metadata_panel(evaluation, summary: dict, styles: dict[str, 
     responsible = evaluation.responsable.nombre if getattr(evaluation, "responsable", None) else "Sin responsable"
     reviewer = evaluation.revisor.nombre if getattr(evaluation, "revisor", None) else "Sin revisor"
     cycle_dates = f"{_iso45001_date_or_dash(evaluation.ciclo.fecha_inicio)} al {_iso45001_date_or_dash(evaluation.ciclo.fecha_cierre)}"
+    catalog = _catalog_metadata(summary)
     rows = [
         ["Unidad administrativa", "Dependencia", "Ciclo", "Estado"],
         [
@@ -1535,29 +2116,36 @@ def _build_iso45001_metadata_panel(evaluation, summary: dict, styles: dict[str, 
             format_iso45001_datetime(utcnow()),
         ],
     ]
+    if catalog["has_extended_metadata"]:
+        rows.extend(
+            [
+                ["Slug del cat\u00e1logo", "Huella SHA-256", "Esquema de puntuaci\u00f3n", "Modo de captura"],
+                [
+                    catalog["slug"],
+                    _pdf_catalog_hash(catalog["catalog_hash"]),
+                    catalog["scoring_scheme"],
+                    catalog["capture_mode"],
+                ],
+            ]
+        )
     table_rows = []
     for row_index, row in enumerate(rows):
         style = styles["table_header"] if row_index % 2 == 0 else styles["small_center"]
         table_rows.append([_iso45001_as_paragraph(value, style) for value in row])
     table = Table(table_rows, colWidths=[2.15 * inch, 2.05 * inch, 1.65 * inch, 1.2 * inch])
-    table.setStyle(
-        TableStyle(
-            [
-                ("BACKGROUND", (0, 0), (-1, 0), PDF_THEME["primary"]),
-                ("BACKGROUND", (0, 2), (-1, 2), PDF_THEME["primary"]),
-                ("BACKGROUND", (0, 4), (-1, 4), PDF_THEME["primary"]),
-                ("BACKGROUND", (0, 1), (-1, 1), PDF_THEME["primary_soft"]),
-                ("BACKGROUND", (0, 3), (-1, 3), colors.white),
-                ("BACKGROUND", (0, 5), (-1, 5), PDF_THEME["primary_soft"]),
-                ("GRID", (0, 0), (-1, -1), 0.45, PDF_THEME["line"]),
-                ("VALIGN", (0, 0), (-1, -1), "MIDDLE"),
-                ("LEFTPADDING", (0, 0), (-1, -1), 6),
-                ("RIGHTPADDING", (0, 0), (-1, -1), 6),
-                ("TOPPADDING", (0, 0), (-1, -1), 6),
-                ("BOTTOMPADDING", (0, 0), (-1, -1), 6),
-            ]
-        )
-    )
+    commands = [
+        ("GRID", (0, 0), (-1, -1), 0.45, PDF_THEME["line"]),
+        ("VALIGN", (0, 0), (-1, -1), "MIDDLE"),
+        ("LEFTPADDING", (0, 0), (-1, -1), 6),
+        ("RIGHTPADDING", (0, 0), (-1, -1), 6),
+        ("TOPPADDING", (0, 0), (-1, -1), 6),
+        ("BOTTOMPADDING", (0, 0), (-1, -1), 6),
+    ]
+    for row_index in range(0, len(rows), 2):
+        commands.append(("BACKGROUND", (0, row_index), (-1, row_index), PDF_THEME["primary"]))
+        value_background = PDF_THEME["primary_soft"] if (row_index // 2) % 2 == 0 else colors.white
+        commands.append(("BACKGROUND", (0, row_index + 1), (-1, row_index + 1), value_background))
+    table.setStyle(TableStyle(commands))
     return table
 
 
@@ -1810,6 +2398,7 @@ def _iso45001_finding_records(summary: dict) -> list[dict]:
                 record = dict(finding)
                 record["row"] = row
                 record["evidence"] = row["evidence"]
+                record["capture"] = _row_capture_metadata(row)
                 records.append(record)
     records.sort(
         key=lambda item: (
@@ -2226,46 +2815,62 @@ def _build_iso45001_document_appendix(summary: dict, styles: dict[str, Paragraph
 
 def _build_iso45001_findings_appendix(summary: dict, styles: dict[str, ParagraphStyle]) -> Table:
     uses_document_controls = _uses_document_control_coverage(summary)
+    uses_adaptive_capture = _uses_adaptive_capture(summary)
     document_controls = summary.get("document_controls") if uses_document_controls else None
-    rows = [[
+    header = [
         "Prioridad",
         "Ref.",
         "Hallazgo / observaci\u00f3n",
         "Evidencia sugerida",
         "Controles / archivos" if uses_document_controls else "Documentos / archivos",
-    ]]
+    ]
+    if uses_adaptive_capture:
+        header.insert(2, "Origen")
+    rows = [header]
     findings = _iso45001_finding_records(summary)
     if not findings:
-        rows.append(["Sin hallazgos", "-", "No se registran respuestas No o Parcial.", "-", "-"])
+        empty_row = ["Sin hallazgos", "-", "No se registran respuestas No o Parcial.", "-", "-"]
+        if uses_adaptive_capture:
+            empty_row.insert(2, "-")
+        rows.append(empty_row)
     for finding in findings:
         reactive = finding["reactivo"]
         observation = _clip_iso45001(finding["observacion"] or "Sin observaci\u00f3n capturada.", 200)
-        rows.append(
-            [
-                finding["label"],
-                f"{finding['apartado']}<br/>{_reactive_identifier(reactive)}",
-                f"{reactive.texto}<br/><b>Observaci\u00f3n:</b> {observation}",
-                _clip_iso45001(finding["evidencia_sugerida"], 260),
-                _iso45001_support_text_for_controls(finding, document_controls),
-            ]
-        )
+        values = [
+            finding["label"],
+            f"{finding['apartado']}<br/>{_reactive_identifier(reactive)}",
+            f"{reactive.texto}<br/><b>Observaci\u00f3n:</b> {observation}",
+            _clip_iso45001(finding["evidencia_sugerida"], 260),
+            _iso45001_support_text_for_controls(finding, document_controls),
+        ]
+        if uses_adaptive_capture:
+            values.insert(2, _capture_origin_text(finding["row"]))
+        rows.append(values)
     return _iso45001_pdf_table(
         rows,
         styles,
-        col_widths=[0.92 * inch, 0.68 * inch, 2.15 * inch, 1.85 * inch, 1.58 * inch],
+        col_widths=(
+            [0.75 * inch, 0.60 * inch, 0.58 * inch, 1.95 * inch, 1.65 * inch, 1.65 * inch]
+            if uses_adaptive_capture
+            else [0.92 * inch, 0.68 * inch, 2.15 * inch, 1.85 * inch, 1.58 * inch]
+        ),
         center_from_col=1,
     )
 
 
 def _build_iso45001_traceability_appendix(summary: dict, styles: dict[str, ParagraphStyle]) -> Table:
     uses_document_controls = _uses_document_control_coverage(summary)
+    uses_adaptive_capture = _uses_adaptive_capture(summary)
     document_controls = summary.get("document_controls") if uses_document_controls else None
-    rows = [[
+    header = [
         "Ref.",
         "Reactivo",
         "Respuesta",
         "Observaci\u00f3n / controles" if uses_document_controls else "Observaci\u00f3n / archivos",
-    ]]
+    ]
+    if uses_adaptive_capture:
+        header.insert(3, "Origen")
+    rows = [header]
     for clause in summary["clauses"]:
         for section in clause["sections"]:
             for row in section["questions"]:
@@ -2279,27 +2884,39 @@ def _build_iso45001_traceability_appendix(summary: dict, styles: dict[str, Parag
                 else:
                     files = ", ".join(evidence.archivo_nombre_original for evidence in row["evidence"]) or "Sin archivos"
                     support = f"<b>Archivos:</b> {_clip_iso45001(files, 120)}"
-                rows.append(
-                    [
-                        f"{section['codigo']}<br/>{_reactive_identifier(reactive)}",
-                        reactive.texto,
-                        row["selected_label"],
-                        f"<b>Observaci\u00f3n:</b> {observation}<br/>{support}",
-                    ]
-                )
+                values = [
+                    f"{section['codigo']}<br/>{_reactive_identifier(reactive)}",
+                    reactive.texto,
+                    row["selected_label"],
+                    f"<b>Observaci\u00f3n:</b> {observation}<br/>{support}",
+                ]
+                if uses_adaptive_capture:
+                    values.insert(3, _capture_origin_text(row))
+                rows.append(values)
     return _iso45001_pdf_table(
         rows,
         styles,
-        col_widths=[0.82 * inch, 3.55 * inch, 0.72 * inch, 2.09 * inch],
+        col_widths=(
+            [0.72 * inch, 3.05 * inch, 0.66 * inch, 0.70 * inch, 2.05 * inch]
+            if uses_adaptive_capture
+            else [0.82 * inch, 3.55 * inch, 0.72 * inch, 2.09 * inch]
+        ),
         center_from_col=2,
     )
 
 
 def _build_iso45001_priority_findings_table(summary: dict, styles: dict[str, ParagraphStyle]) -> Table:
-    rows = [["Prioridad", "Ref.", "Hallazgo / observaci\u00f3n", "Evidencia sugerida", "Soporte"]]
+    uses_adaptive_capture = _uses_adaptive_capture(summary)
+    header = ["Prioridad", "Ref.", "Hallazgo / observaci\u00f3n", "Evidencia sugerida", "Soporte"]
+    if uses_adaptive_capture:
+        header.insert(2, "Origen")
+    rows = [header]
     findings = _iso45001_finding_records(summary)
     if not findings:
-        rows.append(["Sin hallazgos", "-", "No se registran respuestas No o Parcial.", "-", "-"])
+        empty_row = ["Sin hallazgos", "-", "No se registran respuestas No o Parcial.", "-", "-"]
+        if uses_adaptive_capture:
+            empty_row.insert(2, "-")
+        rows.append(empty_row)
     for finding in findings[:10]:
         reactive = finding["reactivo"]
         observation = _clip_iso45001(finding["observacion"] or "Sin observaci\u00f3n capturada.", 160)
@@ -2308,19 +2925,24 @@ def _build_iso45001_priority_findings_table(summary: dict, styles: dict[str, Par
             finding,
             summary.get("document_controls") if _uses_document_control_coverage(summary) else None,
         )
-        rows.append(
-            [
-                finding["label"],
-                f"{finding['apartado']}<br/>{_reactive_identifier(reactive)}",
-                finding_text,
-                _clip_iso45001(finding["evidencia_sugerida"], 220),
-                support,
-            ]
-        )
+        values = [
+            finding["label"],
+            f"{finding['apartado']}<br/>{_reactive_identifier(reactive)}",
+            finding_text,
+            _clip_iso45001(finding["evidencia_sugerida"], 220),
+            support,
+        ]
+        if uses_adaptive_capture:
+            values.insert(2, _capture_origin_text(finding["row"]))
+        rows.append(values)
     return _iso45001_pdf_table(
         rows,
         styles,
-        col_widths=[0.95 * inch, 0.68 * inch, 2.35 * inch, 2.0 * inch, 1.25 * inch],
+        col_widths=(
+            [0.78 * inch, 0.58 * inch, 0.58 * inch, 2.05 * inch, 1.65 * inch, 1.54 * inch]
+            if uses_adaptive_capture
+            else [0.95 * inch, 0.68 * inch, 2.35 * inch, 2.0 * inch, 1.25 * inch]
+        ),
         center_from_col=1,
     )
 
@@ -2596,6 +3218,25 @@ def _build_iso45001_document_control_appendix(summary: dict, styles: dict[str, P
 
 
 def _build_iso45001_document_traceability_appendix(summary: dict, styles: dict[str, ParagraphStyle]) -> Table:
+    if _uses_adaptive_capture(summary):
+        rows = [["Archivo / SHA-256", "Control / punto", "Estado", "Reactivo / dimensi\u00f3n", "Observaci\u00f3n"]]
+        for record in _document_point_traceability_rows(summary):
+            rows.append(
+                [
+                    f"{record['file']}<br/><b>SHA-256:</b> {_pdf_catalog_hash(record['sha256'])}",
+                    f"{record['control']}<br/><b>{record['point']}:</b> {record['point_text']}",
+                    record["covered"],
+                    f"{record['reactive']} | {record['section']}<br/>{record['dimension']}",
+                    record["observation"] or "Sin observaci\u00f3n",
+                ]
+            )
+        return _iso45001_pdf_table(
+            rows,
+            styles,
+            col_widths=[1.45 * inch, 2.05 * inch, 0.72 * inch, 1.48 * inch, 1.48 * inch],
+            center_from_col=2,
+        )
+
     rows = [["Archivo", "Control", "Estado", "Puntos", "Reactivos cubiertos", "Observación"]]
     for control in summary.get("document_controls", []):
         files = control["evidencias"] or [None]
@@ -2881,8 +3522,8 @@ def _build_iso45001_methodology_panel(summary: dict, styles: dict[str, Paragraph
     if _uses_document_control_coverage(summary):
         stats = summary["document_evidence_stats"]
         method = Paragraph(
-            "Método de cálculo ISO: No=0, Parcial=1 y Sí=2; todos los reactivos son aplicables. "
-            "Cumplimiento = puntos obtenidos / (reactivos x 2) y avance = respuestas capturadas. "
+            "Método de cálculo ISO: todos los reactivos del catálogo son aplicables. "
+            f"{_score_formula_text(summary)} Avance = respuestas capturadas. "
             f"La cobertura documental se muestra aparte: {stats['covered_points']} de {stats['total_points']} puntos, "
             f"{stats['evaluated_controls']} de {stats['total_controls']} controles evaluados y "
             f"{stats['file_count']} archivo(s) reutilizable(s).",
@@ -2906,8 +3547,8 @@ def _build_iso45001_methodology_panel(summary: dict, styles: dict[str, Paragraph
         return layout
     evidence = summary["evidence_coverage"]
     method = Paragraph(
-        "M\u00e9todo de c\u00e1lculo: No=0, Parcial=1 y S\u00ed=2. Todos los reactivos del cat\u00e1logo son aplicables; "
-        "Cumplimiento = puntos obtenidos / (reactivos x 2). Avance refleja respuestas capturadas. "
+        "M\u00e9todo de c\u00e1lculo: todos los reactivos del cat\u00e1logo son aplicables. "
+        f"{_score_formula_text(summary)} Avance refleja respuestas capturadas. "
         f"Adjuntos exigidos satisfechos: {evidence['satisfied']} de {evidence['required']}.",
         styles["body"],
     )
