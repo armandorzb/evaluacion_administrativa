@@ -224,8 +224,8 @@
                             <div class="stack compact-top">
                                 <div class="choice-grid iso-choice-grid">
                                     {% for value, label in option_labels.items() %}
-                                    <label class="choice-chip {% if item.selected == value %}is-selected{% endif %}">
-                                        <input type="radio" name="calificacion_{{ reactive.id }}" value="{{ value }}" {% if item.selected == value %}checked{% endif %} {% if not can_edit %}disabled{% endif %}>
+                                    <label class="choice-chip {% if item.selected == value %}is-selected{% endif %}" for="iso45001-calificacion-{{ reactive.id }}-{{ value }}">
+                                        <input id="iso45001-calificacion-{{ reactive.id }}-{{ value }}" type="radio" name="calificacion_{{ reactive.id }}" value="{{ value }}" {% if item.selected == value %}checked{% endif %} {% if not can_edit %}disabled{% endif %}>
                                         <span>{{ "S&Iacute;"|safe if value == "si" else value|upper }}</span>
                                         <strong>{{ label }}</strong>
                                     </label>
@@ -281,8 +281,8 @@
 
                             <div class="choice-grid iso-choice-grid">
                                 {% for value, label in option_labels.items() %}
-                                <label class="choice-chip {% if item.selected == value %}is-selected{% endif %}">
-                                    <input type="radio" name="calificacion_{{ reactive.id }}" value="{{ value }}" {% if item.selected == value %}checked{% endif %} {% if not can_edit %}disabled{% endif %}>
+                                <label class="choice-chip {% if item.selected == value %}is-selected{% endif %}" for="iso45001-calificacion-{{ reactive.id }}-{{ value }}">
+                                    <input id="iso45001-calificacion-{{ reactive.id }}-{{ value }}" type="radio" name="calificacion_{{ reactive.id }}" value="{{ value }}" {% if item.selected == value %}checked{% endif %} {% if not can_edit %}disabled{% endif %}>
                                     <span>{{ "SÍ" if value == "si" else value|upper }}</span>
                                     <strong>{{ label }}</strong>
                                 </label>
@@ -409,10 +409,10 @@
                                 <div class="stack compact-top">
                                     {% for point in control.puntos %}
                                     {% set point_origin = point.origen_captura|default('', true) %}
-                                    <label class="list-row data-row">
-                                        <span><input type="checkbox" name="punto_ids" value="{{ point.id }}" data-document-point data-evaluated="{{ 'true' if point.evaluado|default(false) else 'false' }}" data-capture-origin="{{ point_origin }}" {% if point.cubierto %}checked{% endif %} {% if not can_edit %}disabled{% endif %}> <strong>{{ loop.index }}.</strong> {{ point.texto }}</span>
+                                    <div class="list-row data-row document-point-row">
+                                        <label class="document-point-label" for="captura-punto-{{ point.id }}"><input id="captura-punto-{{ point.id }}" type="checkbox" name="punto_ids" value="{{ point.id }}" data-document-point data-evaluated="{{ 'true' if point.evaluado|default(false) else 'false' }}" data-capture-origin="{{ point_origin }}" {% if point.cubierto %}checked{% endif %} {% if not can_edit %}disabled{% endif %}> <span><strong>{{ loop.index }}.</strong> {{ point.texto }}</span></label>
                                         <span class="pill" data-document-point-origin {% if not point_origin %}hidden{% endif %}>{% if point_origin == 'masivo' %}Masivo{% elif point_origin == 'excepcion' %}Excepci&oacute;n{% else %}Individual{% endif %}</span>
-                                    </label>
+                                    </div>
                                     {% endfor %}
                                 </div>
                             </details>

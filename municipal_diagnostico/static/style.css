@@ -705,7 +705,7 @@ form {
     line-height: 1.2;
     text-align: center;
     white-space: normal;
-    overflow-wrap: anywhere;
+    overflow-wrap: break-word;
     transition: transform 0.16s ease, box-shadow 0.16s ease, background-color 0.16s ease, border-color 0.16s ease;
 }
 
@@ -810,7 +810,8 @@ td {
     border-bottom: 1px solid rgba(22, 48, 66, 0.08);
     text-align: left;
     vertical-align: top;
-    overflow-wrap: anywhere;
+    overflow-wrap: break-word;
+    word-break: normal;
 }
 
 th {
@@ -918,6 +919,39 @@ tbody tr:hover {
     border-bottom: 0;
 }
 
+.document-point-row {
+    display: flex;
+    align-items: flex-start;
+    gap: 0.85rem;
+}
+
+.document-point-label {
+    display: grid;
+    grid-template-columns: auto minmax(0, 1fr);
+    align-items: start;
+    gap: 0.7rem;
+    min-width: 0;
+    cursor: pointer;
+}
+
+.document-point-label input[type="checkbox"] {
+    width: 1.1rem;
+    height: 1.1rem;
+    margin-top: 0.2rem;
+}
+
+.document-point-label > span {
+    min-width: 0;
+    overflow-wrap: break-word;
+    word-break: normal;
+}
+
+.document-point-row > .pill {
+    flex: 0 0 auto;
+    cursor: default;
+    user-select: none;
+}
+
 .question-head {
     display: flex;
     align-items: center;
@@ -965,6 +999,7 @@ tbody tr:hover {
     border-radius: var(--radius-md);
     background: rgba(246, 247, 244, 0.84);
     transition: border-color 0.16s ease, box-shadow 0.16s ease, transform 0.16s ease;
+    cursor: pointer;
 }
 
 .choice-chip input {
@@ -972,6 +1007,11 @@ tbody tr:hover {
     inset: 0;
     opacity: 0;
     pointer-events: none;
+}
+
+.choice-chip:has(input:focus-visible) {
+    outline: 3px solid var(--focus-ring);
+    outline-offset: 3px;
 }
 
 .choice-chip span {
@@ -1784,15 +1824,12 @@ body.menu-open .menu-scrim {
 
 @keyframes choice-pulse {
     0% {
-        transform: scale(1);
         box-shadow: 0 0 0 rgba(97, 118, 67, 0);
     }
     45% {
-        transform: scale(1.015);
         box-shadow: 0 14px 24px rgba(97, 118, 67, 0.16);
     }
     100% {
-        transform: scale(1);
         box-shadow: 0 10px 20px rgba(97, 118, 67, 0.12);
     }
 }
@@ -2490,9 +2527,14 @@ body.menu-open .menu-scrim {
 }
 
 .choice-chip:hover {
-    transform: translateY(-2px);
     border-color: rgba(47, 90, 116, 0.2);
     box-shadow: 0 14px 24px rgba(22, 48, 66, 0.08);
+}
+
+@media (hover: hover) and (pointer: fine) {
+    .choice-chip:hover {
+        transform: translateY(-2px);
+    }
 }
 
 .choice-chip.is-selected {
@@ -2581,7 +2623,8 @@ body.menu-open .menu-scrim {
 .iso9001-body .muted,
 .iso9001-body td,
 .iso9001-body th {
-    overflow-wrap: anywhere;
+    overflow-wrap: break-word;
+    word-break: normal;
 }
 
 .iso-section-nav {
@@ -4195,7 +4238,8 @@ body.wellbeing-body {
 .live-slide-thumb strong,
 .live-slide-thumb small {
     min-width: 0;
-    overflow-wrap: anywhere;
+    overflow-wrap: break-word;
+    word-break: normal;
 }
 
 .live-slide-thumb.is-selected {
@@ -5158,7 +5202,8 @@ body.wellbeing-body {
 .live-qa-item,
 .live-answer-card,
 .live-results-panel {
-    overflow-wrap: anywhere;
+    overflow-wrap: break-word;
+    word-break: normal;
 }
 
 .live-input-row-wide {
@@ -5483,7 +5528,9 @@ fieldset {
     .wellbeing-survey-panel,
     [class*="-card"]
 ) :where(h1, h2, h3, h4, p, li, dd) {
-    overflow-wrap: anywhere;
+    overflow-wrap: break-word;
+    word-break: normal;
+    hyphens: auto;
 }
 
 :where(
@@ -5556,7 +5603,8 @@ fieldset {
 .list-row :where(strong, small),
 .data-row :where(strong, small),
 .evidence-row :where(strong, small) {
-    overflow-wrap: anywhere;
+    overflow-wrap: break-word;
+    word-break: normal;
 }
 
 :where(
@@ -5577,7 +5625,8 @@ fieldset {
 ) {
     min-inline-size: 0;
     max-inline-size: 100%;
-    overflow-wrap: anywhere;
+    overflow-wrap: break-word;
+    word-break: normal;
 }
 
 .tag,
@@ -5633,7 +5682,8 @@ fieldset {
 }
 
 .hero-panel :where(h1, h2) {
-    overflow-wrap: anywhere;
+    overflow-wrap: break-word;
+    word-break: normal;
     text-wrap: balance;
 }
 
@@ -5648,7 +5698,8 @@ fieldset {
     margin-top: 0.75rem;
     color: var(--ink-muted);
     line-height: 1.6;
-    overflow-wrap: anywhere;
+    overflow-wrap: break-word;
+    word-break: normal;
     text-wrap: pretty;
 }
 
@@ -5731,7 +5782,8 @@ fieldset {
     .live-menti-title h1,
     .live-menti-title p:not(.eyebrow) {
         overflow: visible;
-        overflow-wrap: anywhere;
+        overflow-wrap: break-word;
+        word-break: normal;
         text-overflow: clip;
         white-space: normal;
     }

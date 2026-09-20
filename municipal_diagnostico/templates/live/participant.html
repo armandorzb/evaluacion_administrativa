@@ -40,8 +40,8 @@
                 {% elif activity.tipo == "multiple_choice" or activity.tipo == "quiz_choice" %}
                 <div class="choice-grid">
                     {% for option in activity.config_json.options %}
-                    <label class="choice-chip">
-                        <input type="radio" name="choice" value="{{ option }}" required>
+                    <label class="choice-chip" for="live-choice-{{ loop.index }}">
+                        <input id="live-choice-{{ loop.index }}" type="radio" name="choice" value="{{ option }}" required>
                         <span>{{ option }}</span>
                     </label>
                     {% endfor %}

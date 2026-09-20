@@ -183,8 +183,9 @@
                 <p class="question-text">{{ reactivo.pregunta }}</p>
                 <div class="choice-grid choice-grid-cards">
                     {% for index in range(4) %}
-                    <label class="choice-chip {% if response and response.valor == index %}is-selected{% endif %}">
+                    <label class="choice-chip {% if response and response.valor == index %}is-selected{% endif %}" for="valor-{{ reactivo.id }}-{{ index }}">
                         <input
+                            id="valor-{{ reactivo.id }}-{{ index }}"
                             type="radio"
                             name="valor_{{ reactivo.id }}"
                             value="{{ index }}"

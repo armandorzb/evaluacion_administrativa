@@ -30,7 +30,7 @@
             <label>Nombre<input name="nombre" required></label>
             <label>Descripción<textarea name="descripcion" rows="3"></textarea></label>
             <label>Estado
-                <select name="estado">
+                <select name="estado" aria-label="Estado del ciclo">
                     {% for state, label in cycle_states.items() %}
                     <option value="{{ state }}" {% if state == 'activo' %}selected{% endif %}>{{ label }}</option>
                     {% endfor %}
@@ -97,7 +97,7 @@
             <form method="post" class="actions">
                 <input type="hidden" name="action" value="change_cycle_state">
                 <input type="hidden" name="cycle_id" value="{{ selected_cycle.id }}">
-                <select name="estado">
+                <select name="estado" aria-label="Nuevo estado del ciclo">
                     {% for state, label in cycle_states.items() %}
                     <option value="{{ state }}" {% if selected_cycle.estado == state %}selected{% endif %}>{{ label }}</option>
                     {% endfor %}

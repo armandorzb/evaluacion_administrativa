@@ -119,8 +119,8 @@
 
                             <div class="choice-grid iso-choice-grid">
                                 {% for value, label in option_labels.items() %}
-                                <label class="choice-chip {% if item.selected == value %}is-selected{% endif %}">
-                                    <input type="radio" name="calificacion_{{ reactive.id }}" value="{{ value }}" {% if item.selected == value %}checked{% endif %} {% if not can_edit %}disabled{% endif %}>
+                                <label class="choice-chip {% if item.selected == value %}is-selected{% endif %}" for="iso9001-calificacion-{{ reactive.id }}-{{ value }}">
+                                    <input id="iso9001-calificacion-{{ reactive.id }}-{{ value }}" type="radio" name="calificacion_{{ reactive.id }}" value="{{ value }}" {% if item.selected == value %}checked{% endif %} {% if not can_edit %}disabled{% endif %}>
                                     <span>{{ "SÍ" if value == "si" else value|upper }}</span>
                                     <strong>{{ label }}</strong>
                                 </label>
